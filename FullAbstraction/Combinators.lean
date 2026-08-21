@@ -285,6 +285,90 @@ theorem In_le_of_le (σ : Ty) {m n : Nat} (h : m ≤ n) (q : Query σ) :
   | refl => exact Tree.Le.refl _
   | step _ ih => exact Po.le_trans ih (In_mono σ _ q)
 
+/-! ### The `I` analogue of Claim A.2 -/
+
+/-- One unfolding of `apply₀ (I_{n+1}(q), d)` when `d @ q` is a node. -/
+theorem apply0_In_node (σ : Ty) (n : Nat) (q : Query σ) (d : Tree σ)
+    (j : Fin σ.arity) (p : Query (σ.arg j)) (h : Resp (σ.arg j) → Tree σ)
+    (hq : d.at' q = some (.node j p h)) :
+    apply0 (In σ (n + 1) q) d = .node j p fun r' => apply0 (In σ n (q.snoc j p r')) d := by
+  rw [In, apply0, hq]
+  dsimp only
+  rw [Query.answerOf_substAns]
+  dsimp only
+  rw [apply0]
+  simp only [extendHole_substAns_node]
+
+theorem apply0_In_err (σ : Ty) (n : Nat) (q : Query σ) (d : Tree σ) (b : Bool)
+    (hq : d.at' q = some (.leaf (.err b))) :
+    apply0 (In σ (n + 1) q) d = .leaf (.err b) := by
+  rw [In, apply0, hq]
+
+theorem apply0_In_num (σ : Ty) (n : Nat) (q : Query σ) (d : Tree σ) (a : Nat)
+    (hq : d.at' q = some (.leaf (.num a))) :
+    apply0 (In σ (n + 1) q) d = .leaf (.num a) := by
+  rw [In, apply0, hq]
+  dsimp only
+  rw [Query.answerOf_substAns]
+  dsimp only
+  rfl
+
+/-- The `I` analogue of Claim A.2, `⊑` half: `apply (I(q), d) ⊑ d @ q`. -/
+theorem claim_I_le (σ : Ty) : ∀ (n : Nat) (q : Query σ) (d d' : Tree σ),
+    d.at' q = some d' → Tree.Le (apply0 (In σ n q) d) d' := by
+  intro n
+  induction n with
+  | zero => intro q d d' _; exact Tree.Le.bot _
+  | succ n ih =>
+    intro q d d' hq
+    cases d' with
+    | leaf v =>
+      cases v with
+      | bot => rw [In, apply0, hq]; dsimp only; exact Tree.Le.bot _
+      | err b => rw [apply0_In_err σ n q d b hq]; exact Tree.Le.refl _
+      | num a => rw [apply0_In_num σ n q d a hq]; exact Tree.Le.refl _
+    | node j p h =>
+      rw [apply0_In_node σ n q d j p h hq]
+      refine Tree.Le.node _ _ _ _ fun r' => ih (q.snoc j p r') d (h r') ?_
+      rw [at'_snoc, hq]
+      exact Tree.stepAt_self j p h r'
+
+/-- The `I` analogue of Claim A.2, `⊒` half. -/
+theorem claim_I_ge (σ : Ty) : ∀ {a : Tree σ}, Tree.Finitary a →
+    ∀ (q : Query σ) (d d' : Tree σ), d.at' q = some d' → Tree.Le a d' →
+      ∃ n, Tree.Le a (apply0 (In σ n q) d) := by
+  intro a ha
+  induction ha with
+  | leaf v =>
+    intro q d d' hq hle
+    cases v with
+    | bot => exact ⟨0, Tree.Le.bot _⟩
+    | err b =>
+      cases hle with
+      | leaf _ => exact ⟨1, by rw [apply0_In_err σ 0 q d b hq]; exact Tree.Le.refl _⟩
+    | num m =>
+      cases hle with
+      | leaf _ => exact ⟨1, by rw [apply0_In_num σ 0 q d m hq]; exact Tree.Le.refl _⟩
+  | node i p g hfin _ ih =>
+    intro q d d' hq hle
+    obtain ⟨h, rfl⟩ := Tree.eq_node_of_le hle
+    have hgh := Tree.Le_node_inv hle
+    have hat : ∀ r, d.at' (q.snoc i p r) = some (h r) := by
+      intro r
+      rw [at'_snoc, hq]
+      exact Tree.stepAt_self i p h r
+    have hex : ∀ r, ∃ n, Tree.Le (g r) (apply0 (In σ n (q.snoc i p r)) d) :=
+      fun r => ih r (q.snoc i p r) d (h r) (hat r) (hgh r)
+    obtain ⟨l, hl⟩ := hfin
+    refine ⟨maxOver l (fun r => Classical.choose (hex r)) + 1, ?_⟩
+    rw [apply0_In_node σ _ q d i p h hq]
+    refine Tree.Le.node _ _ _ _ fun r => ?_
+    by_cases hr : g r = Tree.bot
+    · rw [hr]; exact Tree.Le.bot _
+    · exact Tree.Le.trans (Classical.choose_spec (hex r))
+        (apply0_mono_left (In_le_of_le σ
+          (le_maxOver (fun s => Classical.choose (hex s)) l r (hl r hr)) _) d)
+
 /-- `I_σ` denotes `⊔ {Iₙ(?) | n ∈ ℕ}`. -/
 noncomputable def treeI (σ : Ty) : T (σ ⇒ σ) :=
   idealOfChain (fun n => In σ n .hole) fun _ _ h => In_le_of_le σ h .hole
@@ -401,11 +485,50 @@ noncomputable def Tmodel : Model SPCF where
 
 /-! ## Theorem 4.22 and its corollaries -/
 
+/-- The one remaining obligation for Lemma A.1.
+
+`Kₙ(?)` branches over the infinitely many final answers `a ∈ ℕ`, so it is *not*
+an element of the finitary basis `D_{σ→τ→σ}`; `K` is the ideal of the finite
+*legal* trees below the chain (`treeK`).  To read the equation
+`apply (K, d, e) = d` off Claim A.2 one therefore needs that those finite legal
+trees already compute whatever `Kₙ(?)` computes — that they are cofinal for
+application.  This is the only step of Appendix A.1 not carried out here.
+
+(Note that Definition 4.20 describes `Kₙ` as mapping into `D_{σ→τ}(q̂)`, which
+cannot be literally right for the reason just given.) -/
+theorem Kn_legal_cofinal (σ τ : Ty) (n : Nat) (d : D σ) (e : D τ) (a : D σ)
+    (h : Tree.Le a.1 (apply0 (apply0 (Kn σ τ n .hole) d.1) e.1)) :
+    ∃ k : D (σ ⇒ τ ⇒ σ), Tree.Le k.1 (Kn σ τ n .hole) ∧
+      Tree.Le a.1 (apply0 (apply0 k.1 d.1) e.1) := by
+  sorry
+
 /-- **Lemma A.1.**  *For all `d ∈ T_σ`, `e ∈ T_τ`,
-`apply (K_{σ,τ}, d, e) = d`.* -/
+`apply (K_{σ,τ}, d, e) = d`.*
+
+"We will prove this lemma for finite trees and then use a continuity argument to
+extend the lemma to all trees."  The finite-tree half is Claim A.2, proved
+above; the passage to the ideal completion is here. -/
 theorem lemma_A_1 (σ τ : Ty) (d : T σ) (e : T τ) :
     applyT (applyT (treeK σ τ) d) e = d := by
-  sorry
+  apply Ideal.ext
+  intro c
+  constructor
+  · rintro ⟨m, ⟨k, ⟨n, hk⟩, d0, hd0, hm⟩, e0, _, hc⟩
+    have h1 : Tree.Le c.1 (apply0 m.1 e0.1) := hc
+    have h3 : Tree.Le (apply0 m.1 e0.1) (apply0 (apply0 k.1 d0.1) e0.1) :=
+      apply0_mono_left (show Tree.Le m.1 (apply0 k.1 d0.1) from hm) e0.1
+    have h4 : Tree.Le (apply0 (apply0 k.1 d0.1) e0.1)
+        (apply0 (apply0 (Kn σ τ n .hole) d0.1) e0.1) :=
+      apply0_mono_left (apply0_mono_left (show Tree.Le k.1 (Kn σ τ n .hole) from hk) d0.1) e0.1
+    have h5 : Tree.Le (apply0 (apply0 (Kn σ τ n .hole) d0.1) e0.1) d0.1 :=
+      claim_A_2_le σ τ n .hole d0.1 e0.1 d0.1 rfl
+    exact d.downward c d0 (Tree.Le.trans h1 (Tree.Le.trans h3 (Tree.Le.trans h4 h5))) hd0
+  · intro hc
+    obtain ⟨e0, he0⟩ := e.nonempty'
+    obtain ⟨n, hn⟩ := claim_A_2_ge σ τ (Finitary_of_TreeOk c.2) .hole c.1 e0.1 c.1 rfl
+      (Tree.Le.refl _)
+    obtain ⟨k, hkle, hka⟩ := Kn_legal_cofinal σ τ n c e0 c hn
+    exact ⟨applyD k c, ⟨k, ⟨n, hkle⟩, c, hc, Po.le_refl _⟩, e0, he0, hka⟩
 
 /-- **Definition A.4** (*Error variant*).
 
@@ -445,10 +568,28 @@ theorem lemma_A_6 (σ τ ρ : Ty) (e₁ : T (σ ⇒ τ ⇒ ρ)) (e₂ : T (σ �
       = applyT (applyT e₁ e₃) (applyT e₂ e₃) :=
   Classical.choose_spec (claim_A_5 σ τ ρ) e₁ e₂ e₃
 
+/-- The `I` analogue of `Kn_legal_cofinal`: the only step of the `(I)` equation
+not carried out here. -/
+theorem In_legal_cofinal (σ : Ty) (n : Nat) (d : D σ) (a : D σ)
+    (h : Tree.Le a.1 (apply0 (In σ n .hole) d.1)) :
+    ∃ k : D (σ ⇒ σ), Tree.Le k.1 (In σ n .hole) ∧ Tree.Le a.1 (apply0 k.1 d.1) := by
+  sorry
+
 /-- The `(I)` equation of Theorem 4.22; "the proof for `I` closely follows the
 proof for `K`". -/
 theorem theorem_4_22_I : ∀ (σ : Ty) (x : T σ), applyT (treeI σ) x = x := by
-  sorry
+  intro σ x
+  apply Ideal.ext
+  intro c
+  constructor
+  · rintro ⟨k, ⟨n, hk⟩, d0, hd0, hc⟩
+    refine x.downward c d0 (Tree.Le.trans (show Tree.Le c.1 (apply0 k.1 d0.1) from hc) ?_) hd0
+    exact Tree.Le.trans (apply0_mono_left (show Tree.Le k.1 (In σ n .hole) from hk) d0.1)
+      (claim_I_le σ n .hole d0.1 d0.1 rfl)
+  · intro hc
+    obtain ⟨n, hn⟩ := claim_I_ge σ (Finitary_of_TreeOk c.2) .hole c.1 c.1 rfl (Tree.Le.refl _)
+    obtain ⟨k, hkle, hka⟩ := In_legal_cofinal σ n c c hn
+    exact ⟨k, ⟨n, hkle⟩, c, hc, hka⟩
 
 /-- **Theorem 4.22.**  *Let `x, y, z` be variables ranging over arbitrary
 elements in appropriate domains.  Then*
