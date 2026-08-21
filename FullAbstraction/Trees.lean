@@ -304,6 +304,9 @@ instance : Po (Tree σ) where
 
 theorem bot_le (d : Tree σ) : (bot : Tree σ) ⊑ d := Le.bot d
 
+noncomputable instance {σ : Ty} : DecidableEq (Tree σ) :=
+  fun a b => Classical.propDecidable (a = b)
+
 /-- Transport a response along an equality of argument indices. -/
 def castResp {σ : Ty} {i j : Fin σ.arity} (h : i = j) (r : Resp (σ.arg i)) :
     Resp (σ.arg j) := h ▸ r

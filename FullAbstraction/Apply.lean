@@ -901,6 +901,77 @@ theorem corollary_4_15_path (σ : Ty) (q : Query σ) (e : Tree σ)
     applyArgs σ (q.substTree e) ds = applyArgs σ e ds :=
   applyArgs_at_query σ q (q.substTree e) e ds hco (at'_substTree q e) hab
 
+/-! ### Descending into a legal tree
+
+Two facts about Definition 4.2 that the tree-context reading makes available:
+the context determined by a query grows by one response per step, and a subtree
+reached by `@` is legal in the context its path determines. -/
+
+/-- `R(q ⟨j,p,r'⟩, γ) = R(q, γ) ∪ {⟨j,r'⟩}` (Definition 4.12). -/
+theorem Query.ctxFrom_snoc {σ : Ty} : ∀ (q : Query σ) (γ : Ctx σ) (j : Fin σ.arity)
+    (p : Query (σ.arg j)) (r' : Resp (σ.arg j)),
+    (q.snoc j p r').ctxFrom γ = (q.ctxFrom γ).cons j r'
+  | .hole, _, _, _, _ => rfl
+  | .step i a b rest, γ, j, p, r' => by
+      show (rest.snoc j p r').ctxFrom (γ.cons i b) = _
+      rw [Query.ctxFrom_snoc rest (γ.cons i b) j p r']
+      rfl
+
+/-- `q̂ ⟨j,p,r'⟩ = q̂ ∪ {⟨j,r'⟩}`. -/
+theorem Query.ctx_snoc {σ : Ty} (q : Query σ) (j : Fin σ.arity)
+    (p : Query (σ.arg j)) (r' : Resp (σ.arg j)) :
+    (q.snoc j p r').ctx = q.ctx.cons j r' :=
+  Query.ctxFrom_snoc q Ctx.empty j p r'
+
+/-- **Definition 4.2 travels down `@`.**  If `d ∈ D_σ(γ)` and `d @ q = e` then
+`e ∈ D_σ(R(q, γ))`: the subtree reached along `q` is legal in the context `q`
+determines.
+
+This is the fact that Definition 4.12 presupposes when it speaks of "a subtree
+`e` in `D_σ(q̂)`", and it is available here because a context records
+approximation trees: descending one step through the branch `r` records exactly
+the response `r`. -/
+theorem TreeOk_at' {σ : Ty} : ∀ (q : Query σ) (γ : Ctx σ) (d e : Tree σ),
+    TreeOk γ d → d.at' q = some e → TreeOk (q.ctxFrom γ) e
+  | .hole, _, d, e, hd, hq => by
+      have hde : d = e := by injection hq
+      exact hde ▸ hd
+  | .step i p r rest, γ, d, e, hd, hq => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv hq
+      obtain ⟨_, _, hsub, hnon⟩ := TreeOk_node_inv hd
+      have hfr : TreeOk (γ.cons i r) (f r) := by
+        by_cases hr : LegalResp p r
+        · exact hsub r hr
+        · rw [hnon r hr]; exact TreeOk.leaf _ _
+      exact TreeOk_at' rest (γ.cons i r) (f r) e hfr hrest
+
+/-- Recording the response `q[?/⟨j,p,⊥⟩]` opens exactly the positions one step
+beyond `q`: what was the perimeter position `q` becomes the perimeter position
+`q ⟨j,p,r'⟩`, for every `r'`.
+
+This is the step of Definition 4.2 that says a legal query "extends the
+approximation tree by exactly one node". -/
+theorem legalQuery_join_snoc {σ : Ty} : ∀ (q : Query σ) (t : Tree σ) (j : Fin σ.arity)
+    (p : Query (σ.arg j)) (r' : Resp (σ.arg j)), LegalQuery t q →
+    LegalQuery (Tree.join t (q.substAns (.node j p)).toTree) (q.snoc j p r')
+  | .hole, t, j, p, r', ht => by
+      have htb : t = Tree.bot := by injection ht
+      subst htb
+      show (Tree.node j p fun _ => Tree.bot).at' (.step j p r' .hole) = _
+      rw [Tree.at'_step_self]
+      rfl
+  | .step i a b rest, t, j, p, r', ht => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv ht
+      have hjoin : Tree.join (Tree.node i a f)
+            ((Query.step i a b rest).substAns (.node j p)).toTree
+          = Tree.node i a fun s => Tree.join (f s)
+              (if s = b then (rest.substAns (.node j p)).toTree else Tree.bot) := by
+        show Tree.join (Tree.node i a f) (Tree.node i a _) = _
+        rw [Tree.join_node_self]
+      show LegalQuery _ (Query.step i a b (rest.snoc j p r'))
+      rw [LegalQuery, hjoin, Tree.at'_step_self, if_pos rfl]
+      exact legalQuery_join_snoc rest (f b) j p r' hrest
+
 /-! ## Lemma 4.16, Theorem 4.11 -/
 
 /-- **Lemma 4.16.**  *Let `f, g` be elements in `D_{σ→τ}`.  If for all finite

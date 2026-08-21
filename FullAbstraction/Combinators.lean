@@ -241,6 +241,306 @@ theorem claim_A_2 (σ τ : Ty) (q : Query σ) (d : Tree σ) (e : Tree τ) (d' : 
   ⟨fun n => claim_A_2_le σ τ n q d e d' hq,
    fun a hfa hle => claim_A_2_ge σ τ hfa q d e d' hq hle⟩
 
+
+/-! ### Legal approximants to `K`
+
+`Kₙ(q)` is not an element of the finitary basis `D_{σ→τ→σ}`: it branches over
+all final answers `a ∈ ℕ`, and it answers responses that are not legal for `q`.
+Definition 4.20's "`Kₙ : Q_σ → D_{σ→τ→σ}(q̂)`" therefore cannot be read
+literally.  What is true, and what Lemma A.1 needs, is that the finite *legal*
+trees below `Kₙ(q)` already compute whatever `Kₙ(q)` computes. -/
+
+/-- `(σ→τ→σ)ᵢ₊₂ = σᵢ`: `K`'s `(i+2)`-nd argument is the `i`-th argument of its
+first argument. -/
+theorem K_shiftArg (σ τ : Ty) (i : Fin σ.arity) :
+    (σ ⇒ τ ⇒ σ).arg ⟨i.val + 2, K_index_lt i⟩ = σ.arg i := rfl
+
+/-- `K`'s first argument is not one of the arguments it inherits from `σ`. -/
+theorem K_zero_ne_shift (σ τ : Ty) (j : Fin σ.arity) :
+    ¬ ((⟨0, Nat.succ_pos _⟩ : Fin (σ ⇒ τ ⇒ σ).arity) = ⟨j.val + 2, K_index_lt j⟩) := by
+  intro h
+  rw [Fin.mk.injEq] at h
+  omega
+
+/-- Distinct arguments of `σ` stay distinct as arguments of `σ → τ → σ`. -/
+theorem K_shift_ne (σ τ : Ty) {i j : Fin σ.arity} (hij : ¬ i = j) :
+    ¬ ((⟨j.val + 2, K_index_lt j⟩ : Fin (σ ⇒ τ ⇒ σ).arity)
+        = ⟨i.val + 2, K_index_lt i⟩) := by
+  intro he
+  rw [Fin.mk.injEq] at he
+  exact hij (Fin.ext (show j.val = i.val by omega)).symm
+
+/-- The **pruning** of `Kₙ(q)` along a finite argument `d`: `Kₙ(q)` with every
+branch removed that `d` does not take — at each query only the response `d`
+gives, and at each node only the responses `d` answers.  Both sets are finite
+because `d` is, and both are legal because `d` is. -/
+noncomputable def KnP (σ τ : Ty) : Nat → Query σ → Tree σ → Tree (σ ⇒ τ ⇒ σ)
+  | 0, _, _ => Tree.bot
+  | n + 1, q, d =>
+      match d.at' q with
+      | some (.leaf (.num m)) =>
+          .node ⟨0, Nat.succ_pos _⟩ q fun r =>
+            if r = q.substAns (.num m) then .leaf (.num m) else Tree.bot
+      | some (.node j p h) =>
+          .node ⟨0, Nat.succ_pos _⟩ q fun r =>
+            if r = q.substAns (.node j p) then
+              .node ⟨j.val + 2, K_index_lt j⟩ p fun r' =>
+                if h r' = Tree.bot then Tree.bot else KnP σ τ n (q.snoc j p r') d
+            else Tree.bot
+      | _ => .node ⟨0, Nat.succ_pos _⟩ q fun _ => Tree.bot
+
+theorem KnP_num (σ τ : Ty) (n : Nat) (q : Query σ) (d : Tree σ) (m : Nat)
+    (hq : d.at' q = some (.leaf (.num m))) :
+    KnP σ τ (n + 1) q d = .node ⟨0, Nat.succ_pos _⟩ q fun r =>
+      if r = q.substAns (.num m) then .leaf (.num m) else Tree.bot := by
+  rw [KnP, hq]
+
+theorem KnP_node (σ τ : Ty) (n : Nat) (q : Query σ) (d : Tree σ) (j : Fin σ.arity)
+    (p : Query (σ.arg j)) (h : Resp (σ.arg j) → Tree σ)
+    (hq : d.at' q = some (.node j p h)) :
+    KnP σ τ (n + 1) q d = .node ⟨0, Nat.succ_pos _⟩ q fun r =>
+      if r = q.substAns (.node j p) then
+        .node ⟨j.val + 2, K_index_lt j⟩ p fun r' =>
+          if h r' = Tree.bot then Tree.bot else KnP σ τ n (q.snoc j p r') d
+      else Tree.bot := by
+  rw [KnP, hq]
+
+theorem KnP_other (σ τ : Ty) (n : Nat) (q : Query σ) (d : Tree σ)
+    (hq : (∀ m, d.at' q ≠ some (.leaf (.num m))) ∧
+      ∀ (j : Fin σ.arity) (p : Query (σ.arg j)) (h : Resp (σ.arg j) → Tree σ),
+        d.at' q ≠ some (.node j p h)) :
+    KnP σ τ (n + 1) q d = .node ⟨0, Nat.succ_pos _⟩ q fun _ => Tree.bot := by
+  rw [KnP]
+  cases hdq : d.at' q with
+  | none => rfl
+  | some t =>
+    cases t with
+    | leaf v =>
+      cases v with
+      | bot => rfl
+      | err b => rfl
+      | num m => exact absurd hdq (hq.1 m)
+    | node j p h => exact absurd hdq (hq.2 j p h)
+
+/-- The pruned approximants lie below the approximants of Definition 4.20. -/
+theorem KnP_le_Kn (σ τ : Ty) : ∀ (n : Nat) (q : Query σ) (d : Tree σ),
+    KnP σ τ n q d ⊑ Kn σ τ n q := by
+  intro n
+  induction n with
+  | zero => intro q d; exact Tree.Le.bot _
+  | succ n ih =>
+    intro q d
+    cases hdq : d.at' q with
+    | none =>
+      rw [KnP_other σ τ n q d ⟨fun m hm => by rw [hdq] at hm; exact Option.noConfusion hm,
+        fun j p h hm => by rw [hdq] at hm; exact Option.noConfusion hm⟩, Kn]
+      exact Tree.Le.node _ _ _ _ fun _ => Tree.Le.bot _
+    | some t =>
+      cases t with
+      | leaf v =>
+        cases v with
+        | bot =>
+          rw [KnP_other σ τ n q d ⟨fun m hm => by rw [hdq] at hm; exact absurd hm (by simp),
+            fun j p h hm => by rw [hdq] at hm; exact absurd hm (by simp)⟩, Kn]
+          exact Tree.Le.node _ _ _ _ fun _ => Tree.Le.bot _
+        | err b =>
+          rw [KnP_other σ τ n q d ⟨fun m hm => by rw [hdq] at hm; exact absurd hm (by simp),
+            fun j p h hm => by rw [hdq] at hm; exact absurd hm (by simp)⟩, Kn]
+          exact Tree.Le.node _ _ _ _ fun _ => Tree.Le.bot _
+        | num m =>
+          rw [KnP_num σ τ n q d m hdq, Kn]
+          refine Tree.Le.node _ _ _ _ fun r => ?_
+          by_cases hr : r = q.substAns (.num m)
+          · subst hr
+            rw [if_pos rfl]
+            simp only [Query.answerOf_substAns]
+            exact Tree.Le.refl _
+          · rw [if_neg hr]; exact Tree.Le.bot _
+      | node j p h =>
+        rw [KnP_node σ τ n q d j p h hdq, Kn]
+        refine Tree.Le.node _ _ _ _ fun r => ?_
+        by_cases hr : r = q.substAns (.node j p)
+        · subst hr
+          rw [if_pos rfl]
+          simp only [Query.answerOf_substAns]
+          refine Tree.Le.node _ _ _ _ fun r' => ?_
+          by_cases hb : h r' = Tree.bot
+          · rw [if_pos hb]; exact Tree.Le.bot _
+          · rw [if_neg hb, extendHole_substAns_node]
+            exact ih (q.snoc j p r') d
+        · rw [if_neg hr]; exact Tree.Le.bot _
+
+/-- Pruning loses nothing: whatever a finite tree gets out of `Kₙ(q)` applied to
+`d`, it already gets out of the pruned `KnP n q d`. -/
+theorem apply0_KnP_ge (σ τ : Ty) : ∀ (n : Nat) (q : Query σ) (d : Tree σ) (e : Tree τ)
+    (a : Tree σ), Tree.Le a (apply0 (apply0 (Kn σ τ n q) d) e) →
+      Tree.Le a (apply0 (apply0 (KnP σ τ n q d) d) e) := by
+  intro n
+  induction n with
+  | zero =>
+    intro q d e a ha
+    have hab : a = Tree.bot := Po.le_antisymm ha (Tree.Le.bot a)
+    rw [hab]; exact Tree.Le.bot _
+  | succ n ih =>
+    intro q d e a ha
+    cases hdq : d.at' q with
+    | none =>
+      have hK : apply0 (apply0 (Kn σ τ (n + 1) q) d) e = Tree.bot := by
+        rw [Kn, apply0, hdq]; rfl
+      rw [hK] at ha
+      have hab : a = Tree.bot := Po.le_antisymm ha (Tree.Le.bot a)
+      rw [hab]; exact Tree.Le.bot _
+    | some t =>
+      cases t with
+      | leaf v =>
+        cases v with
+        | bot =>
+          have hK : apply0 (apply0 (Kn σ τ (n + 1) q) d) e = Tree.bot := by
+            rw [Kn, apply0, hdq]; rfl
+          rw [hK] at ha
+          have hab : a = Tree.bot := Po.le_antisymm ha (Tree.Le.bot a)
+          rw [hab]; exact Tree.Le.bot _
+        | err b =>
+          rw [apply0_Kn_err σ τ n q d e b hdq] at ha
+          have hP : apply0 (apply0 (KnP σ τ (n + 1) q d) d) e = .leaf (.err b) := by
+            rw [KnP_other σ τ n q d ⟨fun m hm => by rw [hdq] at hm; exact absurd hm (by simp),
+              fun j p h hm => by rw [hdq] at hm; exact absurd hm (by simp)⟩, apply0, hdq]
+            rfl
+          rw [hP]; exact ha
+        | num m =>
+          rw [apply0_Kn_num σ τ n q d e m hdq] at ha
+          have hP : apply0 (apply0 (KnP σ τ (n + 1) q d) d) e = .leaf (.num m) := by
+            rw [KnP_num σ τ n q d m hdq, apply0, hdq]
+            dsimp only
+            rw [if_pos rfl]
+            rfl
+          rw [hP]; exact ha
+      | node j p h =>
+        rw [apply0_Kn_node σ τ n q d e j p h hdq] at ha
+        have hat : ∀ r', d.at' (q.snoc j p r') = some (h r') := by
+          intro r'
+          rw [at'_snoc, hdq]
+          exact Tree.stepAt_self j p h r'
+        have hP : apply0 (apply0 (KnP σ τ (n + 1) q d) d) e
+            = .node j p fun r' =>
+                if h r' = Tree.bot then Tree.bot
+                else apply0 (apply0 (KnP σ τ n (q.snoc j p r') d) d) e := by
+          rw [KnP_node σ τ n q d j p h hdq, apply0, hdq]
+          dsimp only
+          rw [if_pos rfl, apply0, apply0]
+          refine congrArg _ (funext fun r' => ?_)
+          by_cases hb : h r' = Tree.bot
+          · rw [if_pos hb, if_pos hb]; rfl
+          · rw [if_neg hb, if_neg hb]
+        rw [hP]
+        cases ha with
+        | bot _ => exact Tree.Le.bot _
+        | node _ _ g _ hgr =>
+          refine Tree.Le.node _ _ _ _ fun r' => ?_
+          by_cases hb : h r' = Tree.bot
+          · rw [if_pos hb]
+            have hle : Tree.Le (g r') (h r') :=
+              Tree.Le.trans (hgr r')
+                (claim_A_2_le σ τ n (q.snoc j p r') d e (h r') (hat r'))
+            rw [hb] at hle
+            have hgb : g r' = Tree.bot := Po.le_antisymm hle (Tree.Le.bot _)
+            rw [hgb]; exact Tree.Le.bot _
+          · rw [if_neg hb]
+            exact ih (q.snoc j p r') d e (g r') (hgr r')
+
+/-- **Definition 4.20 made good.**  The pruned approximants are legal.
+
+The hypotheses are the invariant the definition intends: `q` probes the
+perimeter of what the context knows about `K`'s first argument, and what the
+context knows about `K`'s `(i+2)`-nd argument is what `q̂` knows about the
+`i`-th argument of `σ`. -/
+theorem KnP_ok (σ τ : Ty) (d : Tree σ) (hd : TreeOk Ctx.empty d) :
+    ∀ (n : Nat) (q : Query σ) (γ : Ctx (σ ⇒ τ ⇒ σ)),
+      LegalQuery (γ ⟨0, Nat.succ_pos _⟩) q →
+      (∀ i : Fin σ.arity, γ ⟨i.val + 2, K_index_lt i⟩ = q.ctx i) →
+      TreeOk γ (KnP σ τ n q d) := by
+  intro n
+  induction n with
+  | zero => intro q γ _ _; exact TreeOk.leaf γ _
+  | succ n ih =>
+    intro q γ h1 h2
+    cases hdq : d.at' q with
+    | none =>
+      rw [KnP_other σ τ n q d ⟨fun m hm => by rw [hdq] at hm; exact Option.noConfusion hm,
+        fun j p hf hm => by rw [hdq] at hm; exact Option.noConfusion hm⟩]
+      exact TreeOk.node γ ⟨0, Nat.succ_pos _⟩ q _ h1 ⟨[], fun _ hr => absurd rfl hr⟩
+        (fun _ _ => TreeOk.leaf _ _) (fun _ _ => rfl)
+    | some t =>
+      cases t with
+      | leaf v =>
+        cases v with
+        | bot =>
+          rw [KnP_other σ τ n q d ⟨fun m hm => by rw [hdq] at hm; exact absurd hm (by simp),
+            fun j p hf hm => by rw [hdq] at hm; exact absurd hm (by simp)⟩]
+          exact TreeOk.node γ ⟨0, Nat.succ_pos _⟩ q _ h1 ⟨[], fun _ hr => absurd rfl hr⟩
+            (fun _ _ => TreeOk.leaf _ _) (fun _ _ => rfl)
+        | err b =>
+          rw [KnP_other σ τ n q d ⟨fun m hm => by rw [hdq] at hm; exact absurd hm (by simp),
+            fun j p hf hm => by rw [hdq] at hm; exact absurd hm (by simp)⟩]
+          exact TreeOk.node γ ⟨0, Nat.succ_pos _⟩ q _ h1 ⟨[], fun _ hr => absurd rfl hr⟩
+            (fun _ _ => TreeOk.leaf _ _) (fun _ _ => rfl)
+        | num m =>
+          rw [KnP_num σ τ n q d m hdq]
+          refine TreeOk.node γ ⟨0, Nat.succ_pos _⟩ q _ h1 ⟨[q.substAns (.num m)], fun r hr => ?_⟩
+            (fun r _ => ?_) (fun r hr => ?_)
+          · by_cases hrm : r = q.substAns (.num m)
+            · rw [hrm]; exact List.mem_cons_self ..
+            · exact absurd (if_neg hrm) hr
+          · by_cases hrm : r = q.substAns (.num m)
+            · rw [if_pos hrm]; exact TreeOk.leaf _ _
+            · rw [if_neg hrm]; exact TreeOk.leaf _ _
+          · by_cases hrm : r = q.substAns (.num m)
+            · exact absurd (hrm ▸ LegalResp.num q m) hr
+            · exact if_neg hrm
+      | node j p hf =>
+        have hsub : TreeOk q.ctx (Tree.node j p hf) :=
+          TreeOk_at' q Ctx.empty d _ hd hdq
+        obtain ⟨hp, hffin, hfsub, hfnon⟩ := TreeOk_node_inv hsub
+        have hlegal : LegalResp q (q.substAns (.node j p)) := LegalResp.node q j p hp
+        rw [KnP_node σ τ n q d j p hf hdq]
+        refine TreeOk.node γ ⟨0, Nat.succ_pos _⟩ q _ h1 ⟨[q.substAns (.node j p)], fun r hr => ?_⟩
+          (fun r _ => ?_) (fun r hr => ?_)
+        · by_cases hrm : r = q.substAns (.node j p)
+          · rw [hrm]; exact List.mem_cons_self ..
+          · exact absurd (if_neg hrm) hr
+        · by_cases hrm : r = q.substAns (.node j p)
+          · rw [if_pos hrm]
+            subst hrm
+            refine TreeOk.node _ ⟨j.val + 2, K_index_lt j⟩ p _ ?_ ?_ (fun r' hr' => ?_)
+              (fun r' hr' => ?_)
+            · rw [Ctx.cons_other _ _ (K_zero_ne_shift σ τ j), h2 j]
+              exact hp
+            · obtain ⟨l, hl⟩ := hffin
+              refine ⟨l, fun r' hr' => hl r' ?_⟩
+              intro hb
+              exact hr' (if_pos hb)
+            · by_cases hb : hf r' = Tree.bot
+              · rw [if_pos hb]; exact TreeOk.leaf _ _
+              · rw [if_neg hb]
+                refine ih (q.snoc j p r') _ ?_ ?_
+                · rw [Ctx.cons_other _ _ fun he =>
+                    K_zero_ne_shift σ τ j he.symm, Ctx.cons_self]
+                  exact legalQuery_join_snoc q _ j p r' h1
+                · intro i
+                  rw [Query.ctx_snoc]
+                  by_cases hij : i = j
+                  · subst hij
+                    rw [Ctx.cons_self, Ctx.cons_other _ _ (K_zero_ne_shift σ τ i),
+                      h2 i, Ctx.cons_self]
+                  · rw [Ctx.cons_other _ _ (K_shift_ne σ τ hij),
+                      Ctx.cons_other _ _ (K_zero_ne_shift σ τ i), h2 i,
+                      Ctx.cons_other _ _ (fun he : j = i => hij he.symm)]
+            · rw [if_pos (hfnon r' hr')]
+          · rw [if_neg hrm]; exact TreeOk.leaf _ _
+        · by_cases hrm : r = q.substAns (.node j p)
+          · exact absurd (hrm ▸ hlegal) hr
+          · exact if_neg hrm
+
 /-! ## The combinator `I`
 
 "The proof for `I` closely follows the proof for `K`" (Theorem 4.22); the tree
@@ -369,6 +669,281 @@ theorem claim_I_ge (σ : Ty) : ∀ {a : Tree σ}, Tree.Finitary a →
         (apply0_mono_left (In_le_of_le σ
           (le_maxOver (fun s => Classical.choose (hex s)) l r (hl r hr)) _) d)
 
+
+/-! ### Legal approximants to `I` -/
+
+/-- `(σ→σ)ᵢ₊₁ = σᵢ`. -/
+theorem I_shiftArg (σ : Ty) (i : Fin σ.arity) :
+    (σ ⇒ σ).arg ⟨i.val + 1, I_index_lt i⟩ = σ.arg i := rfl
+
+theorem I_zero_ne_shift (σ : Ty) (j : Fin σ.arity) :
+    ¬ ((⟨0, Nat.succ_pos _⟩ : Fin (σ ⇒ σ).arity) = ⟨j.val + 1, I_index_lt j⟩) := by
+  intro h
+  rw [Fin.mk.injEq] at h
+  omega
+
+theorem I_shift_ne (σ : Ty) {i j : Fin σ.arity} (hij : ¬ i = j) :
+    ¬ ((⟨j.val + 1, I_index_lt j⟩ : Fin (σ ⇒ σ).arity) = ⟨i.val + 1, I_index_lt i⟩) := by
+  intro he
+  rw [Fin.mk.injEq] at he
+  exact hij (Fin.ext (show j.val = i.val by omega)).symm
+
+/-- The pruning of `Iₙ(q)` along a finite argument `d`, exactly as for `K`. -/
+noncomputable def InP (σ : Ty) : Nat → Query σ → Tree σ → Tree (σ ⇒ σ)
+  | 0, _, _ => Tree.bot
+  | n + 1, q, d =>
+      match d.at' q with
+      | some (.leaf (.num m)) =>
+          .node ⟨0, Nat.succ_pos _⟩ q fun r =>
+            if r = q.substAns (.num m) then .leaf (.num m) else Tree.bot
+      | some (.node j p h) =>
+          .node ⟨0, Nat.succ_pos _⟩ q fun r =>
+            if r = q.substAns (.node j p) then
+              .node ⟨j.val + 1, I_index_lt j⟩ p fun r' =>
+                if h r' = Tree.bot then Tree.bot else InP σ n (q.snoc j p r') d
+            else Tree.bot
+      | _ => .node ⟨0, Nat.succ_pos _⟩ q fun _ => Tree.bot
+
+theorem InP_num (σ : Ty) (n : Nat) (q : Query σ) (d : Tree σ) (m : Nat)
+    (hq : d.at' q = some (.leaf (.num m))) :
+    InP σ (n + 1) q d = .node ⟨0, Nat.succ_pos _⟩ q fun r =>
+      if r = q.substAns (.num m) then .leaf (.num m) else Tree.bot := by
+  rw [InP, hq]
+
+theorem InP_node (σ : Ty) (n : Nat) (q : Query σ) (d : Tree σ) (j : Fin σ.arity)
+    (p : Query (σ.arg j)) (h : Resp (σ.arg j) → Tree σ)
+    (hq : d.at' q = some (.node j p h)) :
+    InP σ (n + 1) q d = .node ⟨0, Nat.succ_pos _⟩ q fun r =>
+      if r = q.substAns (.node j p) then
+        .node ⟨j.val + 1, I_index_lt j⟩ p fun r' =>
+          if h r' = Tree.bot then Tree.bot else InP σ n (q.snoc j p r') d
+      else Tree.bot := by
+  rw [InP, hq]
+
+theorem InP_other (σ : Ty) (n : Nat) (q : Query σ) (d : Tree σ)
+    (hq : (∀ m, d.at' q ≠ some (.leaf (.num m))) ∧
+      ∀ (j : Fin σ.arity) (p : Query (σ.arg j)) (h : Resp (σ.arg j) → Tree σ),
+        d.at' q ≠ some (.node j p h)) :
+    InP σ (n + 1) q d = .node ⟨0, Nat.succ_pos _⟩ q fun _ => Tree.bot := by
+  rw [InP]
+  cases hdq : d.at' q with
+  | none => rfl
+  | some t =>
+    cases t with
+    | leaf v =>
+      cases v with
+      | bot => rfl
+      | err b => rfl
+      | num m => exact absurd hdq (hq.1 m)
+    | node j p h => exact absurd hdq (hq.2 j p h)
+
+theorem InP_le_In (σ : Ty) : ∀ (n : Nat) (q : Query σ) (d : Tree σ),
+    InP σ n q d ⊑ In σ n q := by
+  intro n
+  induction n with
+  | zero => intro q d; exact Tree.Le.bot _
+  | succ n ih =>
+    intro q d
+    cases hdq : d.at' q with
+    | none =>
+      rw [InP_other σ n q d ⟨fun m hm => by rw [hdq] at hm; exact Option.noConfusion hm,
+        fun j p h hm => by rw [hdq] at hm; exact Option.noConfusion hm⟩, In]
+      exact Tree.Le.node _ _ _ _ fun _ => Tree.Le.bot _
+    | some t =>
+      cases t with
+      | leaf v =>
+        cases v with
+        | bot =>
+          rw [InP_other σ n q d ⟨fun m hm => by rw [hdq] at hm; exact absurd hm (by simp),
+            fun j p h hm => by rw [hdq] at hm; exact absurd hm (by simp)⟩, In]
+          exact Tree.Le.node _ _ _ _ fun _ => Tree.Le.bot _
+        | err b =>
+          rw [InP_other σ n q d ⟨fun m hm => by rw [hdq] at hm; exact absurd hm (by simp),
+            fun j p h hm => by rw [hdq] at hm; exact absurd hm (by simp)⟩, In]
+          exact Tree.Le.node _ _ _ _ fun _ => Tree.Le.bot _
+        | num m =>
+          rw [InP_num σ n q d m hdq, In]
+          refine Tree.Le.node _ _ _ _ fun r => ?_
+          by_cases hr : r = q.substAns (.num m)
+          · subst hr
+            rw [if_pos rfl]
+            simp only [Query.answerOf_substAns]
+            exact Tree.Le.refl _
+          · rw [if_neg hr]; exact Tree.Le.bot _
+      | node j p h =>
+        rw [InP_node σ n q d j p h hdq, In]
+        refine Tree.Le.node _ _ _ _ fun r => ?_
+        by_cases hr : r = q.substAns (.node j p)
+        · subst hr
+          rw [if_pos rfl]
+          simp only [Query.answerOf_substAns]
+          refine Tree.Le.node _ _ _ _ fun r' => ?_
+          by_cases hb : h r' = Tree.bot
+          · rw [if_pos hb]; exact Tree.Le.bot _
+          · rw [if_neg hb, extendHole_substAns_node]
+            exact ih (q.snoc j p r') d
+        · rw [if_neg hr]; exact Tree.Le.bot _
+
+theorem apply0_InP_ge (σ : Ty) : ∀ (n : Nat) (q : Query σ) (d : Tree σ)
+    (a : Tree σ), Tree.Le a (apply0 (In σ n q) d) →
+      Tree.Le a (apply0 (InP σ n q d) d) := by
+  intro n
+  induction n with
+  | zero =>
+    intro q d a ha
+    have hab : a = Tree.bot := Po.le_antisymm ha (Tree.Le.bot a)
+    rw [hab]; exact Tree.Le.bot _
+  | succ n ih =>
+    intro q d a ha
+    cases hdq : d.at' q with
+    | none =>
+      have hI : apply0 (In σ (n + 1) q) d = Tree.bot := by rw [In, apply0, hdq]
+      rw [hI] at ha
+      have hab : a = Tree.bot := Po.le_antisymm ha (Tree.Le.bot a)
+      rw [hab]; exact Tree.Le.bot _
+    | some t =>
+      cases t with
+      | leaf v =>
+        cases v with
+        | bot =>
+          have hI : apply0 (In σ (n + 1) q) d = Tree.bot := by rw [In, apply0, hdq]
+          rw [hI] at ha
+          have hab : a = Tree.bot := Po.le_antisymm ha (Tree.Le.bot a)
+          rw [hab]; exact Tree.Le.bot _
+        | err b =>
+          rw [apply0_In_err σ n q d b hdq] at ha
+          have hP : apply0 (InP σ (n + 1) q d) d = .leaf (.err b) := by
+            rw [InP_other σ n q d ⟨fun m hm => by rw [hdq] at hm; exact absurd hm (by simp),
+              fun j p h hm => by rw [hdq] at hm; exact absurd hm (by simp)⟩, apply0, hdq]
+          rw [hP]; exact ha
+        | num m =>
+          rw [apply0_In_num σ n q d m hdq] at ha
+          have hP : apply0 (InP σ (n + 1) q d) d = .leaf (.num m) := by
+            rw [InP_num σ n q d m hdq, apply0, hdq]
+            dsimp only
+            rw [if_pos rfl]
+            rfl
+          rw [hP]; exact ha
+      | node j p h =>
+        rw [apply0_In_node σ n q d j p h hdq] at ha
+        have hat : ∀ r', d.at' (q.snoc j p r') = some (h r') := by
+          intro r'
+          rw [at'_snoc, hdq]
+          exact Tree.stepAt_self j p h r'
+        have hP : apply0 (InP σ (n + 1) q d) d
+            = .node j p fun r' =>
+                if h r' = Tree.bot then Tree.bot
+                else apply0 (InP σ n (q.snoc j p r') d) d := by
+          rw [InP_node σ n q d j p h hdq, apply0, hdq]
+          dsimp only
+          rw [if_pos rfl, apply0]
+          refine congrArg _ (funext fun r' => ?_)
+          by_cases hb : h r' = Tree.bot
+          · rw [if_pos hb, if_pos hb]; rfl
+          · rw [if_neg hb, if_neg hb]
+        rw [hP]
+        cases ha with
+        | bot _ => exact Tree.Le.bot _
+        | node _ _ g _ hgr =>
+          refine Tree.Le.node _ _ _ _ fun r' => ?_
+          by_cases hb : h r' = Tree.bot
+          · rw [if_pos hb]
+            have hle : Tree.Le (g r') (h r') :=
+              Tree.Le.trans (hgr r') (claim_I_le σ n (q.snoc j p r') d (h r') (hat r'))
+            rw [hb] at hle
+            have hgb : g r' = Tree.bot := Po.le_antisymm hle (Tree.Le.bot _)
+            rw [hgb]; exact Tree.Le.bot _
+          · rw [if_neg hb]
+            exact ih (q.snoc j p r') d (g r') (hgr r')
+
+/-- The `I` analogue of `KnP_ok`. -/
+theorem InP_ok (σ : Ty) (d : Tree σ) (hd : TreeOk Ctx.empty d) :
+    ∀ (n : Nat) (q : Query σ) (γ : Ctx (σ ⇒ σ)),
+      LegalQuery (γ ⟨0, Nat.succ_pos _⟩) q →
+      (∀ i : Fin σ.arity, γ ⟨i.val + 1, I_index_lt i⟩ = q.ctx i) →
+      TreeOk γ (InP σ n q d) := by
+  intro n
+  induction n with
+  | zero => intro q γ _ _; exact TreeOk.leaf γ _
+  | succ n ih =>
+    intro q γ h1 h2
+    cases hdq : d.at' q with
+    | none =>
+      rw [InP_other σ n q d ⟨fun m hm => by rw [hdq] at hm; exact Option.noConfusion hm,
+        fun j p hf hm => by rw [hdq] at hm; exact Option.noConfusion hm⟩]
+      exact TreeOk.node γ ⟨0, Nat.succ_pos _⟩ q _ h1 ⟨[], fun _ hr => absurd rfl hr⟩
+        (fun _ _ => TreeOk.leaf _ _) (fun _ _ => rfl)
+    | some t =>
+      cases t with
+      | leaf v =>
+        cases v with
+        | bot =>
+          rw [InP_other σ n q d ⟨fun m hm => by rw [hdq] at hm; exact absurd hm (by simp),
+            fun j p hf hm => by rw [hdq] at hm; exact absurd hm (by simp)⟩]
+          exact TreeOk.node γ ⟨0, Nat.succ_pos _⟩ q _ h1 ⟨[], fun _ hr => absurd rfl hr⟩
+            (fun _ _ => TreeOk.leaf _ _) (fun _ _ => rfl)
+        | err b =>
+          rw [InP_other σ n q d ⟨fun m hm => by rw [hdq] at hm; exact absurd hm (by simp),
+            fun j p hf hm => by rw [hdq] at hm; exact absurd hm (by simp)⟩]
+          exact TreeOk.node γ ⟨0, Nat.succ_pos _⟩ q _ h1 ⟨[], fun _ hr => absurd rfl hr⟩
+            (fun _ _ => TreeOk.leaf _ _) (fun _ _ => rfl)
+        | num m =>
+          rw [InP_num σ n q d m hdq]
+          refine TreeOk.node γ ⟨0, Nat.succ_pos _⟩ q _ h1
+            ⟨[q.substAns (.num m)], fun r hr => ?_⟩ (fun r _ => ?_) (fun r hr => ?_)
+          · by_cases hrm : r = q.substAns (.num m)
+            · rw [hrm]; exact List.mem_cons_self ..
+            · exact absurd (if_neg hrm) hr
+          · by_cases hrm : r = q.substAns (.num m)
+            · rw [if_pos hrm]; exact TreeOk.leaf _ _
+            · rw [if_neg hrm]; exact TreeOk.leaf _ _
+          · by_cases hrm : r = q.substAns (.num m)
+            · exact absurd (hrm ▸ LegalResp.num q m) hr
+            · exact if_neg hrm
+      | node j p hf =>
+        have hsubtree : TreeOk q.ctx (Tree.node j p hf) :=
+          TreeOk_at' q Ctx.empty d _ hd hdq
+        obtain ⟨hp, hffin, hfsub, hfnon⟩ := TreeOk_node_inv hsubtree
+        have hlegal : LegalResp q (q.substAns (.node j p)) := LegalResp.node q j p hp
+        rw [InP_node σ n q d j p hf hdq]
+        refine TreeOk.node γ ⟨0, Nat.succ_pos _⟩ q _ h1
+          ⟨[q.substAns (.node j p)], fun r hr => ?_⟩ (fun r _ => ?_) (fun r hr => ?_)
+        · by_cases hrm : r = q.substAns (.node j p)
+          · rw [hrm]; exact List.mem_cons_self ..
+          · exact absurd (if_neg hrm) hr
+        · by_cases hrm : r = q.substAns (.node j p)
+          · rw [if_pos hrm]
+            subst hrm
+            refine TreeOk.node _ ⟨j.val + 1, I_index_lt j⟩ p _ ?_ ?_ (fun r' hr' => ?_)
+              (fun r' hr' => ?_)
+            · rw [Ctx.cons_other _ _ (I_zero_ne_shift σ j), h2 j]
+              exact hp
+            · obtain ⟨l, hl⟩ := hffin
+              refine ⟨l, fun r' hr' => hl r' ?_⟩
+              intro hb
+              exact hr' (if_pos hb)
+            · by_cases hb : hf r' = Tree.bot
+              · rw [if_pos hb]; exact TreeOk.leaf _ _
+              · rw [if_neg hb]
+                refine ih (q.snoc j p r') _ ?_ ?_
+                · rw [Ctx.cons_other _ _ fun he => I_zero_ne_shift σ j he.symm,
+                    Ctx.cons_self]
+                  exact legalQuery_join_snoc q _ j p r' h1
+                · intro i
+                  rw [Query.ctx_snoc]
+                  by_cases hij : i = j
+                  · subst hij
+                    rw [Ctx.cons_self, Ctx.cons_other _ _ (I_zero_ne_shift σ i),
+                      h2 i, Ctx.cons_self]
+                  · rw [Ctx.cons_other _ _ (I_shift_ne σ hij),
+                      Ctx.cons_other _ _ (I_zero_ne_shift σ i), h2 i,
+                      Ctx.cons_other _ _ (fun he : j = i => hij he.symm)]
+            · rw [if_pos (hfnon r' hr')]
+          · rw [if_neg hrm]; exact TreeOk.leaf _ _
+        · by_cases hrm : r = q.substAns (.node j p)
+          · exact absurd (hrm ▸ hlegal) hr
+          · exact if_neg hrm
+
 /-- `I_σ` denotes `⊔ {Iₙ(?) | n ∈ ℕ}`. -/
 noncomputable def treeI (σ : Ty) : T (σ ⇒ σ) :=
   idealOfChain (fun n => In σ n .hole) fun _ _ h => In_le_of_le σ h .hole
@@ -475,22 +1050,21 @@ noncomputable def T0 : Model SPCF := mkTreeModel interpBase
 
 /-! ## Theorem 4.22 and its corollaries -/
 
-/-- The one remaining obligation for Lemma A.1.
+/-- **Definition 4.20 for `K`, correctly stated.**
 
 `Kₙ(?)` branches over the infinitely many final answers `a ∈ ℕ`, so it is *not*
 an element of the finitary basis `D_{σ→τ→σ}`; `K` is the ideal of the finite
 *legal* trees below the chain (`treeK`).  To read the equation
 `apply (K, d, e) = d` off Claim A.2 one therefore needs that those finite legal
 trees already compute whatever `Kₙ(?)` computes — that they are cofinal for
-application.  This is the only step of Appendix A.1 not carried out here.
-
-(Note that Definition 4.20 describes `Kₙ` as mapping into `D_{σ→τ}(q̂)`, which
-cannot be literally right for the reason just given.) -/
+application.  This is `KnP`, the pruning of `Kₙ(?)` along `d`. -/
 theorem Kn_legal_cofinal (σ τ : Ty) (n : Nat) (d : D σ) (e : D τ) (a : D σ)
     (h : Tree.Le a.1 (apply0 (apply0 (Kn σ τ n .hole) d.1) e.1)) :
     ∃ k : D (σ ⇒ τ ⇒ σ), Tree.Le k.1 (Kn σ τ n .hole) ∧
-      Tree.Le a.1 (apply0 (apply0 k.1 d.1) e.1) := by
-  sorry
+      Tree.Le a.1 (apply0 (apply0 k.1 d.1) e.1) :=
+  ⟨⟨KnP σ τ n .hole d.1,
+      KnP_ok σ τ d.1 d.2 n .hole Ctx.empty rfl fun _ => rfl⟩,
+    KnP_le_Kn σ τ n .hole d.1, apply0_KnP_ge σ τ n .hole d.1 e.1 a.1 h⟩
 
 /-- **Lemma A.1.**  *For all `d ∈ T_σ`, `e ∈ T_τ`,
 `apply (K_{σ,τ}, d, e) = d`.*
@@ -558,12 +1132,13 @@ theorem lemma_A_6 (σ τ ρ : Ty) (e₁ : T (σ ⇒ τ ⇒ ρ)) (e₂ : T (σ �
       = applyT (applyT e₁ e₃) (applyT e₂ e₃) :=
   Classical.choose_spec (claim_A_5 σ τ ρ) e₁ e₂ e₃
 
-/-- The `I` analogue of `Kn_legal_cofinal`: the only step of the `(I)` equation
-not carried out here. -/
+/-- The `I` analogue of `Kn_legal_cofinal`: the finite legal trees below the
+chain `Iₙ(?)` are cofinal for application. -/
 theorem In_legal_cofinal (σ : Ty) (n : Nat) (d : D σ) (a : D σ)
     (h : Tree.Le a.1 (apply0 (In σ n .hole) d.1)) :
-    ∃ k : D (σ ⇒ σ), Tree.Le k.1 (In σ n .hole) ∧ Tree.Le a.1 (apply0 k.1 d.1) := by
-  sorry
+    ∃ k : D (σ ⇒ σ), Tree.Le k.1 (In σ n .hole) ∧ Tree.Le a.1 (apply0 k.1 d.1) :=
+  ⟨⟨InP σ n .hole d.1, InP_ok σ d.1 d.2 n .hole Ctx.empty rfl fun _ => rfl⟩,
+    InP_le_In σ n .hole d.1, apply0_InP_ge σ n .hole d.1 a.1 h⟩
 
 /-- The `(I)` equation of Theorem 4.22; "the proof for `I` closely follows the
 proof for `K`". -/

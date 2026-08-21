@@ -67,6 +67,19 @@ section Complete
 #print axioms Model.extensional_of_orderExtensional
 #print axioms SemDef.seqIndex_of_propagates
 #print axioms SemDef.theorem_6_5
+#print axioms TreeOk_at'
+#print axioms legalQuery_join_snoc
+#print axioms Query.ctxFrom_snoc
+#print axioms KnP_ok
+#print axioms KnP_le_Kn
+#print axioms apply0_KnP_ge
+#print axioms Kn_legal_cofinal
+#print axioms InP_ok
+#print axioms InP_le_In
+#print axioms apply0_InP_ge
+#print axioms In_legal_cofinal
+#print axioms lemma_A_1
+#print axioms theorem_4_22_I
 end Complete
 
 section DerivedOrDependent
@@ -77,8 +90,6 @@ section DerivedOrDependent
 #print axioms theorem_4_11
 #print axioms corollary_4_18
 #print axioms theorem_4_22
-#print axioms theorem_4_22_I
-#print axioms lemma_A_1
 #print axioms lemma_A_6
 #print axioms lemma_4_3_omega_algebraic
 #print axioms meaning_omegaTerm
@@ -112,8 +123,6 @@ section Outstanding
 #print axioms lemma_4_16
 #print axioms orderExtensional_T
 #print axioms claim_A_5
-#print axioms Kn_legal_cofinal
-#print axioms In_legal_cofinal
 #print axioms lemma_A_7
 #print axioms lemma_B_1
 #print axioms theorem_4_27
