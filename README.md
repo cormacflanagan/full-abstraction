@@ -103,9 +103,15 @@ statement is adjusted and the adjustment is noted in the docstring.
 | Theorem 4.4: the ideal completion has a least element | `theorem_4_4_bot` |
 | Theorem 4.4 (2): the finite elements are exactly the principal ideals | `theorem_4_4_finite_elements` |
 | Theorem 4.4 (3): algebraicity | `theorem_4_4_algebraic` |
-| Theorem 4.4: ω-algebraicity (countably many finite elements) | `theorem_4_4_countably_many_finite` |
+| Theorem 4.4: ω-algebraicity (given a countable basis) | `theorem_4_4_countably_many_finite` |
 | Theorem 4.4, packaged as a `ScottDomain` instance | `idealScottDomain` |
 | Lemma 4.3, the partial-order half | `lemma_4_3_partial_order` |
+| **Lemma 4.3**: every finite bounded subset of `D_σ` has a lub | `dsub_lub_of_finite_bounded` |
+| — the join of two bounded trees is their lub | `Tree.join_spec` |
+| — the join of two legal subtrees is legal | `TreeOk_join` |
+| **Lemma 4.3**: `D_σ` is a finitary basis | `lemma_4_3` |
+| the finite approximations of a tree are directed | `finiteApprox_directed` |
+| the ground domain `T_o` is flat | `T_base_flat` |
 | Lemma 4.7 | `lemma_4_7` |
 | `apply₀` is monotone in each argument | `apply0_mono_left`, `apply0_mono_right` |
 | comparable trees answer a query compatibly | `at'_mono` |
@@ -114,9 +120,14 @@ statement is adjusted and the adjustment is noted in the docstring.
 | a hole that propagates both errors is a sequentiality index | `SemDef.seqIndex_of_propagates` |
 | **Theorem 6.5**: error-sensitivity implies sequentiality | `SemDef.theorem_6_5` |
 
-`SemDef.theorem_6_5` and everything above `Trees.lean` are complete in the
-strong sense: `#print axioms` reports only `propext`, `Classical.choice` and
-`Quot.sound`.
+Each of these is complete in the strong sense: `#print axioms` reports only
+`propext`, `Classical.choice` and `Quot.sound`.
+
+Note that `Countable` is *not* a field of `FinitaryBasis` here.  It plays no
+part in the construction of the ideal completion or in parts (1)–(3) of
+Theorem 4.4, so it is taken as an explicit hypothesis where it is actually
+used — ω-algebraicity.  Splitting Lemma 4.3 this way is what lets the finitary
+basis `D_σ`, and hence `T_σ`, be built without any outstanding assumption.
 
 ### Proved from stated ingredients
 
@@ -129,7 +140,7 @@ These have real proofs, but their ingredients are still `sorry`, so
 | Corollary 4.18 (`T_{σ→τ} ≅ F_{σ→τ}`) | `corollary_4_18` | `orderExtensional_T` |
 | Theorem 4.22 | `theorem_4_22` | `lemma_A_6`, `lemma_A_1`, `theorem_4_22_I` |
 | Lemma A.6 | `lemma_A_6` | `claim_A_5` |
-| `T_o` is a flat domain | `T_base_flat` | Lemma 4.3 |
+| Theorem 4.4: ω-algebraicity of `T_σ` | `lemma_4_3_omega_algebraic` | `dsub_countable` |
 | **Theorem 5.1** (full abstraction), separating form | `theorem_5_1_separating` | `separation`, `lemma_5_2`, `meaning_apps` |
 | **Theorem 5.1** | `theorem_5_1`, `theorem_5_1_fullyAbstract` | the above + `soundness` |
 | **Theorem 6.2** (SPCF is sequential) | `theorem_6_2` | Theorem 6.4 via Theorem 6.5 |
@@ -142,9 +153,7 @@ Stated faithfully; proof still `sorry`.
 
 | Result | Lean name | Note |
 | --- | --- | --- |
-| Lemma 4.3: every finite bounded subset of `D_σ` has a lub | `dsub_lub_of_finite_bounded` | the paper: "straightforward but tedious" |
-| Lemma 4.3: `D_σ` is countable | `dsub_countable` | |
-| finite approximations of a tree are directed | `finiteApprox_directed` | corollary of the above |
+| Lemma 4.3: `D_σ` is countable | `dsub_countable` | the only remaining half of Lemma 4.3; needed for ω-algebraicity alone |
 | Definition 4.9: `apply₀` lands in `D_τ(γ')` | `apply0_ok` | the paper: "easy to show" |
 | Claim 4.8 | `claim_4_8` | |
 | Lemma 4.14 | `lemma_4_14` | |
@@ -169,9 +178,8 @@ Stated faithfully; proof still `sorry`.
 | a `k`-ary procedure probes one argument first | `probe_index` | the tree analysis behind Thms. 6.2 and 6.4 |
 | `catch` reports the sequentiality index | `catch_returns_index` | Theorem 4.27's `(catch)` equation |
 
-The two Lemma 4.3 obligations sit underneath everything: `T_σ` is defined as the
-ideal completion of the finitary basis `D_σ`, so every result mentioning `T_σ`
-inherits `sorryAx` from them until they are discharged.
+Twenty-seven declarations still carry a `sorry`; `FullAbstraction/Audit.lean`
+lists them and reports the axiom dependencies of every named result.
 
 ## Definitions
 

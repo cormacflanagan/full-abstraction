@@ -330,11 +330,87 @@ instance : Po (Tree σ) where
 
 theorem bot_le (d : Tree σ) : (bot : Tree σ) ⊑ d := Le.bot d
 
-/-! ### Definition 4.5: the `@` operator -/
-
 /-- Transport a response along an equality of argument indices. -/
 def castResp {σ : Ty} {i j : Fin σ.arity} (h : i = j) (r : Resp (σ.arg i)) :
     Resp (σ.arg j) := h ▸ r
+
+@[simp] theorem castResp_rfl {σ : Ty} {i : Fin σ.arity} (r : Resp (σ.arg i)) :
+    castResp (rfl : i = i) r = r := rfl
+
+/-! ### Joins of bounded trees
+
+The least-upper-bound half of Lemma 4.3 ("It is straightforward but tedious to
+prove that every finite bounded subset of `D_σ` has a least upper bound").  Two
+trees with a common upper bound have a join, computed branch by branch. -/
+
+/-- The join of two trees.  When they have a common upper bound this is their
+least upper bound (`join_spec`); otherwise its value is unconstrained. -/
+noncomputable def join {σ : Ty} : Tree σ → Tree σ → Tree σ
+  | .leaf .bot, e => e
+  | .leaf (.err b), _ => .leaf (.err b)
+  | .leaf (.num n), _ => .leaf (.num n)
+  | .node i q f, .node j p g =>
+      if h : (⟨i, q⟩ : NodeVal σ) = ⟨j, p⟩ then
+        .node i q fun r => join (f r) (g (castResp (congrArg Sigma.fst h) r))
+      else .node i q f
+  | .node i q f, .leaf _ => .node i q f
+
+@[simp] theorem join_bot_left (e : Tree σ) : join (.leaf .bot : Tree σ) e = e := rfl
+
+@[simp] theorem join_node_leaf (i : Fin σ.arity) (q : Query (σ.arg i))
+    (f : Resp (σ.arg i) → Tree σ) (v : Val) :
+    join (.node i q f) (.leaf v) = .node i q f := by
+  cases v <;> rfl
+
+/-- Two nodes with the same node value join branchwise. -/
+theorem join_node_self (i : Fin σ.arity) (q : Query (σ.arg i))
+    (f g : Resp (σ.arg i) → Tree σ) :
+    join (.node i q f) (.node i q g) = .node i q fun r => join (f r) (g r) := by
+  show (dite _ _ _) = _
+  rw [dif_pos (rfl : (⟨i, q⟩ : NodeVal σ) = ⟨i, q⟩)]
+  rfl
+
+theorem join_bot_bot : join (bot : Tree σ) bot = bot := rfl
+
+/-- **Lemma 4.3**, the least-upper-bound property: two trees with a common upper
+bound `t` have `join` as their least upper bound. -/
+theorem join_spec : ∀ (d e t : Tree σ), Le d t → Le e t →
+    Le d (join d e) ∧ Le e (join d e) ∧ ∀ u, Le d u → Le e u → Le (join d e) u := by
+  intro d
+  induction d with
+  | leaf v =>
+    intro e t hd he
+    cases v with
+    | bot =>
+      exact ⟨Le.bot e, Le.refl e, fun _ _ hu => hu⟩
+    | err b =>
+      cases hd with
+      | leaf _ =>
+        exact ⟨Le.refl _, he, fun u hu _ => hu⟩
+    | num n =>
+      cases hd with
+      | leaf _ =>
+        exact ⟨Le.refl _, he, fun u hu _ => hu⟩
+  | node i q f ih =>
+    intro e t hd he
+    cases hd with
+    | node _ _ _ ft hft =>
+      cases he with
+      | bot =>
+        exact ⟨Le.refl _, Le.bot _, fun _ hu _ => hu⟩
+      | node _ _ ge _ hge =>
+        rw [join_node_self]
+        refine ⟨Le.node _ _ _ _ fun r => (ih r (ge r) (ft r) (hft r) (hge r)).1,
+          Le.node _ _ _ _ fun r => (ih r (ge r) (ft r) (hft r) (hge r)).2.1, ?_⟩
+        intro u hu hu'
+        cases hu with
+        | node _ _ _ gu hfu =>
+          cases hu' with
+          | node _ _ _ gu' hgeu =>
+            exact Le.node _ _ _ _ fun r =>
+              (ih r (ge r) (ft r) (hft r) (hge r)).2.2 (gu r) (hfu r) (hgeu r)
+
+/-! ### Definition 4.5: the `@` operator -/
 
 /-- One step of `@`: descend into the branch of `d` selected by the step
 `⟨i, q, r⟩`, if `d`'s root is the node `⟨i, q⟩`. -/
@@ -457,6 +533,54 @@ inductive CtxOk : {σ : Ty} → Ctx σ → Prop where
       {r : Resp (σ.arg i)} :
       CtxOk γ → LegalQuery (γ.at' i) q → LegalResp q r → CtxOk (γ.cons i r)
 
+/-- Inversion for `TreeOk` at a node. -/
+theorem TreeOk_node_inv {σ : Ty} {γ : Ctx σ} {i : Fin σ.arity} {q : Query (σ.arg i)}
+    {f : Resp (σ.arg i) → Tree σ} (h : TreeOk γ (.node i q f)) :
+    LegalQuery (γ.at' i) q ∧ Tree.FiniteProperDomain f ∧
+    (∀ r, LegalResp q r → TreeOk (γ.cons i r) (f r)) ∧
+    (∀ r, ¬ LegalResp q r → f r = Tree.bot) := by
+  cases h with
+  | node _ _ _ _ hq hfin hsub hnon => exact ⟨hq, hfin, hsub, hnon⟩
+
+/-- The join of two legal subtrees with a common upper bound is legal.  This is
+the second half of the least-upper-bound property of Lemma 4.3. -/
+theorem TreeOk_join {σ : Ty} : ∀ (d : Tree σ) (γ : Ctx σ) (e t : Tree σ),
+    TreeOk γ d → TreeOk γ e → Tree.Le d t → Tree.Le e t → TreeOk γ (Tree.join d e) := by
+  intro d
+  induction d with
+  | leaf v =>
+    intro γ e t hd he hdt het
+    cases v with
+    | bot => exact he
+    | err b => exact TreeOk.leaf γ _
+    | num n => exact TreeOk.leaf γ _
+  | node i q f ih =>
+    intro γ e t hd he hdt het
+    obtain ⟨hq, hfin, hsub, hnon⟩ := TreeOk_node_inv hd
+    cases hdt with
+    | node _ _ _ ft hft =>
+      cases het with
+      | bot => exact hd
+      | node _ _ ge _ hge =>
+        obtain ⟨hq', hfin', hsub', hnon'⟩ := TreeOk_node_inv he
+        rw [Tree.join_node_self]
+        refine TreeOk.node γ i q _ hq ?_ ?_ ?_
+        · obtain ⟨l, hl⟩ := hfin
+          obtain ⟨l', hl'⟩ := hfin'
+          refine ⟨l ++ l', fun r hr => ?_⟩
+          by_cases h1 : f r = Tree.bot
+          · by_cases h2 : ge r = Tree.bot
+            · have hbot : Tree.join (f r) (ge r) = Tree.bot := by rw [h1, h2]; rfl
+              exact absurd hbot hr
+            · exact List.mem_append.mpr (Or.inr (hl' r h2))
+          · exact List.mem_append.mpr (Or.inl (hl r h1))
+        · intro r hr
+          exact ih r (γ.cons i r) (ge r) (ft r) (hsub r hr) (hsub' r hr) (hft r) (hge r)
+        · intro r hr
+          have hbot : Tree.join (f r) (ge r) = Tree.bot := by
+            rw [hnon r hr, hnon' r hr]; rfl
+          exact hbot
+
 /-- `D_σ(γ)`, the finite subtrees legal in the context `γ`. -/
 def DSub (σ : Ty) (γ : Ctx σ) : Type := { d : Tree σ // TreeOk γ d }
 
@@ -486,12 +610,37 @@ end DSub
 
 "It is straightforward but tedious to prove that every finite bounded subset of
 `D_σ` has a least upper bound" (proof of Lemma 4.3). -/
-theorem dsub_lub_of_finite_bounded {σ : Ty} {γ : Ctx σ} (l : List (DSub σ γ))
-    (h : Bounded (Set.ofList l)) : ∃ d, IsLUB (Set.ofList l) d := by
-  sorry
+theorem dsub_lub_of_finite_bounded {σ : Ty} {γ : Ctx σ} : ∀ l : List (DSub σ γ),
+    Bounded (Set.ofList l) → ∃ d, IsLUB (Set.ofList l) d := by
+  intro l
+  induction l with
+  | nil =>
+    intro _
+    exact ⟨DSub.bot, fun a ha => absurd ha (by simp [Set.ofList]), fun v _ => DSub.bot_le v⟩
+  | cons a l ih =>
+    rintro ⟨u, hu⟩
+    have hsub : ∀ x, x ∈ Set.ofList l → x ∈ Set.ofList (a :: l) := by
+      intro x hx; simp only [Set.mem_ofList, List.mem_cons]; exact Or.inr hx
+    have hamem : a ∈ Set.ofList (a :: l) := by simp [Set.ofList]
+    obtain ⟨d, hd⟩ := ih ⟨u, fun x hx => hu x (hsub x hx)⟩
+    have hau : Tree.Le a.1 u.1 := hu a hamem
+    have hdu : Tree.Le d.1 u.1 := hd.2 u fun x hx => hu x (hsub x hx)
+    have hj := Tree.join_spec a.1 d.1 u.1 hau hdu
+    refine ⟨⟨Tree.join a.1 d.1, TreeOk_join a.1 γ d.1 u.1 a.2 d.2 hau hdu⟩, ?_, ?_⟩
+    · intro x hx
+      simp only [Set.mem_ofList, List.mem_cons] at hx
+      rcases hx with rfl | hx
+      · exact hj.1
+      · exact Po.le_trans (show Tree.Le x.1 d.1 from hd.1 x hx) hj.2.1
+    · intro v hv
+      exact hj.2.2 v.1 (hv a hamem) (hd.2 v fun x hx => hv x (hsub x hx))
 
 /-- `D_σ(γ)` is countable: "`D_σ` is countable because every branching function
-has a finite proper domain" (proof of Lemma 4.3). -/
+has a finite proper domain" (proof of Lemma 4.3).
+
+This is the *only* remaining obligation of Lemma 4.3.  It is not needed to build
+`T_σ` or for parts (1)–(3) of Theorem 4.4; it is what makes `T_σ`
+**ω**-algebraic (`lemma_4_3_omega_algebraic`). -/
 theorem dsub_countable {σ : Ty} {γ : Ctx σ} : Countable (DSub σ γ) := by
   sorry
 
@@ -501,10 +650,9 @@ theorem dsub_countable {σ : Ty} {γ : Ctx σ} : Countable (DSub σ γ) := by
 transitive.  `D_σ` is countable because every branching function has a finite
 proper domain.  It is straightforward but tedious to prove that every finite
 bounded subset of `D_σ` has a least upper bound." -/
-noncomputable instance lemma_4_3 {σ : Ty} {γ : Ctx σ} : FinitaryBasis (DSub σ γ) where
+instance lemma_4_3 {σ : Ty} {γ : Ctx σ} : FinitaryBasis (DSub σ γ) where
   toPo := inferInstance
   elt := DSub.bot
-  countable := dsub_countable
   lub_of_finite_bounded := dsub_lub_of_finite_bounded
 
 /-- "As an immediate consequence of this lemma, we conclude that the ideal
@@ -523,7 +671,9 @@ It is needed because most of the trees named in Definitions 4.19–4.21 —
 `D_σ`; they are limit points of `T_σ`. -/
 theorem finiteApprox_directed {σ : Ty} (t : Tree σ) (d₁ d₂ : D σ)
     (h₁ : d₁.1 ⊑ t) (h₂ : d₂.1 ⊑ t) : ∃ d : D σ, d.1 ⊑ t ∧ d₁ ⊑ d ∧ d₂ ⊑ d := by
-  sorry
+  have hj := Tree.join_spec d₁.1 d₂.1 t h₁ h₂
+  exact ⟨⟨Tree.join d₁.1 d₂.1, TreeOk_join d₁.1 [] d₂.1 t d₁.2 d₂.2 h₁ h₂⟩,
+    hj.2.2 t h₁ h₂, hj.1, hj.2.1⟩
 
 /-- The element of `T_σ` determined by a (possibly infinite) tree `t`: the ideal
 of its finite approximations.  For a finite `t` this is the principal ideal
@@ -549,6 +699,11 @@ noncomputable def idealOfChain {σ : Ty} (c : Nat → Tree σ)
     have hn' : b.1 ⊑ c (m + n) := Po.le_trans hn (hmono n (m + n) (Nat.le_add_left n m))
     obtain ⟨d, hd, h1, h2⟩ := finiteApprox_directed (c (m + n)) a b hm' hn'
     exact ⟨d, ⟨m + n, hd⟩, h1, h2⟩
+
+/-- **Theorem 4.4**, ω-algebraicity of the tree domains, from the countability
+half of Lemma 4.3. -/
+theorem lemma_4_3_omega_algebraic {σ : Ty} :
+    ScottDomain.OmegaAlgebraic (T σ) := idealOmegaAlgebraic dsub_countable
 
 /-- The reflexivity, antisymmetry and transitivity half of Lemma 4.3, which is
 proved outright. -/

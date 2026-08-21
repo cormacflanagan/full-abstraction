@@ -71,12 +71,19 @@ theorem directed_of_lub [Po α] {S : Set α} (hne : Set.Nonempty S) {u : α}
 "A finitary basis `B` is a countable, partially ordered set such that every
 finite, bounded subset has a least upper bound." (§4.1) -/
 
-/-- A **finitary basis** (§4.1). `elt` witnesses that the basis is inhabited,
-which together with `lub_of_finite_bounded` on the empty list yields a least
-element `⊥`. -/
+/-- A **finitary basis** (§4.1): "a countable, partially ordered set such that
+every finite, bounded subset has a least upper bound".
+
+Countability is *not* a field here.  It plays no part in the construction of the
+ideal completion or in parts (1)–(3) of Theorem 4.4; it is needed only for
+ω-algebraicity, which therefore takes it as an explicit hypothesis
+(`theorem_4_4_countably_many_finite`).  Separating the two makes it visible
+which results depend on which half of the definition.
+
+`elt` witnesses that the basis is inhabited, which together with
+`lub_of_finite_bounded` on the empty list yields a least element `⊥`. -/
 class FinitaryBasis (α : Type u) extends Po α where
   elt : α
-  countable : Countable α
   lub_of_finite_bounded :
     ∀ l : List α, Bounded (Set.ofList l) → ∃ d, IsLUB (Set.ofList l) d
 
@@ -321,12 +328,12 @@ theorem theorem_4_4_finite_elements [FinitaryBasis α] (I : Ideal α) :
 
 /-- **Theorem 4.4** (ω-algebraicity).  There are only countably many finite
 elements, because the basis is countable. -/
-theorem theorem_4_4_countably_many_finite [FinitaryBasis α] :
+theorem theorem_4_4_countably_many_finite [FinitaryBasis α] (hcount : Countable α) :
     Countable { I : Ideal α // IsFinite I } := by
   classical
   have hchoice : ∀ I : { I : Ideal α // IsFinite I }, ∃ d : α, I.1 = principal d :=
     fun I => theorem_4_4_isFinite_principal I.1 I.2
-  refine Countable.ofInjection FinitaryBasis.countable
+  refine Countable.ofInjection hcount
     (fun I => Classical.choose (hchoice I)) ?_
   intro I J h
   have hI := Classical.choose_spec (hchoice I)
@@ -357,8 +364,6 @@ class ScottDomain (α : Type u) extends Po α where
   Fin' : α → Prop
   /-- Algebraicity (Theorem 4.4(3)). -/
   algebraic : ∀ a : α, IsLUB (fun b => Fin' b ∧ Po.le b a) a
-  /-- ω-algebraicity: there are only countably many finite elements. -/
-  countable_fin : Countable { a : α // Fin' a }
 
 /-- **Theorem 4.4**, packaged: the ideal completion of a finitary basis is a
 Scott domain. -/
@@ -380,6 +385,14 @@ noncomputable instance idealScottDomain [FinitaryBasis α] : ScottDomain (Ideal 
     · intro V hV a ha
       refine hV (Ideal.principal a) ⟨theorem_4_4_principal_isFinite a, ?_⟩ a (Po.le_refl a)
       intro b hb; exact I.downward b a hb ha
-  countable_fin := theorem_4_4_countably_many_finite
+
+/-- ω-algebraicity of a Scott domain: only countably many finite elements. -/
+def ScottDomain.OmegaAlgebraic (α : Type u) [ScottDomain α] : Prop :=
+  Countable { a : α // ScottDomain.Fin' a }
+
+/-- The ideal completion of a *countable* finitary basis is ω-algebraic. -/
+theorem idealOmegaAlgebraic [FinitaryBasis α] (hcount : Countable α) :
+    ScottDomain.OmegaAlgebraic (Ideal α) :=
+  theorem_4_4_countably_many_finite hcount
 
 end FA

@@ -20,6 +20,11 @@ section Complete
 #print axioms theorem_4_4_finite_elements
 #print axioms theorem_4_4_countably_many_finite
 #print axioms lemma_4_3_partial_order
+#print axioms dsub_lub_of_finite_bounded
+#print axioms finiteApprox_directed
+#print axioms Tree.join_spec
+#print axioms TreeOk_join
+#print axioms lemma_4_3
 #print axioms lemma_4_7
 #print axioms apply0_mono_left
 #print axioms apply0_mono_right
@@ -44,9 +49,7 @@ end Complete
 
 section Outstanding
 -- Results still resting on `sorryAx`.
-#print axioms dsub_lub_of_finite_bounded
 #print axioms dsub_countable
-#print axioms finiteApprox_directed
 #print axioms apply0_ok
 #print axioms claim_4_8
 #print axioms lemma_4_14
