@@ -175,6 +175,15 @@ def Term.toComb {L : Lang} : Term L → Comb L
 
 @[inherit_doc] scoped notation:max "⟦" M "⟧CL" => Term.toComb M
 
+/-- `[·]_CL` turns iterated `λ` into iterated `λ*`. -/
+theorem Term.toComb_lams {L : Lang} : ∀ (xs : List (Nat × Ty)) (M : Term L),
+    Term.toComb (Term.lams xs M) = Comb.lamStars xs (Term.toComb M)
+  | [], _ => rfl
+  | p :: xs, M => by
+      show Comb.lamStar p.1 p.2 (Term.toComb (Term.lams xs M)) = _
+      rw [Term.toComb_lams xs M]
+      rfl
+
 /-! ## The constants of PCF and SPCF -/
 
 /-! ## The translation preserves types

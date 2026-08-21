@@ -135,6 +135,18 @@ Definition 6.3's error-sensitivity carry the matching `Program` conditions,
 which the paper leaves implicit in "let `M₁, …, Mₖ` be closed phrases such that
 `C[M₁, …, Mₖ]` is a program".
 
+**Ground holes.** Definitions 2.9, 6.3 and 6.6 substitute the *ground*
+expressions `Ω` and `errorᵢ` into the holes of the context, and 6.3 speaks of
+"closed phrases"; the holes of the contexts of §6 are therefore positions for
+closed ground phrases, and the quantifications over the fills `M'ᵢ` say so.
+Without this the definitions are degenerate: with the single ground `Ω` of
+Definition 2.1, any hole that cannot be ground-typed is a vacuous
+sequentiality index, and an open fill captured by the context's binders
+escapes every denotational analysis.  The proofs of Theorems 6.2, 6.4 and 6.7
+go through the substitution lemma `meaning_fill_vars` — the semantic content
+of the paper's step from `C[M₁,…,Mₖ]` to `λx₁…xₖ.C[x⃗]` — whose `λ` case is
+powered by extensionality (Theorem 4.11).
+
 **Indices.** The paper numbers arguments from 1; Lean's `Fin` numbers from 0.
 Where this matters — notably `catch`, which the paper says returns `j − 1` — the
 statement is adjusted and the adjustment is noted in the docstring.
@@ -242,13 +254,17 @@ derivation is the content.
 | monotonicity of `T` in a hole (Definition 2.1's `mono`) | `Tmeaning_mono` | `applyT_mono_*`, `lamStar_apply`, order-extensionality |
 | **Theorem 5.1** (full abstraction), separating form | `theorem_5_1_separating` | `separation`, `lemma_5_2`, `meaning_apps` |
 | **Theorem 5.1** | `theorem_5_1`, `theorem_5_1_fullyAbstract` | the above + `soundness` |
+| the substitution lemma for the tree model | `meaning_fill_vars` | order-extensionality, `lamStar_apply` |
+| the root analysis of §6 | `holeAbs_analysis` | the key equation `holeAbs_key` |
+| a `k`-ary procedure probes one argument first | `probe_index` | `holeAbs_analysis`, `applyPow_node_err` |
+| `catch` reports the sequentiality index | `catch_returns_index` | `holeAbs_analysis`, `applyT_catch` |
 | **Theorem 6.2** (SPCF is sequential) | `theorem_6_2` | Theorem 6.4 via Theorem 6.5 |
 | **Theorem 6.4** (SPCF is error-sensitive) | `theorem_6_4` | `probe_index`, `meaning_errTerm` |
 | **Theorem 6.7** (SPCF is observably sequential) | `theorem_6_7` | Theorem 6.2, `probe_index`, `catch_returns_index` |
 
 ### Outstanding
 
-Eight declarations, stated faithfully, whose own proof is still `sorry`.
+Six declarations, stated faithfully, whose own proof is still `sorry`.
 
 | Result | Lean name | Note |
 | --- | --- | --- |
@@ -257,8 +273,6 @@ Eight declarations, stated faithfully, whose own proof is still `sorry`.
 | **Lemma B.1** / **Lemma 4.26** | `lemma_B_1` | Appendix B; `lemma_4_26` is `lemma_B_1` |
 | **Theorem 4.27** (`error`, `bottom`, `catch`, `return`) | `theorem_4_27` | |
 | **Lemma 5.2** (definability of the finite elements) | `lemma_5_2`, `lemma_5_2_subtrees` | the crux of §5; **Theorem 5.1 now rests only on this and the Theorem 4.22 chain** |
-| a `k`-ary procedure probes one argument first | `probe_index` | the tree analysis behind Thms. 6.2 and 6.4 |
-| `catch` reports the sequentiality index | `catch_returns_index` | Theorem 4.27's `(catch)` equation |
 
 #### How Theorem 4.11 gets its uniformity
 

@@ -134,8 +134,11 @@ section DerivedOrDependent
 #print axioms meaning_fill_vars
 #print axioms lamStars_apply_pow
 #print axioms applyPow_node_err
-#print axioms theorem_6_4
+#print axioms holeAbs_analysis
+#print axioms applyT_catch
+#print axioms catch_returns_index
 #print axioms theorem_6_7
+#print axioms theorem_6_4
 end DerivedOrDependent
 
 section Outstanding
@@ -146,7 +149,6 @@ section Outstanding
 #print axioms theorem_4_27
 #print axioms lemma_5_2
 #print axioms lemma_5_2_subtrees
-#print axioms catch_returns_index
 end Outstanding
 
 end FA
