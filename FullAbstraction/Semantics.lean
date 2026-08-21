@@ -319,9 +319,16 @@ structure Probe {k : Nat} (C : MCtx L k) (M : Fin k → Term L) : Prop where
   divergesAtBot : P.Diverges (C.fill fun _ => P.omega)
 
 /-- `j` is a **sequentiality index** of `C[·,…,·]` (Definition 2.9):
-`P[[C[M'₁,…,M'_{j-1}, Ω, M'_{j+1},…,M'ₖ]]] = P[[Ω]]` for all `M'ᵢ`, `i ≠ j`. -/
+`P[[C[M'₁,…,M'_{j-1}, Ω, M'_{j+1},…,M'ₖ]]] = P[[Ω]]` for all `M'ᵢ`, `i ≠ j`.
+
+The `M'ᵢ` range over the phrases that may stand in the holes of the
+definition's game: closed phrases of ground type (`OmegaLike`).  This is the
+paper's implicit setting — Definitions 2.9 and 6.3 substitute the *ground*
+expressions `Ω` and `errorᵢ` into the holes, and 6.3 speaks of "closed
+phrases", so the holes of `C` are positions for closed ground phrases. -/
 def SeqIndex {k : Nat} (C : MCtx L k) (j : Fin k) : Prop :=
-  ∀ M' : Fin k → Term L, P.Program (C.fill (repl M' j P.omega)) →
+  ∀ M' : Fin k → Term L, (∀ i, Term.Closed (M' i)) → (∀ i, P.OmegaLike (M' i)) →
+    P.Program (C.fill (repl M' j P.omega)) →
     P.Diverges (C.fill (repl M' j P.omega))
 
 /-- **Definition 2.9** (*Sequentiality*).
@@ -330,7 +337,8 @@ def SeqIndex {k : Nat} (C : MCtx L k) (j : Fin k) : Prop :=
 `j ∈ ℕ`, called a sequentiality index of `C[·,…,·]`, such that
 `P[[C[M'₁,…,Ω,…,M'ₖ]]] = P[[Ω]]` for all expressions `M'ᵢ`, `i ≠ j`." -/
 def Sequential : Prop :=
-  ∀ (k : Nat) (C : MCtx L k) (M : Fin k → Term L), P.Probe C M → ∃ j : Fin k, P.SeqIndex C j
+  ∀ (k : Nat) (C : MCtx L k) (M : Fin k → Term L), P.Probe C M →
+    (∀ i, P.OmegaLike (M i)) → ∃ j : Fin k, P.SeqIndex C j
 
 /-- **Definition 6.3** (*Error-Sensitivity*).
 
@@ -354,7 +362,9 @@ def ErrorSensitive : Prop :=
     (P.meaning (E true) ≠ P.meaning (E false)) ∧
     -- … and every probing context propagates an error from one fixed hole.
     (∀ (k : Nat) (C : MCtx L k) (M : Fin k → Term L), P.Probe C M →
+      (∀ i, P.OmegaLike (M i)) →
       ∃ j : Fin k, ∀ (b : Bool) (M' : Fin k → Term L),
+        (∀ i, Term.Closed (M' i)) → (∀ i, P.OmegaLike (M' i)) →
         P.Program (C.fill (repl M' j P.omega)) →
         P.Program (C.fill (repl M' j (E b))) ∧
         P.meaning (C.fill (repl M' j (E b))) = P.meaning (E b))
@@ -367,18 +377,19 @@ theorem seqIndex_of_propagates {E : Bool → Term L}
     (hdist : P.meaning (E true) ≠ P.meaning (E false))
     {k : Nat} {C : MCtx L k} {j : Fin k}
     (hj : ∀ (b : Bool) (M' : Fin k → Term L),
+      (∀ i, Term.Closed (M' i)) → (∀ i, P.OmegaLike (M' i)) →
       P.Program (C.fill (repl M' j P.omega)) →
       P.Program (C.fill (repl M' j (E b))) ∧
       P.meaning (C.fill (repl M' j (E b))) = P.meaning (E b)) :
     P.SeqIndex C j := by
-  intro M' hprog
+  intro M' hcl hlikeM hprog
   have hrepl : ∀ N : Term L, repl (repl M' j P.omega) j N = repl M' j N := by
     intro N; funext i; by_cases hij : i = j <;> simp [repl, hij]
   -- monotonicity: replacing `Ω` at hole `j` by `E b` can only increase the answer
   have hmono : ∀ b : Bool,
       P.meaning (C.fill (repl M' j P.omega)) ⊑[P] P.meaning (E b) := by
     intro b
-    obtain ⟨hprogE, heq⟩ := hj b M' hprog
+    obtain ⟨hprogE, heq⟩ := hj b M' hcl hlikeM hprog
     have hm := P.mono C (repl M' j P.omega) j (E b) (hlike b)
       (by rw [hrepl P.omega]; exact hprog) (by rw [hrepl (E b)]; exact hprogE)
     rw [hrepl (E b), hrepl P.omega, heq] at hm
@@ -394,8 +405,8 @@ both errors; monotonicity places `P[[C[…,Ω,…]]]` below both `P[[E₁]]` and
 domain, `P[[C[…,Ω,…]]]` must be `⊥ = P[[Ω]]`. -/
 theorem theorem_6_5 (h : P.ErrorSensitive) : P.Sequential := by
   obtain ⟨E, _hclosed, hlike, hne, hdist, hprop⟩ := h
-  intro k C M hprobe
-  obtain ⟨j, hj⟩ := hprop k C M hprobe
+  intro k C M hprobe hM
+  obtain ⟨j, hj⟩ := hprop k C M hprobe hM
   exact ⟨j, seqIndex_of_propagates P hlike hne hdist hj⟩
 
 /-- **Definition 6.6** (*Observable Sequentiality*).
@@ -407,11 +418,12 @@ property. … Then there exists a program context `D[·]` such that
 of `C`." -/
 def ObservablySequential : Prop :=
   P.Sequential ∧
-  ∀ (k : Nat) (C : MCtx L k) (M : Fin k → Term L), P.Probe C M → ∀ τs : Fin k → Ty,
+  ∀ (k : Nat) (C : MCtx L k) (M : Fin k → Term L), P.Probe C M →
+    (∀ i, P.OmegaLike (M i)) →
     ∃ j : Fin k, P.SeqIndex C j ∧ ∃ D : MCtx L 1,
       P.meaning (D.fill fun _ =>
-        Term.lams ((List.finRange k).map fun i => (i.val, τs i))
-          (C.fill fun i => Term.var i.val (τs i))) = P.nat j.val
+        Term.lams ((List.finRange k).map fun i => (C.varBound + i.val, 𝕆))
+          (C.fill fun i => Term.var (C.varBound + i.val) 𝕆)) = P.nat j.val
 
 end SemDef
 

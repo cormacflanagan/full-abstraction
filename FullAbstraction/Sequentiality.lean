@@ -30,8 +30,9 @@ form `⟨j, ?, f⟩` for some `j ≤ k` and some branching function `f`.  Clearl
 first case contradicts the hypothesis of Definition 2.9.  The second case
 specifies that the `k`-ary procedure probes its `j`-th argument first." -/
 theorem probe_index (k : Nat) (C : MCtx SPCF k) (M : Fin k → Term SPCF)
-    (hprobe : SPCFSem.Probe C M) :
+    (hprobe : SPCFSem.Probe C M) (hM : ∀ i, SPCFSem.OmegaLike (M i)) :
     ∃ j : Fin k, ∀ (b : Bool) (M' : Fin k → Term SPCF),
+      (∀ i, Term.Closed (M' i)) → (∀ i, SPCFSem.OmegaLike (M' i)) →
       SPCFSem.Program (C.fill (repl M' j SPCFSem.omega)) →
       SPCFSem.Program (C.fill (repl M' j (errTerm b))) ∧
       SPCFSem.meaning (C.fill (repl M' j (errTerm b))) = SPCFSem.meaning (errTerm b) := by
@@ -61,7 +62,8 @@ theorem errTerm_distinct :
 sequentiality of SPCF, the program `C[…]` returns `errorᵢ` if the `j`-th
 argument is `errorᵢ`, regardless of the values of the remaining arguments." -/
 theorem theorem_6_4 : SPCFSem.ErrorSensitive :=
-  ⟨errTerm, errTerm_closed, errTerm_omegaLike, errTerm_ne_bot, errTerm_distinct, probe_index⟩
+  ⟨errTerm, errTerm_closed, errTerm_omegaLike, errTerm_ne_bot, errTerm_distinct,
+    fun k C M hprobe hM => probe_index k C M hprobe hM⟩
 
 /-! ## Theorem 6.2 -/
 
@@ -87,15 +89,16 @@ Note the paper's `D[·] = (add1 (catch [·]))`: with the paper's convention
 our 0-based indices `catch` already returns `j`, and `D[·]` returns `j + 1`; we
 therefore state the property for the index itself. -/
 theorem catch_returns_index {k : Nat} (C : MCtx SPCF k) (M : Fin k → Term SPCF)
-    (hprobe : SPCFSem.Probe C M) (τs : Fin k → Ty) (j : Fin k)
+    (hprobe : SPCFSem.Probe C M) (hM : ∀ i, SPCFSem.OmegaLike (M i)) (j : Fin k)
     (hj : ∀ (b : Bool) (M' : Fin k → Term SPCF),
+      (∀ i, Term.Closed (M' i)) → (∀ i, SPCFSem.OmegaLike (M' i)) →
       SPCFSem.Program (C.fill (repl M' j SPCFSem.omega)) →
       SPCFSem.Program (C.fill (repl M' j (errTerm b))) ∧
       SPCFSem.meaning (C.fill (repl M' j (errTerm b))) = SPCFSem.meaning (errTerm b)) :
     ∃ D : MCtx SPCF 1,
       SPCFSem.meaning (D.fill fun _ =>
-        Term.lams ((List.finRange k).map fun i => (i.val, τs i))
-          (C.fill fun i => Term.var i.val (τs i))) = SPCFSem.nat j.val := by
+        Term.lams ((List.finRange k).map fun i => (C.varBound + i.val, 𝕆))
+          (C.fill fun i => Term.var (C.varBound + i.val) 𝕆)) = SPCFSem.nat j.val := by
   sorry
 
 /-- **Theorem 6.7.**  *SPCF is observably sequential.*
@@ -104,9 +107,9 @@ theorem catch_returns_index {k : Nat} (C : MCtx SPCF k) (M : Fin k → Term SPCF
 is trivial: simply set `D[·] = (add1 (catch [·]))`." -/
 theorem theorem_6_7 : SPCFSem.ObservablySequential := by
   refine ⟨theorem_6_2, ?_⟩
-  intro k C M hprobe τs
-  obtain ⟨j, hj⟩ := probe_index k C M hprobe
-  refine ⟨j, ?_, catch_returns_index C M hprobe τs j hj⟩
+  intro k C M hprobe hM
+  obtain ⟨j, hj⟩ := probe_index k C M hprobe hM
+  refine ⟨j, ?_, catch_returns_index C M hprobe hM j hj⟩
   -- `j` is a sequentiality index, by the argument of Theorem 6.5
   exact SemDef.seqIndex_of_propagates SPCFSem errTerm_omegaLike errTerm_ne_bot
     errTerm_distinct hj

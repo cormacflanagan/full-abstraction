@@ -422,6 +422,135 @@ def fill : MCtx L k → (Fin k → Term L) → Term L
   | .app C₁ C₂, M => .app (C₁.fill M) (C₂.fill M)
   | .lam x σ C, M => .lam x σ (C.fill M)
 
+
+/-- Free variables of `λ*ₓ.P` are free variables of `P`. -/
+theorem Comb.FV_lamStar {L : Lang} (x : Nat) (σ : Ty) :
+    ∀ (P : Comb L) (p : Nat × Ty), p ∈ Comb.FV (Comb.lamStar x σ P) → p ∈ Comb.FV P := by
+  intro P
+  induction P with
+  | var y τ =>
+    intro p hp
+    by_cases h : y = x ∧ τ = σ
+    · rw [Comb.lamStar, if_pos h] at hp
+      exact (hp : False).elim
+    · rw [Comb.lamStar, if_neg h] at hp
+      rcases hp with hp | hp
+      · exact (hp : False).elim
+      · exact hp
+  | const c =>
+    intro p hp
+    rcases hp with hp | hp <;> exact (hp : False).elim
+  | S a b c =>
+    intro p hp
+    rcases hp with hp | hp <;> exact (hp : False).elim
+  | K a b =>
+    intro p hp
+    rcases hp with hp | hp <;> exact (hp : False).elim
+  | I a =>
+    intro p hp
+    rcases hp with hp | hp <;> exact (hp : False).elim
+  | app P₁ P₂ ih₁ ih₂ =>
+    intro p hp
+    rcases hp with (hp | hp) | hp
+    · exact (hp : False).elim
+    · exact Or.inl (ih₁ p hp)
+    · exact Or.inr (ih₂ p hp)
+
+/-- `λ*ₓ` genuinely binds `x`: `(x, σ)` is not free in `λ*ₓ.P`. -/
+theorem Comb.FV_lamStar_self {L : Lang} (x : Nat) (σ : Ty) :
+    ∀ P : Comb L, (x, σ) ∉ Comb.FV (Comb.lamStar x σ P) := by
+  intro P
+  induction P with
+  | var y τ =>
+    intro hp
+    by_cases h : y = x ∧ τ = σ
+    · rw [Comb.lamStar, if_pos h] at hp
+      exact (hp : False).elim
+    · rw [Comb.lamStar, if_neg h] at hp
+      rcases hp with hp | hp
+      · exact (hp : False).elim
+      · have he : ((x, σ) : Nat × Ty) = (y, τ) := hp
+        exact h ⟨(congrArg Prod.fst he).symm, (congrArg Prod.snd he).symm⟩
+  | const c => intro hp; rcases hp with hp | hp <;> exact (hp : False).elim
+  | S a b c => intro hp; rcases hp with hp | hp <;> exact (hp : False).elim
+  | K a b => intro hp; rcases hp with hp | hp <;> exact (hp : False).elim
+  | I a => intro hp; rcases hp with hp | hp <;> exact (hp : False).elim
+  | app P₁ P₂ ih₁ ih₂ =>
+    intro hp
+    rcases hp with (hp | hp) | hp
+    · exact (hp : False).elim
+    · exact ih₁ hp
+    · exact ih₂ hp
+
+/-- The translation `[·]_CL` introduces no free variables. -/
+theorem Term.FV_toComb {L : Lang} :
+    ∀ (M : Term L) (p : Nat × Ty), p ∈ Comb.FV (Term.toComb M) → p ∈ Term.FV M := by
+  intro M
+  induction M with
+  | var x σ => intro p hp; exact hp
+  | const c => intro p hp; exact hp
+  | app M N ihM ihN =>
+    intro p hp
+    rcases hp with hp | hp
+    · exact Or.inl (ihM p hp)
+    · exact Or.inr (ihN p hp)
+  | lam x σ M ih =>
+    intro p hp
+    have hp' := Comb.FV_lamStar x σ (Term.toComb M) p hp
+    -- membership in `FV (lam x σ M)` also requires `p ≠ (x, σ)`; recover it
+    by_cases hpx : p = (x, σ)
+    · subst hpx
+      -- `(x,σ)` cannot survive `λ*`: check by a second pass
+      exact absurd hp (Comb.FV_lamStar_self x σ (Term.toComb M))
+    · exact ⟨ih p hp', hpx⟩
+
+end MCtx
+
+namespace MCtx
+variable {L : Lang} {k : Nat}
+
+/-- A strict upper bound on every variable name occurring in a context, bound or
+free (holes contribute nothing). -/
+def varBound : MCtx L k → Nat
+  | .hole _ => 0
+  | .var x _ => x + 1
+  | .const _ => 0
+  | .app C₁ C₂ => max C₁.varBound C₂.varBound
+  | .lam x _ C => max (x + 1) C.varBound
+
+theorem varBound_app_left (C₁ C₂ : MCtx L k) : C₁.varBound ≤ (MCtx.app C₁ C₂).varBound :=
+  Nat.le_max_left _ _
+
+theorem varBound_app_right (C₁ C₂ : MCtx L k) : C₂.varBound ≤ (MCtx.app C₁ C₂).varBound :=
+  Nat.le_max_right _ _
+
+theorem varBound_lam (x : Nat) (σ : Ty) (C : MCtx L k) :
+    C.varBound ≤ (MCtx.lam x σ C).varBound :=
+  Nat.le_max_right _ _
+
+theorem lt_varBound_lam (x : Nat) (σ : Ty) (C : MCtx L k) :
+    x < (MCtx.lam x σ C).varBound :=
+  Nat.lt_of_lt_of_le (Nat.lt_succ_self x) (Nat.le_max_left _ _)
+
+/-- Free variables transfer between fills whose corresponding entries have
+related free variables. -/
+theorem fill_FV_mono (Ms Ms' : Fin k → Term L)
+    (h : ∀ i p, p ∈ Term.FV (Ms i) → p ∈ Term.FV (Ms' i)) :
+    ∀ (C : MCtx L k) (p : Nat × Ty), p ∈ Term.FV (C.fill Ms) → p ∈ Term.FV (C.fill Ms') := by
+  intro C
+  induction C with
+  | hole i => exact h i
+  | var x σ => intro p hp; exact hp
+  | const c => intro p hp; exact hp
+  | app C₁ C₂ ih₁ ih₂ =>
+    intro p hp
+    rcases hp with hp | hp
+    · exact Or.inl (ih₁ p hp)
+    · exact Or.inr (ih₂ p hp)
+  | lam x σ C ih =>
+    intro p hp
+    exact ⟨ih p hp.1, hp.2⟩
+
 end MCtx
 
 /-- Replace the `j`-th entry of a tuple of arguments. -/
