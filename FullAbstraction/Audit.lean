@@ -130,6 +130,10 @@ section DerivedOrDependent
 #print axioms theorem_5_1
 #print axioms theorem_5_1_fullyAbstract
 #print axioms theorem_6_2
+#print axioms probe_index
+#print axioms meaning_fill_vars
+#print axioms lamStars_apply_pow
+#print axioms applyPow_node_err
 #print axioms theorem_6_4
 #print axioms theorem_6_7
 end DerivedOrDependent
@@ -142,7 +146,6 @@ section Outstanding
 #print axioms theorem_4_27
 #print axioms lemma_5_2
 #print axioms lemma_5_2_subtrees
-#print axioms probe_index
 #print axioms catch_returns_index
 end Outstanding
 

@@ -407,6 +407,120 @@ theorem applyPow_mem_intro : ∀ (k : Nat) (Λ : T (Ty.pow k)) (vs : Fin k → T
     exact ih (applyT Λ (vs 0)) (fun i => vs i.succ) (applyD s (ds 0))
       ⟨s, hs, ds 0, hds 0, Po.le_refl _⟩ (fun i => ds i.succ) (fun i => hds i.succ) c hc
 
+/-! ### The key equation and the propagation lemma -/
+
+/-- `Ω` is closed. -/
+theorem omegaTerm_closed : Term.Closed omegaTerm := by
+  rintro p (hp | hp) <;> exact hp
+
+/-- `⊥` belongs to every ideal of trees. -/
+theorem bot_mem_T {σ : Ty} (I : T σ) : DSub.bot ∈ I := by
+  obtain ⟨a, ha⟩ := I.nonempty'
+  exact I.downward _ a (DSub.bot_le a) ha
+
+/-- A tree below a leaf is `⊥` or that leaf. -/
+theorem le_leaf_cases {σ : Ty} {d : Tree σ} {v : Val} (h : Tree.Le d (.leaf v)) :
+    d = Tree.bot ∨ d = .leaf v := by
+  cases h with
+  | bot _ => exact Or.inl rfl
+  | leaf _ => exact Or.inr rfl
+
+/-- **The key equation**: the meaning of a filled context is the iterated
+application of the `k`-ary abstraction's meaning to the fills' meanings. -/
+theorem meaning_fill_eq_applyPow {k : Nat} (C : MCtx SPCF k) (N : Fin k → Term SPCF)
+    (hcl : ∀ i, Term.Closed (N i)) (hty : ∀ i, Term.HasTy [] (N i) 𝕆)
+    (hprog : Term.HasTy [] (C.fill N) 𝕆) :
+    Tmodel.meaning botEnv (C.fill N) 𝕆
+      = applyPow k (Tmodel.combMeaning botEnv
+          (Comb.lamStars (varsCtx fun i : Fin k => C.varBound + i.val)
+            (Term.toComb (C.fill fun i => Term.var (C.varBound + i.val) 𝕆)))
+          (Ty.pow k))
+        (fun i => Tmodel.meaning botEnv (N i) 𝕆) := by
+  have hinj : ∀ i i' : Fin k, C.varBound + i.val = C.varBound + i'.val → i = i' :=
+    fun i i' h => Fin.ext (by omega)
+  have hvars : Term.HasTy (varsCtx fun i : Fin k => C.varBound + i.val)
+      (C.fill fun i => Term.var (C.varBound + i.val) 𝕆) 𝕆 :=
+    MCtx.fill_vars_hasTy N _ hty C [] 𝕆 hprog _
+      (fun p hp => absurd hp (by simp))
+      (fun i => mem_varsCtx _ i)
+  rw [lamStars_apply_pow k botEnv _ _ [] _
+    (Comb.weaken (fun p hp => List.mem_append.mpr (Or.inl hp)) (Term.toComb_hasTy hvars))]
+  exact meaning_fill_vars N _ hcl hty C [] 𝕆 botEnv _
+    (fun i => Nat.le_add_right _ _)
+    (fun i => updEnvL_pairsOf k botEnv _ _ hinj i)
+    (fun z ν hz => (updEnvL_other botEnv _ z ν fun p hp => by
+      obtain ⟨i, hi⟩ := mem_pairsOf _ _ p hp
+      rw [hi]
+      exact hz i).symm)
+    hprog
+
+/-- A `k`-ary ground procedure whose proper members all probe argument `j`
+first propagates an error placed at argument `j`, whatever the other
+arguments. -/
+theorem applyPow_node_err {k : Nat} (Λ : T (Ty.pow k)) (j : Fin k)
+    (hmem : ∃ s : D (Ty.pow k), s ∈ Λ ∧ ∃ jt : Fin (Ty.pow k).arity,
+      ∃ q : Query ((Ty.pow k).arg jt), ∃ f,
+        s.1 = Tree.node jt q f ∧ unpowIdx jt = j)
+    (hshape : ∀ s : D (Ty.pow k), s ∈ Λ → s.1 = Tree.bot ∨
+      ∃ jt : Fin (Ty.pow k).arity, ∃ q : Query ((Ty.pow k).arg jt), ∃ f,
+        s.1 = Tree.node jt q f ∧ unpowIdx jt = j)
+    (vs : Fin k → T 𝕆) (b : Bool) (hj : vs j = errAns b) :
+    applyPow k Λ vs = errAns b := by
+  refine Po.le_antisymm ?_ ?_
+  · intro c hc
+    obtain ⟨s, hs, ds, hds, hle⟩ := applyPow_mem k Λ vs c hc
+    rcases hshape s hs with hbot | ⟨jt, q, f, hnode, hjt⟩
+    · rw [hbot, show (Tree.bot : Tree (Ty.pow k)) = .leaf .bot from rfl,
+        apply0Pow_leaf] at hle
+      show Tree.Le c.1 (.leaf (.err b))
+      exact Tree.Le.trans hle (Tree.Le.bot _)
+    · have hdj : Tree.Le (ds j).1 (.leaf (.err b)) := by
+        have h := hds j
+        rw [hj] at h
+        exact h
+      have hchain : Tree.Le (apply0Pow k s.1 fun i => (ds i).1) (.leaf (.err b)) := by
+        rcases le_leaf_cases hdj with hb0 | hberr
+        · rw [hnode]
+          refine Tree.Le.trans (apply0Pow_mono_args k _
+            (ds' := fun i => if i = j then .leaf (.err b) else (ds i).1) fun i => ?_) ?_
+          · show Tree.Le ((ds i).1) (if i = j then Tree.leaf (.err b) else (ds i).1)
+            by_cases hij : i = j
+            · subst hij
+              rw [if_pos rfl, hb0]
+              exact Tree.Le.bot _
+            · rw [if_neg hij]
+              exact Tree.Le.refl _
+          · rw [apply0Pow_err k jt q f _ b (by
+              show (if unpowIdx jt = j then Tree.leaf (.err b) else (ds (unpowIdx jt)).1)
+                = Tree.leaf (.err b)
+              rw [hjt]
+              exact if_pos rfl)]
+            exact Tree.Le.refl _
+        · rw [hnode, apply0Pow_err k jt q f _ b (by
+            show (ds (unpowIdx jt)).1 = Tree.leaf (.err b)
+            rw [hjt, hberr])]
+          exact Tree.Le.refl _
+      show Tree.Le c.1 (.leaf (.err b))
+      exact Tree.Le.trans hle hchain
+  · intro c hc
+    obtain ⟨s, hs, jt, q, f, hnode, hjt⟩ := hmem
+    refine applyPow_mem_intro k Λ vs s hs
+      (fun i => if h : i = j then ⟨.leaf (.err b), TreeOk.leaf _ _⟩ else DSub.bot)
+      (fun i => ?_) c ?_
+    · show (if h : i = j then (⟨.leaf (.err b), TreeOk.leaf _ _⟩ : D 𝕆) else DSub.bot) ∈ vs i
+      by_cases hij : i = j
+      · subst hij
+        rw [dif_pos rfl, hj]
+        show Tree.Le (Tree.leaf (.err b)) (Tree.leaf (.err b))
+        exact Tree.Le.refl _
+      · rw [dif_neg hij]
+        exact bot_mem_T (vs i)
+    · rw [hnode, apply0Pow_err k jt q f _ b (by
+        show ((if h : unpowIdx jt = j then (⟨.leaf (.err b), TreeOk.leaf _ _⟩ : D 𝕆)
+          else DSub.bot)).1 = Tree.leaf (.err b)
+        rw [hjt, dif_pos rfl])]
+      exact (hc : Tree.Le c.1 (.leaf (.err b)))
+
 /-! ## Theorem 6.4 -/
 
 /-- The two error expressions of SPCF, `error₁` and `error₂` (Definition 3.1). -/
@@ -428,7 +542,156 @@ theorem probe_index (k : Nat) (C : MCtx SPCF k) (M : Fin k → Term SPCF)
       SPCFSem.Program (C.fill (repl M' j SPCFSem.omega)) →
       SPCFSem.Program (C.fill (repl M' j (errTerm b))) ∧
       SPCFSem.meaning (C.fill (repl M' j (errTerm b))) = SPCFSem.meaning (errTerm b) := by
-  sorry
+  classical
+  -- the `k`-ary abstraction over the holes
+  have hΛdef : ∃ Λ : T (Ty.pow k), Λ = Tmodel.combMeaning botEnv
+      (Comb.lamStars (varsCtx fun i : Fin k => C.varBound + i.val)
+        (Term.toComb (C.fill fun i => Term.var (C.varBound + i.val) 𝕆)))
+      (Ty.pow k) := ⟨_, rfl⟩
+  obtain ⟨Λ, hΛ⟩ := hΛdef
+  -- the key equation, for any admissible fill
+  have hkey : ∀ N : Fin k → Term SPCF, (∀ i, Term.Closed (N i)) →
+      (∀ i, Term.HasTy [] (N i) 𝕆) → Term.HasTy [] (C.fill N) 𝕆 →
+      SPCFSem.meaning (C.fill N)
+        = applyPow k Λ (fun i => Tmodel.meaning botEnv (N i) 𝕆) := by
+    intro N hcl hty hprog
+    rw [hΛ]
+    exact meaning_fill_eq_applyPow C N hcl hty hprog
+  -- the `Ω`-fill is a program
+  have homty : Term.HasTy [] (C.fill fun _ => omegaTerm) 𝕆 :=
+    MCtx.fill_hasTy_mono M _ (fun i ν Γ h => by
+      have hν : ν = 𝕆 := Term.hasTy_unique h (hM i)
+      subst hν
+      exact Term.weaken (fun p hp => absurd hp (by simp)) hasTy_omegaTerm)
+      C [] 𝕆 hprobe.isProgram.2
+  have homcl : Term.Closed (C.fill fun _ => omegaTerm) := by
+    intro p hp
+    refine hprobe.isProgram.1 p (MCtx.fill_FV_mono _ M (fun i q hq => ?_) C p hp)
+    exact absurd hq (omegaTerm_closed q)
+  -- the meaning of the `M`-fill and of the `Ω`-fill through the tree
+  have hkeyM : SPCFSem.meaning (C.fill M)
+      = applyPow k Λ (fun i => Tmodel.meaning botEnv (M i) 𝕆) :=
+    hkey M hprobe.closed hM hprobe.isProgram.2
+  have hkeyO : SPCFSem.meaning (C.fill fun _ => omegaTerm)
+      = applyPow k Λ (fun _ => Ideal.principal (DSub.bot : D 𝕆)) := by
+    rw [hkey (fun _ => omegaTerm) (fun _ => omegaTerm_closed)
+      (fun _ => hasTy_omegaTerm) homty]
+    refine congrArg _ (funext fun i => ?_)
+    exact meaning_omegaTerm botEnv
+  obtain ⟨n, hn⟩ := hprobe.returns
+  -- a proper leaf member of `Λ` contradicts `Probe`
+  have hnoleaf : ∀ (s : D (Ty.pow k)) (v : Val), s ∈ Λ → s.1 = Tree.leaf v →
+      v = Val.bot := by
+    intro s v hs hsv
+    refine Classical.byContradiction fun hv => ?_
+    have hmem : (⟨Tree.leaf v, TreeOk.leaf _ _⟩ : D 𝕆)
+        ∈ applyPow k Λ (fun i => Tmodel.meaning botEnv (M i) 𝕆) := by
+      refine applyPow_mem_intro k Λ _ s hs (fun _ => DSub.bot)
+        (fun i => bot_mem_T _) _ ?_
+      rw [hsv, apply0Pow_leaf]
+      exact Tree.Le.refl _
+    rw [← hkeyM, hn] at hmem
+    have hle : Tree.Le (Tree.leaf v) (Tree.leaf (.num n)) := hmem
+    -- so `v = num n`; the `Ω`-fill then also returns `n`, contradicting divergence
+    rcases le_leaf_cases hle with h0 | hvn
+    · exact hv (by injection h0)
+    · have hvn' : v = Val.num n := by injection hvn
+      subst hvn'
+      have hmem' : (⟨Tree.leaf (.num n), TreeOk.leaf _ _⟩ : D 𝕆)
+          ∈ applyPow k Λ (fun _ => Ideal.principal (DSub.bot : D 𝕆)) := by
+        refine applyPow_mem_intro k Λ _ s hs (fun _ => DSub.bot)
+          (fun i => bot_mem_T _) _ ?_
+        rw [hsv, apply0Pow_leaf]
+        exact Tree.Le.refl _
+      have hdiv : SPCFSem.meaning (C.fill fun _ => omegaTerm)
+          = Ideal.principal (DSub.bot : D 𝕆) := hprobe.divergesAtBot
+      rw [← hkeyO, hdiv] at hmem'
+      have hle' : Tree.Le (Tree.leaf (.num n)) (Tree.leaf .bot) := hmem'
+      cases hle'
+  -- `Λ` must have a node member: otherwise the `M`-fill diverges
+  have hnode : ∃ s : D (Ty.pow k), s ∈ Λ ∧ ∃ jt : Fin (Ty.pow k).arity,
+      ∃ q : Query ((Ty.pow k).arg jt), ∃ f, s.1 = Tree.node jt q f := by
+    refine Classical.byContradiction fun hno => ?_
+    have hallbot : ∀ s : D (Ty.pow k), s ∈ Λ → s.1 = Tree.bot := by
+      intro s hs
+      cases hsv : s.1 with
+      | leaf v =>
+        rw [hnoleaf s v hs hsv]
+        rfl
+      | node jt q f => exact absurd ⟨s, hs, jt, q, f, hsv⟩ hno
+    have hmem : (⟨Tree.leaf (.num n), TreeOk.leaf _ _⟩ : D 𝕆)
+        ∈ applyPow k Λ (fun i => Tmodel.meaning botEnv (M i) 𝕆) := by
+      rw [← hkeyM, hn]
+      show Tree.Le (Tree.leaf (.num n)) (Tree.leaf (.num n))
+      exact Tree.Le.refl _
+    obtain ⟨s, hs, ds, _, hle⟩ := applyPow_mem k Λ _ _ hmem
+    rw [hallbot s hs, show (Tree.bot : Tree (Ty.pow k)) = .leaf .bot from rfl,
+      apply0Pow_leaf] at hle
+    cases (hle : Tree.Le (Tree.leaf (.num n)) (Tree.leaf .bot))
+  obtain ⟨s₀, hs₀, jt₀, q₀, f₀, hs₀node⟩ := hnode
+  -- the probed argument is the same across all node members
+  have hshape : ∀ s : D (Ty.pow k), s ∈ Λ → s.1 = Tree.bot ∨
+      ∃ jt : Fin (Ty.pow k).arity, ∃ q : Query ((Ty.pow k).arg jt), ∃ f,
+        s.1 = Tree.node jt q f ∧ unpowIdx jt = unpowIdx jt₀ := by
+    intro s hs
+    cases hsv : s.1 with
+    | leaf v =>
+      rw [hnoleaf s v hs hsv]
+      exact Or.inl rfl
+    | node jt q f =>
+      refine Or.inr ⟨jt, q, f, rfl, ?_⟩
+      obtain ⟨u, hu, hsu, hs₀u⟩ := Λ.directed' s s₀ hs hs₀
+      have h1 : Tree.Le (Tree.node jt q f) u.1 := hsv ▸ (hsu : Tree.Le s.1 u.1)
+      have h2 : Tree.Le (Tree.node jt₀ q₀ f₀) u.1 := hs₀node ▸ (hs₀u : Tree.Le s₀.1 u.1)
+      obtain ⟨g, hg⟩ := Tree.eq_node_of_le h1
+      obtain ⟨g₀, hg₀⟩ := Tree.eq_node_of_le h2
+      rw [hg] at hg₀
+      injection hg₀ with hjj _ _
+      rw [hjj]
+  refine ⟨unpowIdx jt₀, ?_⟩
+  intro b M' hcl' hlike' hprog
+  -- the error fill is a program
+  have herrty : Term.HasTy [] (C.fill (repl M' (unpowIdx jt₀) (errTerm b))) 𝕆 :=
+    MCtx.fill_hasTy_mono _ _ (fun i ν Γ h => by
+      by_cases hij : i = unpowIdx jt₀
+      · subst hij
+        rw [repl_self] at h ⊢
+        have hν : ν = 𝕆 := Term.hasTy_unique h
+          (Term.weaken (Γ' := Γ) (fun p hp => absurd hp (by simp)) hasTy_omegaTerm)
+        subst hν
+        exact Term.HasTy.const
+      · simp only [repl, if_neg hij] at h ⊢
+        exact h)
+      C [] 𝕆 hprog.2
+  have herrcl : Term.Closed (C.fill (repl M' (unpowIdx jt₀) (errTerm b))) := by
+    intro p hp
+    refine hprog.1 p (MCtx.fill_FV_mono _ _ (fun i q hq => ?_) C p hp)
+    by_cases hij : i = unpowIdx jt₀
+    · subst hij
+      rw [repl_self] at hq
+      exact absurd hq (errTerm_closed b q)
+    · simp only [repl, if_neg hij] at hq ⊢
+      exact hq
+  refine ⟨⟨herrcl, herrty⟩, ?_⟩
+  -- the propagation computation
+  have hclN : ∀ i, Term.Closed (repl M' (unpowIdx jt₀) (errTerm b) i) := by
+    intro i
+    by_cases hij : i = unpowIdx jt₀
+    · subst hij; rw [repl_self]; exact errTerm_closed b
+    · simp only [repl, if_neg hij]; exact hcl' i
+  have htyN : ∀ i, Term.HasTy [] (repl M' (unpowIdx jt₀) (errTerm b) i) 𝕆 := by
+    intro i
+    by_cases hij : i = unpowIdx jt₀
+    · subst hij; rw [repl_self]; exact Term.HasTy.const
+    · simp only [repl, if_neg hij]; exact hlike' i
+  rw [hkey _ hclN htyN herrty]
+  rw [show SPCFSem.meaning (errTerm b) = errAns b from rfl]
+  refine applyPow_node_err Λ (unpowIdx jt₀)
+    ⟨s₀, hs₀, jt₀, q₀, f₀, hs₀node, rfl⟩ hshape _ b ?_
+  show Tmodel.meaning botEnv (repl M' (unpowIdx jt₀) (errTerm b) (unpowIdx jt₀)) 𝕆
+    = errAns b
+  rw [repl_self]
+  rfl
 
 theorem errTerm_omegaLike (b : Bool) : SPCFSem.OmegaLike (errTerm b) := Term.HasTy.const
 
