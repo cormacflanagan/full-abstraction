@@ -22,8 +22,7 @@ def errTerm (b : Bool) : Term SPCF := .const (.err b)
 
 theorem errTerm_closed (b : Bool) : Term.Closed (errTerm b) := fun _ h => h
 
-theorem meaning_errTerm (b : Bool) : SPCFSem.meaning (errTerm b) = errAns b := by
-  sorry
+theorem meaning_errTerm (b : Bool) : SPCFSem.meaning (errTerm b) = errAns b := rfl
 
 /-- The key structural fact behind Theorems 6.2 and 6.4: "The possible
 denotations of such a procedure are either elements of `ℕ^E_⊥` or triples of the

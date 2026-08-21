@@ -26,6 +26,7 @@ section Complete
 #print axioms TreeOk_join
 #print axioms lemma_4_3
 #print axioms lemma_4_7
+#print axioms apply0_sub1_zero
 #print axioms apply0_mono_left
 #print axioms apply0_mono_right
 #print axioms at'_mono
@@ -47,8 +48,18 @@ section Complete
 #print axioms lemma_A_6
 end Complete
 
+section DerivedOrDependent
+-- Results with real proofs whose *statement* or *ingredients* still mention a
+-- `sorry`; `#print axioms` therefore reports `sorryAx` for them.  In
+-- particular anything mentioning `Tmodel` inherits it from `Y_chain_directed`
+-- and `claim_A_5`, and anything mentioning `SPCFSem` from `Tmeaning_mono`.
+#print axioms lemma_4_3_omega_algebraic
+#print axioms meaning_omegaTerm
+#print axioms meaning_errTerm
+end DerivedOrDependent
+
 section Outstanding
--- Results still resting on `sorryAx`.
+-- Results still resting on `sorryAx` because their own proof is `sorry`.
 #print axioms dsub_countable
 #print axioms apply0_ok
 #print axioms claim_4_8
@@ -71,9 +82,7 @@ section Outstanding
 #print axioms soundness
 #print axioms separation
 #print axioms meaning_apps
-#print axioms meaning_omegaTerm
 #print axioms Tmeaning_mono
-#print axioms meaning_errTerm
 #print axioms probe_index
 #print axioms catch_returns_index
 end Outstanding

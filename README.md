@@ -113,6 +113,7 @@ statement is adjusted and the adjustment is noted in the docstring.
 | the finite approximations of a tree are directed | `finiteApprox_directed` |
 | the ground domain `T_o` is flat | `T_base_flat` |
 | Lemma 4.7 | `lemma_4_7` |
+| `apply (sub1, ⌜0⌝) = ⊥` (Definition 4.19) | `apply0_sub1_zero` |
 | `apply₀` is monotone in each argument | `apply0_mono_left`, `apply0_mono_right` |
 | comparable trees answer a query compatibly | `at'_mono` |
 | the `K` and `I` approximants form chains | `Kn_mono`, `In_mono` |
@@ -131,8 +132,11 @@ basis `D_σ`, and hence `T_σ`, be built without any outstanding assumption.
 
 ### Proved from stated ingredients
 
-These have real proofs, but their ingredients are still `sorry`, so
-`#print axioms` reports `sorryAx` for them.  The derivation is the content.
+These have real proofs, but their statement or their ingredients still mention
+a `sorry`, so `#print axioms` reports `sorryAx` for them.  In particular
+anything mentioning `Tmodel` inherits it from `Y_chain_directed` and
+`claim_A_5`, and anything mentioning `SPCFSem` from `Tmeaning_mono`.  The
+derivation is the content.
 
 | Result | Lean name | Derived from |
 | --- | --- | --- |
@@ -141,6 +145,8 @@ These have real proofs, but their ingredients are still `sorry`, so
 | Theorem 4.22 | `theorem_4_22` | `lemma_A_6`, `lemma_A_1`, `theorem_4_22_I` |
 | Lemma A.6 | `lemma_A_6` | `claim_A_5` |
 | Theorem 4.4: ω-algebraicity of `T_σ` | `lemma_4_3_omega_algebraic` | `dsub_countable` |
+| `T[[errorᵢ]] = errorᵢ` | `meaning_errTerm` | holds by `rfl`; mentions `SPCFSem` |
+| `T[[Ω]] = ⊥`, the `Ω` field of Definition 6.1 | `meaning_omegaTerm` | `apply0_sub1_zero` + monotonicity of `apply₀` |
 | **Theorem 5.1** (full abstraction), separating form | `theorem_5_1_separating` | `separation`, `lemma_5_2`, `meaning_apps` |
 | **Theorem 5.1** | `theorem_5_1`, `theorem_5_1_fullyAbstract` | the above + `soundness` |
 | **Theorem 6.2** (SPCF is sequential) | `theorem_6_2` | Theorem 6.4 via Theorem 6.5 |
@@ -173,19 +179,19 @@ Stated faithfully; proof still `sorry`.
 | compositionality of `T` | `soundness` | |
 | separation by finite arguments | `separation` | |
 | meaning of an applicative term | `meaning_apps` | |
-| `T[[Ω]] = ⊥`, monotonicity of `T` in a hole | `meaning_omegaTerm`, `Tmeaning_mono` | fields of `SPCFSem` |
-| `T[[errorᵢ]] = errorᵢ` | `meaning_errTerm` | |
+| monotonicity of `T` in a hole | `Tmeaning_mono` | a field of `SPCFSem` |
 | a `k`-ary procedure probes one argument first | `probe_index` | the tree analysis behind Thms. 6.2 and 6.4 |
 | `catch` reports the sequentiality index | `catch_returns_index` | Theorem 4.27's `(catch)` equation |
 
-Twenty-seven declarations still carry a `sorry`; `FullAbstraction/Audit.lean`
+Twenty-five declarations still carry a `sorry`; `FullAbstraction/Audit.lean`
 lists them and reports the axiom dependencies of every named result.
 
 ## Definitions
 
 All of the paper's definitions are formalised:
 2.1 (`SemDef`), 2.2 (`Comb`), 2.3 (`Model`), 2.4/2.5 (`Model.combMeaning`,
-`Model.meaning`), 2.6 (`PCF` + `Model`), 2.7 (`Po`, `ScottDomain.bot`),
+`Model.meaning`), 2.6 (`Model.semanticsOfPrograms`; Figure 1's continuous function model `C` is
+not constructed — see the docstring), 2.7 (`Po`, `ScottDomain.bot`),
 2.8 (`Model.DenEquiv`, `SemDef.ObsEquiv`, `Model.FullyAbstract`),
 2.9 (`SemDef.Sequential`), 3.1 (`SPCF`), 4.1 (`Tmodel`),
 4.2 (`Query`, `Resp`, `Ctx`, `CtxOk`, `LegalQuery`, `LegalResp`, `Tree`,

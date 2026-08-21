@@ -145,6 +145,21 @@ def combMeaning (E : M.Env) : (t : Comb L) → (σ : Ty) → M.Dom σ
 def meaning (E : M.Env) (N : Term L) (σ : Ty) : M.Dom σ :=
   M.combMeaning E (Term.toComb N) σ
 
+/-- **Definition 2.6** (*Semantic Definition of PCF*).
+
+"The semantic definition of PCF is the restriction of the meaning function `C`
+to programs."
+
+`C` is the continuous function model of Figure 1, which interprets `σ → τ` as
+the domain `[C_σ →_c C_τ]` of *all* continuous functions.  That particular model
+is not constructed here: nothing in Sections 4–6 depends on it, and the paper
+uses it only to motivate the failure of full abstraction for PCF (the family
+`pᵢ` of the introduction).  Definition 2.6 itself is the restriction operation
+below, which applies to any model of any language. -/
+def semanticsOfPrograms (Program : Term L → Prop)
+    (N : { N : Term L // Program N }) (σ : Ty) : M.Dom σ :=
+  M.meaning (fun _ τ => ScottDomain.bot (α := M.Dom τ)) N.1 σ
+
 /-! ### Definition 4.10: extensionality and order-extensionality -/
 
 /-- **Definition 4.10** (*Extensionality*).  "A model `M` for `L` is

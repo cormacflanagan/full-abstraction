@@ -87,9 +87,29 @@ theorem natAns_ne_bot (n : Nat) : natAns n ≠ Ideal.principal (DSub.bot : D �
 /-- `Ω`, a canonical divergent SPCF program: `sub1 ⌜0⌝`. -/
 def omegaTerm : Term SPCF := .app (.const .sub1) (.const (.num 0))
 
+/-- `sub1 ⌜0⌝` denotes `⊥`: `sub1` probes its argument with the initial query,
+receives the answer `0`, and its branching function sends `0` to `⊥`
+(Definition 4.19). -/
+theorem apply0_sub1_zero : apply0 treeSub1 (.leaf (.num 0)) = (Tree.bot : Tree 𝕆) := rfl
+
 theorem meaning_omegaTerm (E : Tmodel.Env) :
     Tmodel.meaning E omegaTerm 𝕆 = Ideal.principal (DSub.bot : D 𝕆) := by
-  sorry
+  apply Ideal.ext
+  intro a
+  constructor
+  · -- every finite approximation of `apply (sub1, ⌜0⌝)` is below `⊥`
+    rintro ⟨f, hf, d, hd, ha⟩
+    have hfle : f.1 ⊑ treeSub1 := hf
+    have hdle : d.1 ⊑ (Tree.leaf (.num 0) : Tree 𝕆) := hd
+    have : apply0 f.1 d.1 ⊑ (Tree.bot : Tree 𝕆) := by
+      rw [← apply0_sub1_zero]
+      exact Po.le_trans (apply0_mono_left hfle d.1) (apply0_mono_right treeSub1 hdle)
+    exact Po.le_trans (show a.1 ⊑ apply0 f.1 d.1 from ha) this
+  · intro ha
+    have hle : a ⊑ (DSub.bot : D 𝕆) := ha
+    have hEq : a = DSub.bot := Po.le_antisymm hle (DSub.bot_le a)
+    subst hEq
+    exact ⟨DSub.bot, Tree.Le.bot _, DSub.bot, Tree.Le.bot _, Tree.Le.bot _⟩
 
 /-- The meaning function `T` restricted to closed phrases uses the everywhere-`⊥`
 environment; closed phrases do not consult it. -/
