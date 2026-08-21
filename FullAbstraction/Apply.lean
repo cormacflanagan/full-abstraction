@@ -996,7 +996,321 @@ theorem legalQuery_join_snoc {σ : Ty} (q : Query σ) (t : Tree σ) (j : Fin σ.
     LegalQuery (Tree.join t (q.substAns (.node j p)).toTree) (q.snoc j p r') :=
   ⟨at'_join_snoc q t j p r' ht.1, QueryOk_snoc q j p r' ht.2 hr⟩
 
+/-! ### Legal paths
+
+The argument tree that the proof of Lemma 4.16 feeds to `f` and `g` is `⊔ q̂(1)`,
+the approximation tree the separating path determines for the first argument.
+These lemmas say what is needed about it: it is legal, it dominates every
+response the path records, and one further error may be planted at any perimeter
+position. -/
+
+/-- `q` is a **legal path** in the context `γ`: each step probes the perimeter of
+what the context then knows and records a legal response to that probe. -/
+def Query.LegalIn {σ : Ty} : Ctx σ → Query σ → Prop
+  | _, .hole => True
+  | γ, .step i p r rest => LegalQuery (γ i) p ∧ LegalResp p r ∧ Query.LegalIn (γ.cons i r) rest
+
+/-- A legal path records legal responses. -/
+theorem Query.queryOk_of_legalIn {σ : Ty} : ∀ (γ : Ctx σ) (q : Query σ),
+    q.LegalIn γ → QueryOk σ q
+  | _, .hole, _ => QueryOk_hole
+  | γ, .step i p r rest, ⟨_, hr, hrest⟩ =>
+      (QueryOk_step i p r rest).mpr ⟨hr, Query.queryOk_of_legalIn _ rest hrest⟩
+
+/-- **Every path to a non-`⊥` subtree of a legal tree is legal.**  A step
+through an illegal response leads to `⊥` and stays there. -/
+theorem legalPath_of_TreeOk {σ : Ty} : ∀ (q : Query σ) (γ : Ctx σ) (d e : Tree σ),
+    TreeOk γ d → d.at' q = some e → e ≠ Tree.bot → q.LegalIn γ
+  | .hole, _, _, _, _, _, _ => trivial
+  | .step i p r rest, γ, d, e, hd, hq, hne => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv hq
+      obtain ⟨hp, _, hsub, hnon⟩ := TreeOk_node_inv hd
+      have hr : LegalResp p r := by
+        refine Classical.byContradiction fun hcon => ?_
+        rw [hnon r hcon] at hrest
+        cases rest with
+        | hole => exact hne (Option.some.inj hrest).symm
+        | step j a b rest' =>
+          exact absurd hrest (by simp [Tree.at', Tree.stepAt, Tree.bot])
+      exact ⟨hp, hr, legalPath_of_TreeOk rest (γ.cons i r) (f r) e (hsub r hr) hrest hne⟩
+
+/-- Joining in a response that answers a perimeter position only grows the tree,
+and the response's own path is below the result. -/
+theorem le_join_resp {σ : Ty} : ∀ (r : Resp σ) (t : Tree σ),
+    t.at' r.qry = some Tree.bot →
+    Tree.Le t (Tree.join t r.toTree) ∧ Tree.Le r.toTree (Tree.join t r.toTree)
+  | .ans n, t, ht => by
+      have htb : t = Tree.bot := by injection ht
+      subst htb
+      exact ⟨Tree.Le.bot _, Tree.Le.refl _⟩
+  | .node j p, t, ht => by
+      have htb : t = Tree.bot := by injection ht
+      subst htb
+      exact ⟨Tree.Le.bot _, Tree.Le.refl _⟩
+  | .step i p s rest, t, ht => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv ht
+      have hjoin : Tree.join (Tree.node i p f) (Resp.step i p s rest).toTree
+          = Tree.node i p fun u => Tree.join (f u)
+              (if u = s then rest.toTree else Tree.bot) := by
+        show Tree.join (Tree.node i p f) (Tree.node i p _) = _
+        rw [Tree.join_node_self]
+      rw [hjoin]
+      constructor
+      · refine Tree.Le.node _ _ _ _ fun u => ?_
+        by_cases hu : u = s
+        · subst hu; rw [if_pos rfl]; exact (le_join_resp rest (f u) hrest).1
+        · rw [if_neg hu, Tree.join_bot_right]; exact Tree.Le.refl _
+      · show Tree.Le (Tree.node i p _) _
+        refine Tree.Le.node _ _ _ _ fun u => ?_
+        by_cases hu : u = s
+        · subst hu; rw [if_pos rfl]; exact (le_join_resp rest (f u) hrest).2
+        · rw [if_neg hu]; exact Tree.Le.bot _
+
+/-- Along a legal path the context only grows. -/
+theorem Ctx.le_ctxFrom {σ : Ty} : ∀ (q : Query σ) (γ : Ctx σ), q.LegalIn γ →
+    ∀ i, Tree.Le (γ i) ((q.ctxFrom γ) i)
+  | .hole, _, _, _ => Tree.Le.refl _
+  | .step k p r rest, γ, ⟨hp, hr, hrest⟩, i => by
+      refine Tree.Le.trans ?_ (Ctx.le_ctxFrom rest (γ.cons k r) hrest i)
+      by_cases hik : k = i
+      · subst hik
+        rw [Ctx.cons_self]
+        exact (le_join_resp r (γ k) (qry_of_legalResp hr ▸ hp.1)).1
+      · rw [Ctx.cons_other _ _ hik]; exact Tree.Le.refl _
+
+/-- Every response a legal path records is below the tree the path determines:
+this is the hypothesis `d₁ ⊒ ⊔ q̂(1)` of Lemma 4.14. -/
+theorem Ctx.above_ctxFrom {σ : Ty} : ∀ (q : Query σ) (γ : Ctx σ), q.LegalIn γ →
+    ∀ i, RespCtx.Above q.ctxList i ((q.ctxFrom γ) i)
+  | .hole, _, _, _, r, hr => absurd hr (by simp [Query.ctxList, RespCtx.at'])
+  | .step k p s rest, γ, ⟨hp, hs, hrest⟩, i, r, hr => by
+      rcases List.mem_cons.mp hr with heq | htail
+      · have hik : i = k := congrArg Sigma.fst heq
+        subst hik
+        have hrs : r = s := by injection heq
+        subst hrs
+        refine Tree.Le.trans ?_ (Ctx.le_ctxFrom rest (γ.cons i r) hrest i)
+        rw [Ctx.cons_self]
+        exact (le_join_resp r (γ i) (qry_of_legalResp hs ▸ hp.1)).2
+      · exact Ctx.above_ctxFrom rest (γ.cons k s) hrest i r htail
+
+/-- Joining in a legal response keeps the tree legal. -/
+theorem TreeOk_join_resp {σ : Ty} : ∀ (r : Resp σ) (γ : Ctx σ) (t : Tree σ),
+    TreeOk γ t → t.at' r.qry = some Tree.bot → QueryOk σ r.qry →
+    RAns.Ok' ((r.qry).ctxFrom γ) r.ansOf → TreeOk γ (Tree.join t r.toTree)
+  | .ans n, γ, t, ht, hat, _, _ => by
+      have htb : t = Tree.bot := by injection hat
+      subst htb
+      exact TreeOk.leaf γ _
+  | .node j p, γ, t, ht, hat, _, hans => by
+      have htb : t = Tree.bot := by injection hat
+      subst htb
+      show TreeOk γ (Tree.node j p fun _ => Tree.bot)
+      exact TreeOk.node γ j p _ hans ⟨[], fun _ hr => absurd rfl hr⟩
+        (fun _ _ => TreeOk.leaf _ _) (fun _ _ => rfl)
+  | .step i p s rest, γ, t, ht, hat, hok, hans => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv hat
+      obtain ⟨hp, hfin, hsub, hnon⟩ := TreeOk_node_inv ht
+      obtain ⟨hs, hokr⟩ := (QueryOk_step i p s rest.qry).mp hok
+      have hjoin : Tree.join (Tree.node i p f) (Resp.step i p s rest).toTree
+          = Tree.node i p fun u => Tree.join (f u)
+              (if u = s then rest.toTree else Tree.bot) := by
+        show Tree.join (Tree.node i p f) (Tree.node i p _) = _
+        rw [Tree.join_node_self]
+      rw [hjoin]
+      refine TreeOk.node γ i p _ hp ?_ (fun u _ => ?_) (fun u hu => ?_)
+      · obtain ⟨l, hl⟩ := hfin
+        refine ⟨s :: l, fun u hu => ?_⟩
+        by_cases hus : u = s
+        · rw [hus]; exact List.mem_cons_self ..
+        · dsimp only at hu
+          rw [if_neg hus, Tree.join_bot_right] at hu
+          exact List.mem_cons_of_mem _ (hl u hu)
+      · by_cases hus : u = s
+        · subst hus
+          rw [if_pos rfl]
+          exact TreeOk_join_resp rest (γ.cons i u) (f u) (hsub u hs) hrest hokr hans
+        · rw [if_neg hus, Tree.join_bot_right]
+          by_cases hlu : LegalResp p u
+          · exact hsub u hlu
+          · rw [hnon u hlu]; exact TreeOk.leaf _ _
+      · have hus : ¬ u = s := fun he => hu (he ▸ hs)
+        rw [if_neg hus, Tree.join_bot_right]
+        exact hnon u hu
+
+/-- Planting a leaf at a perimeter position of a legal tree keeps it legal. -/
+theorem TreeOk_plant_leaf {σ : Ty} : ∀ (q : Query σ) (γ : Ctx σ) (t : Tree σ) (v : Val),
+    TreeOk γ t → t.at' q = some Tree.bot → QueryOk σ q →
+    TreeOk γ (plant q t (.leaf v))
+  | .hole, γ, t, v, _, _, _ => TreeOk.leaf γ v
+  | .step i p s rest, γ, t, v, ht, hat, hok => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv hat
+      obtain ⟨hp, hfin, hsub, hnon⟩ := TreeOk_node_inv ht
+      obtain ⟨hs, hokr⟩ := (QueryOk_step i p s rest).mp hok
+      rw [plant_step_self]
+      refine TreeOk.node γ i p _ hp ?_ (fun u _ => ?_) (fun u hu => ?_)
+      · obtain ⟨l, hl⟩ := hfin
+        refine ⟨s :: l, fun u hu => ?_⟩
+        by_cases hus : u = s
+        · rw [hus]; exact List.mem_cons_self ..
+        · dsimp only at hu
+          rw [if_neg hus] at hu
+          exact List.mem_cons_of_mem _ (hl u hu)
+      · by_cases hus : u = s
+        · subst hus
+          rw [if_pos rfl]
+          exact TreeOk_plant_leaf rest (γ.cons i u) (f u) v (hsub u hs) hrest hokr
+        · rw [if_neg hus]
+          by_cases hlu : LegalResp p u
+          · exact hsub u hlu
+          · rw [hnon u hlu]; exact TreeOk.leaf _ _
+      · have hus : ¬ u = s := fun he => hu (he ▸ hs)
+        rw [if_neg hus]
+        exact hnon u hu
+
+/-- The tree a legal path determines for each argument is itself legal. -/
+theorem TreeOk_ctxFrom {σ : Ty} : ∀ (q : Query σ) (γ : Ctx σ), q.LegalIn γ →
+    (∀ i, TreeOk Ctx.empty (γ i)) → ∀ i, TreeOk Ctx.empty ((q.ctxFrom γ) i)
+  | .hole, _, _, hγ, i => hγ i
+  | .step k p s rest, γ, ⟨hp, hs, hrest⟩, hγ, i => by
+      refine TreeOk_ctxFrom rest (γ.cons k s) hrest (fun j => ?_) i
+      by_cases hkj : k = j
+      · subst hkj
+        rw [Ctx.cons_self]
+        obtain ⟨x, rfl, hx⟩ := hs
+        refine TreeOk_join_resp _ Ctx.empty (γ k) (hγ k) ?_ ?_ ?_
+        · rw [Query.qry_substAns]; exact hp.1
+        · rw [Query.qry_substAns]; exact hp.2
+        · rw [Query.qry_substAns, Query.ansOf_substAns]
+          exact hx
+      · rw [Ctx.cons_other _ _ hkj]; exact hγ j
+
 /-! ## Lemma 4.16, Theorem 4.11 -/
+
+/-- An error value distinct from a given leaf value.  The proof of Lemma 4.16
+needs *two* error values: with only one, `error` and `⟨1,?,λx.error⟩` are
+incomparable yet apply alike, and order-extensionality fails (footnote 7,
+attributed to P.-L. Curien). -/
+def Val.otherErr : Val → Bool
+  | .err true => false
+  | _ => true
+
+theorem Val.err_otherErr_ne : ∀ v : Val, Val.err v.otherErr ≠ v
+  | .bot => fun h => Val.noConfusion h
+  | .num _ => fun h => Val.noConfusion h
+  | .err true => fun h => by injection h with hb; exact Bool.noConfusion hb
+  | .err false => fun h => by injection h with hb; exact Bool.noConfusion hb
+
+/-- **The separating argument of Lemma 4.16.**
+
+Given two immediately incomparable subtrees `f'`, `g'` of `D_{σ→τ}(γ)` with
+`f' ⋢ g'`, an argument tree `d ⊒ ⊔γ(1)` on which they disagree.  Following the
+paper's case analysis: where one side is a constant and the other probes its
+first argument, `d` answers that probe with an error the constant is not; where
+both probe the first argument, they probe *different* perimeter positions
+(legality), so answering one with an error leaves the other at `⊥`; in every
+remaining case `d = ⊔γ(1)` already works, because `apply₀` turns a probe of a
+later argument into a node and a node is never comparable to a leaf or to a node
+with a different node value. -/
+theorem lemma_4_16_separate {σ τ : Ty} (γ : Ctx (σ ⇒ τ))
+    (hd₁ : TreeOk Ctx.empty (γ ⟨0, Nat.succ_pos _⟩))
+    (f' g' : Tree (σ ⇒ τ)) (hfok : TreeOk γ f') (hgok : TreeOk γ g')
+    (hnle : ¬ Tree.Le f' g') (hroot : f'.root ≠ g'.root) :
+    ∃ d : Tree σ, TreeOk Ctx.empty d ∧ Tree.Le (γ ⟨0, Nat.succ_pos _⟩) d ∧
+      ¬ Tree.Le (apply0 f' d) (apply0 g' d) := by
+  -- planting an error at a perimeter position of the first argument's tree
+  have hplant : ∀ (p : Query σ) (b : Bool), LegalQuery (γ ⟨0, Nat.succ_pos _⟩) p →
+      ∃ d : Tree σ, TreeOk Ctx.empty d ∧ Tree.Le (γ ⟨0, Nat.succ_pos _⟩) d ∧
+        d.at' p = some (.leaf (.err b)) ∧
+        ∀ p' : Query σ, LegalQuery (γ ⟨0, Nat.succ_pos _⟩) p' → p ≠ p' →
+          d.at' p' = some Tree.bot := by
+    intro p b hp
+    refine ⟨plant p (γ ⟨0, Nat.succ_pos _⟩) (.leaf (.err b)),
+      TreeOk_plant_leaf p Ctx.empty _ _ hd₁ hp.1 hp.2,
+      le_plant p _ _ hp.1, at'_plant_self p _ _ ⟨_, hp.1⟩, fun p' hp' hne => ?_⟩
+    exact at'_plant_other p _ _ p' hp.1 hp'.1 hne
+  cases f' with
+  | leaf v =>
+    have hvb : v ≠ Val.bot := by
+      intro hb; subst hb; exact hnle (Tree.Le.bot g')
+    cases g' with
+    | leaf w =>
+      refine ⟨_, hd₁, Tree.Le.refl _, ?_⟩
+      show ¬ Tree.Le (Tree.leaf v : Tree τ) (Tree.leaf w)
+      have hvw : v ≠ w := fun he => hnle (he ▸ Tree.Le.leaf v)
+      exact Tree.not_leaf_le_leaf hvb hvw
+    | node j p' k' =>
+      match j with
+      | ⟨0, hj⟩ =>
+        obtain ⟨hp', _, _, _⟩ := TreeOk_node_inv hgok
+        obtain ⟨d, hdok, hdle, hdp, _⟩ := hplant p' v.otherErr hp'
+        refine ⟨d, hdok, hdle, ?_⟩
+        show ¬ Tree.Le (Tree.leaf v) (apply0 (Tree.node ⟨0, hj⟩ p' k') d)
+        rw [apply0, hdp]
+        exact Tree.not_leaf_le_leaf hvb fun he => Val.err_otherErr_ne v he.symm
+      | ⟨m + 1, hj⟩ =>
+        refine ⟨_, hd₁, Tree.Le.refl _, ?_⟩
+        show ¬ Tree.Le (Tree.leaf v) (apply0 (Tree.node ⟨m + 1, hj⟩ p' k') _)
+        rw [apply0]
+        exact Tree.not_leaf_le_node hvb
+  | node i p k =>
+    cases g' with
+    | leaf w =>
+      match i with
+      | ⟨0, hi⟩ =>
+        obtain ⟨hp, _, _, _⟩ := TreeOk_node_inv hfok
+        obtain ⟨d, hdok, hdle, hdp, _⟩ := hplant p w.otherErr hp
+        refine ⟨d, hdok, hdle, ?_⟩
+        show ¬ Tree.Le (apply0 (Tree.node ⟨0, hi⟩ p k) d) (Tree.leaf w)
+        rw [apply0, hdp]
+        exact Tree.not_leaf_le_leaf (fun he => Val.noConfusion he)
+          (fun he => Val.err_otherErr_ne w he)
+      | ⟨n + 1, hi⟩ =>
+        refine ⟨_, hd₁, Tree.Le.refl _, ?_⟩
+        show ¬ Tree.Le (apply0 (Tree.node ⟨n + 1, hi⟩ p k) _) (Tree.leaf w)
+        rw [apply0]
+        exact Tree.not_le_leaf
+    | node j p' k' =>
+      have hnv : (⟨i, p⟩ : NodeVal (σ ⇒ τ)) ≠ ⟨j, p'⟩ := fun he => hroot (by rw [Tree.root, Tree.root, he])
+      match i, j with
+      | ⟨0, hi⟩, ⟨0, hj⟩ =>
+        obtain ⟨hp, _, _, _⟩ := TreeOk_node_inv hfok
+        obtain ⟨hp', _, _, _⟩ := TreeOk_node_inv hgok
+        have hpp : p ≠ p' := fun he => hnv (by subst he; rfl)
+        obtain ⟨d, hdok, hdle, hdp, hdo⟩ := hplant p true hp
+        refine ⟨d, hdok, hdle, ?_⟩
+        show ¬ Tree.Le (apply0 (Tree.node ⟨0, hi⟩ p k) d) (apply0 (Tree.node ⟨0, hj⟩ p' k') d)
+        rw [apply0, apply0, hdp, hdo p' hp' hpp]
+        exact Tree.not_leaf_le_leaf (fun he => Val.noConfusion he) (fun he => Val.noConfusion he)
+      | ⟨0, hi⟩, ⟨m + 1, hj⟩ =>
+        obtain ⟨hp, _, _, _⟩ := TreeOk_node_inv hfok
+        obtain ⟨d, hdok, hdle, hdp, _⟩ := hplant p true hp
+        refine ⟨d, hdok, hdle, ?_⟩
+        show ¬ Tree.Le (apply0 (Tree.node ⟨0, hi⟩ p k) d)
+          (apply0 (Tree.node ⟨m + 1, hj⟩ p' k') d)
+        rw [apply0, apply0, hdp]
+        exact Tree.not_leaf_le_node (fun he => Val.noConfusion he)
+      | ⟨n + 1, hi⟩, ⟨0, hj⟩ =>
+        obtain ⟨hp', _, _, _⟩ := TreeOk_node_inv hgok
+        obtain ⟨d, hdok, hdle, hdp, _⟩ := hplant p' true hp'
+        refine ⟨d, hdok, hdle, ?_⟩
+        show ¬ Tree.Le (apply0 (Tree.node ⟨n + 1, hi⟩ p k) d)
+          (apply0 (Tree.node ⟨0, hj⟩ p' k') d)
+        rw [apply0, apply0, hdp]
+        exact Tree.not_le_leaf
+      | ⟨n + 1, hi⟩, ⟨m + 1, hj⟩ =>
+        refine ⟨_, hd₁, Tree.Le.refl _, ?_⟩
+        show ¬ Tree.Le (apply0 (Tree.node ⟨n + 1, hi⟩ p k) _)
+          (apply0 (Tree.node ⟨m + 1, hj⟩ p' k') _)
+        rw [apply0, apply0]
+        refine Tree.not_node_le_node fun he => hnv ?_
+        have hnm : n = m := by
+          have := congrArg (fun x => x.1.val) he
+          simpa using this
+        subst hnm
+        have hpp : p = p' := by injection he
+        subst hpp
+        rfl
 
 /-- **Lemma 4.16.**  *Let `f, g` be elements in `D_{σ→τ}`.  If for all finite
 `d ∈ D_σ`, `apply (f, d) ⊑ apply (g, d)`, then `f ⊑ g`.*
@@ -1012,10 +1326,50 @@ exist. -/
 theorem lemma_4_16 {σ τ : Ty} (f g : Tree (σ ⇒ τ))
     (hf : TreeOk Ctx.empty f) (hg : TreeOk Ctx.empty g)
     (h : ∀ d : Tree σ, TreeOk Ctx.empty d → apply0 f d ⊑ apply0 g d) : f ⊑ g := by
-  sorry
+  refine Classical.byContradiction fun hfg => ?_
+  -- Lemma 4.7: a path to immediately incomparable subtrees
+  obtain ⟨q, f', g', hfq, hgq, hnle, hroot⟩ := lemma_4_7 f g hfg
+  have hf'ne : f' ≠ Tree.bot := by
+    intro hb; subst hb; exact hnle (Tree.Le.bot g')
+  -- the path is legal, hence coherent, and determines a legal argument tree
+  have hpath : q.LegalIn Ctx.empty :=
+    legalPath_of_TreeOk q Ctx.empty f f' hf hfq hf'ne
+  have hco : q.Coherent := QueryOk.coherent (Query.queryOk_of_legalIn Ctx.empty q hpath)
+  have hd₁ : TreeOk Ctx.empty (q.ctx ⟨0, Nat.succ_pos _⟩) :=
+    TreeOk_ctxFrom q Ctx.empty hpath (fun _ => TreeOk.leaf _ _) _
+  have hab₁ : RespCtx.Above q.ctxList ⟨0, Nat.succ_pos _⟩ (q.ctx ⟨0, Nat.succ_pos _⟩) :=
+    Ctx.above_ctxFrom q Ctx.empty hpath _
+  -- the separating argument, on which the two subtrees disagree
+  obtain ⟨d, hdok, hdle, hsep⟩ := lemma_4_16_separate q.ctx hd₁ f' g'
+    (TreeOk_at' q Ctx.empty f f' hf hfq) (TreeOk_at' q Ctx.empty g g' hg hgq) hnle hroot
+  -- Lemma 4.14 transports the disagreement to `shift₁ q`
+  have hab : RespCtx.Above q.ctxList ⟨0, Nat.succ_pos _⟩ d :=
+    fun r hr => Tree.Le.trans (hab₁ r hr) hdle
+  have h14f := lemma_4_14 q f f' d hco hfq hab
+  have h14g := lemma_4_14 q g g' d hco hgq hab
+  rcases at'_mono q.shift1 (h d hdok) with hn | ⟨e, e', he, he', hee⟩
+  · rw [h14f] at hn; exact Option.noConfusion hn
+  · have h1 : apply0 f' d = e := Option.some.inj (h14f.symm.trans he)
+    have h2 : apply0 g' d = e' := Option.some.inj (h14g.symm.trans he')
+    exact hsep (h1 ▸ h2 ▸ hee)
 
-/-- Order-extensionality at the level of the ideal completions `T_σ`, which is
-what Theorem 4.11 asserts. -/
+/-- The ideal-completion form of Lemma 4.16, and the remaining step of
+Theorem 4.11.
+
+Lemma 4.16 is now proved for finite trees.  What is still missing is the passage
+to `T_σ`, which is the argument the paper gives for Theorem 4.11: from
+`f₀ ⋢ g` with `f₀` finite and `g` an ideal, "there exists a finite `d ∈ D_σ`
+such that `apply (f₀, d) ⋢ apply (g₀, d)` **for all** `g₀ ⊑ g`", after which
+continuity of `apply` gives `apply (f₀, d) ⋢ ⊔{apply (g₀,d) | g₀ ⊑ g}`.
+
+The uniformity in `g₀` is the whole difficulty: `lemma_4_16_separate` builds `d`
+from the path along which `f₀` and one `g₀` diverge, and a priori that path
+varies with `g₀`.  It does not, for two reasons that are not formalised here:
+the separating paths lie in the finite tree `f₀`, so there are finitely many of
+them, and a path that separates `f₀` from `g₁` separates it from every
+`g₀ ⊑ g₁`, so directedness of the ideal pins down a single one; and the
+subtrees `g₀ @ q` are themselves directed, so they share a root, which is all
+the construction of `d` consults about them. -/
 theorem orderExtensional_T {σ τ : Ty} (F G : T (σ ⇒ τ))
     (h : ∀ E : T σ, applyT F E ⊑ applyT G E) : F ⊑ G := by
   sorry

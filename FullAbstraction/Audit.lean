@@ -80,6 +80,15 @@ section Complete
 #print axioms In_legal_cofinal
 #print axioms lemma_A_1
 #print axioms theorem_4_22_I
+#print axioms legalPath_of_TreeOk
+#print axioms le_join_resp
+#print axioms Ctx.le_ctxFrom
+#print axioms Ctx.above_ctxFrom
+#print axioms TreeOk_join_resp
+#print axioms TreeOk_plant_leaf
+#print axioms TreeOk_ctxFrom
+#print axioms lemma_4_16_separate
+#print axioms lemma_4_16
 end Complete
 
 section DerivedOrDependent
@@ -120,7 +129,6 @@ end DerivedOrDependent
 section Outstanding
 -- Results still resting on `sorryAx` because their own proof is `sorry`.
 #print axioms dsub_countable
-#print axioms lemma_4_16
 #print axioms orderExtensional_T
 #print axioms claim_A_5
 #print axioms lemma_A_7

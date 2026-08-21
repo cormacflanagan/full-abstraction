@@ -347,6 +347,11 @@ theorem join_node_self (i : Fin σ.arity) (q : Query (σ.arg i))
   rw [dif_pos (rfl : (⟨i, q⟩ : NodeVal σ) = ⟨i, q⟩)]
   rfl
 
+@[simp] theorem join_bot_right (d : Tree σ) : join d (bot : Tree σ) = d := by
+  cases d with
+  | leaf v => cases v <;> rfl
+  | node i q f => exact join_node_leaf i q f .bot
+
 theorem join_bot_bot : join (bot : Tree σ) bot = bot := rfl
 
 /-- **Lemma 4.3**, the least-upper-bound property: two trees with a common upper
@@ -426,6 +431,31 @@ theorem Le_node_inv {i : Fin σ.arity} {q : Query (σ.arg i)}
     {f g : Resp (σ.arg i) → Tree σ} (h : Le (.node i q f) (.node i q g)) :
     ∀ r, Le (f r) (g r) := by
   cases h with | node _ _ _ _ h => exact h
+
+/-- A node is never below a leaf. -/
+theorem not_le_leaf {i : Fin σ.arity} {q : Query (σ.arg i)}
+    {f : Resp (σ.arg i) → Tree σ} {v : Val} : ¬ Le (.node i q f) (.leaf v) := by
+  intro h; cases h
+
+/-- A proper leaf is never below a node. -/
+theorem not_leaf_le_node {v : Val} (hv : v ≠ .bot) {i : Fin σ.arity}
+    {q : Query (σ.arg i)} {g : Resp (σ.arg i) → Tree σ} :
+    ¬ Le (.leaf v : Tree σ) (.node i q g) := by
+  intro h; cases h with | bot _ => exact hv rfl
+
+/-- A proper leaf is below only itself. -/
+theorem not_leaf_le_leaf {v w : Val} (hv : v ≠ .bot) (hvw : v ≠ w) :
+    ¬ Le (.leaf v : Tree σ) (.leaf w) := by
+  intro h
+  cases h with
+  | bot _ => exact hv rfl
+  | leaf _ => exact hvw rfl
+
+/-- Nodes with different node values are incomparable. -/
+theorem not_node_le_node {i j : Fin σ.arity} {q : Query (σ.arg i)} {q' : Query (σ.arg j)}
+    {f : Resp (σ.arg i) → Tree σ} {g : Resp (σ.arg j) → Tree σ}
+    (hne : (⟨i, q⟩ : NodeVal σ) ≠ ⟨j, q'⟩) : ¬ Le (.node i q f) (.node j q' g) := by
+  intro h; cases h; exact hne rfl
 
 /-- A tree above a node is a node with the same node value. -/
 theorem eq_node_of_le {i : Fin σ.arity} {q : Query (σ.arg i)}
@@ -634,9 +664,12 @@ legal exactly when `p` can "appear at the point specified by `q` in the selected
 argument tree", i.e. when `p` is a legal query about argument `i` in the tree
 context `q̂` determined by `q`.  As the paper puts it, "this test reduces to
 confirming that the response `q[?/x]` is a well-formed tree (path)". -/
-def RAns.Ok {σ : Ty} (q : Query σ) : RAns σ → Prop
+def RAns.Ok' {σ : Ty} (δ : Ctx σ) : RAns σ → Prop
   | .num _ => True
-  | .node i p => LegalQuery (q.ctx i) p
+  | .node i p => LegalQuery (δ i) p
+
+/-- `RAns.Ok'` at the context `q̂` determined by `q`. -/
+def RAns.Ok {σ : Ty} (q : Query σ) : RAns σ → Prop := RAns.Ok' q.ctx
 
 /-- `ℛ_σ(q)`: the **legal responses** to the query `q`.
 
