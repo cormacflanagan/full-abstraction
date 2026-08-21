@@ -578,6 +578,108 @@ theorem at'_step_inv {σ : Ty} {d : Tree σ} {i : Fin σ.arity} {q : Query (σ.a
             simp only [Tree.at', Tree.stepAt, dif_neg hEq, Option.bind]] at h
       exact absurd h (by simp)
 
+/-! ### Planting a subtree at the perimeter
+
+The proof of Lemma 4.16 separates two trees by feeding the argument a tree that
+answers one of two competing queries with an error.  `plant q d e` writes `e` at
+position `q` of `d`; where `q` probes the perimeter of `d` (Definition 4.5) this
+is the join of `d` with the path `q[?/e]`. -/
+
+/-- `d[q := e]`: replace the subtree of `d` at position `q` by `e`. -/
+noncomputable def plant {σ : Ty} : Query σ → Tree σ → Tree σ → Tree σ
+  | .hole, _, e => e
+  | .step j p r rest, d, e =>
+      match d with
+      | .leaf v => .leaf v
+      | .node i q f =>
+          if h : (⟨j, p⟩ : NodeVal σ) = ⟨i, q⟩ then
+            .node i q fun s =>
+              if s = Tree.castResp (congrArg Sigma.fst h) r then plant rest (f s) e else f s
+          else .node i q f
+
+@[simp] theorem plant_hole {σ : Ty} (d e : Tree σ) : plant .hole d e = e := rfl
+
+theorem plant_step_self {σ : Ty} (j : Fin σ.arity) (p : Query (σ.arg j))
+    (r : Resp (σ.arg j)) (rest : Query σ) (f : Resp (σ.arg j) → Tree σ) (e : Tree σ) :
+    plant (.step j p r rest) (.node j p f) e
+      = .node j p fun s => if s = r then plant rest (f s) e else f s := by
+  show (dite _ _ _) = _
+  rw [dif_pos (rfl : (⟨j, p⟩ : NodeVal σ) = ⟨j, p⟩)]
+  rfl
+
+/-- Planting at a valid position puts the planted tree there. -/
+theorem at'_plant_self {σ : Ty} : ∀ (q : Query σ) (d e : Tree σ),
+    (∃ t, d.at' q = some t) → (plant q d e).at' q = some e
+  | .hole, d, e, _ => rfl
+  | .step j p r rest, d, e, ⟨t, ht⟩ => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv ht
+      rw [plant_step_self, Tree.at'_step_self, if_pos rfl]
+      exact at'_plant_self rest (f r) e ⟨t, hrest⟩
+
+/-- Planting over `⊥` only increases the tree. -/
+theorem le_plant {σ : Ty} : ∀ (q : Query σ) (d e : Tree σ),
+    d.at' q = some Tree.bot → Tree.Le d (plant q d e)
+  | .hole, d, e, hd => by
+      have : d = Tree.bot := by injection hd
+      subst this
+      exact Tree.Le.bot e
+  | .step j p r rest, d, e, hd => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv hd
+      rw [plant_step_self]
+      refine Tree.Le.node _ _ _ _ fun s => ?_
+      by_cases hs : s = r
+      · subst hs; rw [if_pos rfl]; exact le_plant rest (f s) e hrest
+      · rw [if_neg hs]; exact Tree.Le.refl _
+
+theorem at'_step_of_node {σ : Ty} (i : Fin σ.arity) (q : Query (σ.arg i))
+    (f : Resp (σ.arg i) → Tree σ) (j : Fin σ.arity) (p : Query (σ.arg j))
+    (r : Resp (σ.arg j)) (rest : Query σ) (h : (⟨j, p⟩ : NodeVal σ) = ⟨i, q⟩) :
+    (Tree.node i q f).at' (.step j p r rest)
+      = (f (Tree.castResp (congrArg Sigma.fst h) r)).at' rest := by
+  simp only [Tree.at', Tree.stepAt, dif_pos h, Option.bind]
+
+theorem plant_step_of_node {σ : Ty} (i : Fin σ.arity) (q : Query (σ.arg i))
+    (f : Resp (σ.arg i) → Tree σ) (j : Fin σ.arity) (p : Query (σ.arg j))
+    (r : Resp (σ.arg j)) (rest : Query σ) (e : Tree σ) (h : (⟨j, p⟩ : NodeVal σ) = ⟨i, q⟩) :
+    plant (.step j p r rest) (.node i q f) e
+      = .node i q fun s =>
+          if s = Tree.castResp (congrArg Sigma.fst h) r then plant rest (f s) e else f s := by
+  show (dite _ _ _) = _
+  rw [dif_pos h]
+
+/-- Planting at one perimeter position leaves the others untouched. -/
+theorem at'_plant_other {σ : Ty} : ∀ (q : Query σ) (d e : Tree σ) (q' : Query σ),
+    d.at' q = some Tree.bot → d.at' q' = some Tree.bot → q ≠ q' →
+    (plant q d e).at' q' = some Tree.bot
+  | .hole, d, e, q', hd, hd', hne => by
+      have hdb : d = Tree.bot := by injection hd
+      subst hdb
+      cases q' with
+      | hole => exact absurd rfl hne
+      | step j p r rest => exact absurd hd' (by simp [Tree.at', Tree.stepAt, Tree.bot])
+  | .step j p r rest, d, e, .hole, hd, hd', hne => by
+      have hdb : d = Tree.bot := by injection hd'
+      subst hdb
+      exact absurd hd (by simp [Tree.at', Tree.stepAt, Tree.bot])
+  | .step j p r rest, d, e, .step j' p' r' rest', hd, hd', hne => by
+      obtain ⟨f, rfl, hdr⟩ := at'_step_inv hd
+      obtain ⟨f', hf', hdr'⟩ := at'_step_inv hd'
+      injection hf' with hjj hpp hff
+      subst hjj
+      have hp2 : p = p' := eq_of_heq hpp
+      subst hp2
+      have hf2 : f = f' := eq_of_heq hff
+      subst hf2
+      rw [plant_step_self, Tree.at'_step_self]
+      by_cases hr : r' = r
+      · subst hr
+        rw [if_pos rfl]
+        refine at'_plant_other rest (f r') e rest' hdr hdr' ?_
+        intro hcon
+        exact hne (by rw [hcon])
+      · rw [if_neg hr]
+        exact hdr'
+
 /-- If a tree contains the path `r`, then querying it along `r`'s query returns
 the answer that `r` records.  This is what makes `apply₀` take the branch that
 the argument's response selects (Definition 4.9). -/
