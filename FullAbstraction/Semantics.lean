@@ -57,8 +57,14 @@ structure SemDef (L : Lang) where
   omega : Term L
   meaning_omega : meaning omega = bot
   /-- The meaning function is monotone in every hole: replacing `Ω` by any
-  phrase can only increase the answer. -/
+  phrase can only increase the answer.
+
+  The two `Program` hypotheses are needed.  Without them the field is *false*:
+  if `N` does not have the type of hole `j`, the filled context is ill-typed and
+  its meaning is unconstrained, so it need not dominate the meaning of the
+  well-typed `Ω`-fill. -/
   mono : ∀ {k : Nat} (C : MCtx L k) (M : Fin k → Term L) (j : Fin k) (N : Term L),
+    Program (C.fill (repl M j omega)) → Program (C.fill (repl M j N)) →
     @Po.le _ po (meaning (C.fill (repl M j omega))) (meaning (C.fill (repl M j N)))
 
 namespace SemDef
@@ -310,7 +316,8 @@ structure Probe {k : Nat} (C : MCtx L k) (M : Fin k → Term L) : Prop where
 /-- `j` is a **sequentiality index** of `C[·,…,·]` (Definition 2.9):
 `P[[C[M'₁,…,M'_{j-1}, Ω, M'_{j+1},…,M'ₖ]]] = P[[Ω]]` for all `M'ᵢ`, `i ≠ j`. -/
 def SeqIndex {k : Nat} (C : MCtx L k) (j : Fin k) : Prop :=
-  ∀ M' : Fin k → Term L, P.Diverges (C.fill (repl M' j P.omega))
+  ∀ M' : Fin k → Term L, P.Program (C.fill (repl M' j P.omega)) →
+    P.Diverges (C.fill (repl M' j P.omega))
 
 /-- **Definition 2.9** (*Sequentiality*).
 
@@ -341,6 +348,8 @@ def ErrorSensitive : Prop :=
     -- … and every probing context propagates an error from one fixed hole.
     (∀ (k : Nat) (C : MCtx L k) (M : Fin k → Term L), P.Probe C M →
       ∃ j : Fin k, ∀ (b : Bool) (M' : Fin k → Term L),
+        P.Program (C.fill (repl M' j P.omega)) →
+        P.Program (C.fill (repl M' j (E b))) ∧
         P.meaning (C.fill (repl M' j (E b))) = P.meaning (E b))
 
 /-- The core of Theorem 6.5: a hole that propagates both error expressions is a
@@ -350,17 +359,21 @@ theorem seqIndex_of_propagates {E : Bool → Term L}
     (hdist : P.meaning (E true) ≠ P.meaning (E false))
     {k : Nat} {C : MCtx L k} {j : Fin k}
     (hj : ∀ (b : Bool) (M' : Fin k → Term L),
+      P.Program (C.fill (repl M' j P.omega)) →
+      P.Program (C.fill (repl M' j (E b))) ∧
       P.meaning (C.fill (repl M' j (E b))) = P.meaning (E b)) :
     P.SeqIndex C j := by
-  intro M'
+  intro M' hprog
   have hrepl : ∀ N : Term L, repl (repl M' j P.omega) j N = repl M' j N := by
     intro N; funext i; by_cases hij : i = j <;> simp [repl, hij]
   -- monotonicity: replacing `Ω` at hole `j` by `E b` can only increase the answer
   have hmono : ∀ b : Bool,
       P.meaning (C.fill (repl M' j P.omega)) ⊑[P] P.meaning (E b) := by
     intro b
+    obtain ⟨hprogE, heq⟩ := hj b M' hprog
     have hm := P.mono C (repl M' j P.omega) j (E b)
-    rw [hrepl (E b), hrepl P.omega, hj b M'] at hm
+      (by rw [hrepl P.omega]; exact hprog) (by rw [hrepl (E b)]; exact hprogE)
+    rw [hrepl (E b), hrepl P.omega, heq] at hm
     exact hm
   exact P.eq_bot_of_le_two (hne true) (hne false) hdist (hmono true) (hmono false)
 

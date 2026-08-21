@@ -32,6 +32,8 @@ specifies that the `k`-ary procedure probes its `j`-th argument first." -/
 theorem probe_index (k : Nat) (C : MCtx SPCF k) (M : Fin k → Term SPCF)
     (hprobe : SPCFSem.Probe C M) :
     ∃ j : Fin k, ∀ (b : Bool) (M' : Fin k → Term SPCF),
+      SPCFSem.Program (C.fill (repl M' j SPCFSem.omega)) →
+      SPCFSem.Program (C.fill (repl M' j (errTerm b))) ∧
       SPCFSem.meaning (C.fill (repl M' j (errTerm b))) = SPCFSem.meaning (errTerm b) := by
   sorry
 
@@ -85,6 +87,8 @@ therefore state the property for the index itself. -/
 theorem catch_returns_index {k : Nat} (C : MCtx SPCF k) (M : Fin k → Term SPCF)
     (hprobe : SPCFSem.Probe C M) (τs : Fin k → Ty) (j : Fin k)
     (hj : ∀ (b : Bool) (M' : Fin k → Term SPCF),
+      SPCFSem.Program (C.fill (repl M' j SPCFSem.omega)) →
+      SPCFSem.Program (C.fill (repl M' j (errTerm b))) ∧
       SPCFSem.meaning (C.fill (repl M' j (errTerm b))) = SPCFSem.meaning (errTerm b)) :
     ∃ D : MCtx SPCF 1,
       SPCFSem.meaning (D.fill fun _ =>

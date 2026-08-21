@@ -106,11 +106,86 @@ theorem lemma_5_2_subtrees (σ : Ty) (γ : Ctx σ) (e : Tree σ) (he : TreeOk γ
 
 /-! ## The ingredients of Theorem 5.1 -/
 
+/-- Filling a context with either of two closed phrases of the same type gives
+terms of the same type. -/
+theorem MCtx.fill_hasTy_congr (M N : Term SPCF) (σ : Ty)
+    (hM : Term.HasTy [] M σ) (hN : Term.HasTy [] N σ) :
+    ∀ (C : MCtx SPCF 1) (Γ : List (Nat × Ty)) (ρ : Ty),
+      Term.HasTy Γ (C.fill fun _ => M) ρ → Term.HasTy Γ (C.fill fun _ => N) ρ := by
+  intro C
+  induction C with
+  | hole i =>
+    intro Γ ρ h
+    have : ρ = σ := Term.hasTy_unique h hM
+    subst this
+    exact Term.weaken (fun _ hp => absurd hp (by simp)) hN
+  | var x ν => intro Γ ρ h; exact h
+  | const c => intro Γ ρ h; exact h
+  | app C₁ C₂ ih₁ ih₂ =>
+    intro Γ ρ h
+    cases h with | app h₁ h₂ => exact Term.HasTy.app (ih₁ _ _ h₁) (ih₂ _ _ h₂)
+  | lam x ν C ih =>
+    intro Γ ρ h
+    cases h with | lam hC => exact Term.HasTy.lam (ih _ _ hC)
+
+/-- Compositionality of `T`: denotationally equal phrases have equal meanings in
+every context.  "The other direction is an immediate consequence of the
+compositionality of the meaning function `T`" (proof of Theorem 5.1).
+
+The `λ` case is where Corollary 4.23's abstraction lemma does the work. -/
+theorem soundness_aux (M N : Term SPCF) (σ : Ty)
+    (hM : Term.HasTy [] M σ) (hN : Term.HasTy [] N σ)
+    (hden : ∀ E : Tmodel.Env, Tmodel.combMeaning E (Term.toComb M) σ
+      = Tmodel.combMeaning E (Term.toComb N) σ) :
+    ∀ (C : MCtx SPCF 1) (Γ : List (Nat × Ty)) (ρ : Ty) (E : Tmodel.Env),
+      Term.HasTy Γ (C.fill fun _ => M) ρ →
+      Tmodel.combMeaning E (Term.toComb (C.fill fun _ => M)) ρ
+        = Tmodel.combMeaning E (Term.toComb (C.fill fun _ => N)) ρ := by
+  intro C
+  induction C with
+  | hole i =>
+    intro Γ ρ E h
+    have : ρ = σ := Term.hasTy_unique h hM
+    subst this
+    exact hden E
+  | var x ν => intro Γ ρ E _; rfl
+  | const c => intro Γ ρ E _; rfl
+  | app C₁ C₂ ih₁ ih₂ =>
+    intro Γ ρ E h
+    cases h with
+    | app h₁ h₂ =>
+      rename_i α
+      have e₂ : Comb.tyOf (Term.toComb (C₂.fill fun _ => M)) = α := Term.tyOf_toComb h₂
+      have e₂' : Comb.tyOf (Term.toComb (C₂.fill fun _ => N)) = α :=
+        Term.tyOf_toComb (MCtx.fill_hasTy_congr M N σ hM hN C₂ Γ α h₂)
+      show Tmodel.combMeaning E (.app (Term.toComb (C₁.fill fun _ => M))
+          (Term.toComb (C₂.fill fun _ => M))) ρ = _
+      rw [Model.combMeaning_app, e₂, ih₁ Γ (α ⇒ ρ) E h₁, ih₂ Γ α E h₂]
+      show _ = Tmodel.combMeaning E (.app (Term.toComb (C₁.fill fun _ => N))
+        (Term.toComb (C₂.fill fun _ => N))) ρ
+      rw [Model.combMeaning_app, e₂']
+  | lam x ν C ih =>
+    intro Γ ρ E h
+    cases h with
+    | lam hC =>
+      rename_i τ
+      have hCM : Comb.HasTy ((x, ν) :: Γ) (Term.toComb (C.fill fun _ => M)) τ :=
+        Term.toComb_hasTy hC
+      have hCN : Comb.HasTy ((x, ν) :: Γ) (Term.toComb (C.fill fun _ => N)) τ :=
+        Term.toComb_hasTy (MCtx.fill_hasTy_congr M N σ hM hN C ((x, ν) :: Γ) τ hC)
+      show Tmodel.combMeaning E (Comb.lamStar x ν (Term.toComb (C.fill fun _ => M))) (ν ⇒ τ)
+        = Tmodel.combMeaning E (Comb.lamStar x ν (Term.toComb (C.fill fun _ => N))) (ν ⇒ τ)
+      refine theorem_4_11.2 ν τ _ _ fun z => ?_
+      rw [lamStar_apply E x ν z _ τ Γ hCM, lamStar_apply E x ν z _ τ Γ hCN]
+      exact ih ((x, ν) :: Γ) τ (Model.envUpdate E x ν z) hC
+
 /-- Compositionality of `T`: denotationally equal phrases are observationally
 equivalent. -/
-theorem soundness (σ : Ty) (M N : Term SPCF) (h : Tmodel.DenEquiv σ M N) :
-    SemDef.ObsEquiv SPCFSem M N := by
-  sorry
+theorem soundness (σ : Ty) (M N : Term SPCF)
+    (hM : Term.HasTy [] M σ) (hN : Term.HasTy [] N σ)
+    (h : Tmodel.DenEquiv σ M N) : SemDef.ObsEquiv SPCFSem M N := by
+  intro C hprogM _
+  exact soundness_aux M N σ hM hN (fun E => h E) C [] 𝕆 botEnv hprogM.2
 
 /-- `apply` is determined by its values on *finite* arguments: this is the
 continuity of `apply` in its second argument (Definition 4.9). -/
@@ -255,11 +330,12 @@ theorem theorem_5_1_separating (σ : Ty) (M N : Term SPCF)
 theorem theorem_5_1 (σ : Ty) (M N : Term SPCF)
     (henv : ∀ P : Term SPCF, Term.Closed P →
       ∀ Env : Tmodel.Env, Tmodel.meaning Env P σ = Tmodel.meaning botEnv P σ)
+    (hMty : Term.HasTy [] M σ) (hNty : Term.HasTy [] N σ)
     (hM : Term.Closed M) (hN : Term.Closed N)
     (hprog : ∀ (Es : List (Term SPCF)) (P : Term SPCF),
       SPCFSem.Program ((appCtx Es).fill fun _ => P)) :
     Tmodel.DenEquiv σ M N ↔ SemDef.ObsEquiv SPCFSem M N := by
-  refine ⟨soundness σ M N, fun hobs => ?_⟩
+  refine ⟨soundness σ M N hMty hNty, fun hobs => ?_⟩
   intro Env
   rw [henv M hM Env, henv N hN Env]
   exact Classical.byContradiction fun hne => theorem_5_1_separating σ M N hne hprog hobs
@@ -270,9 +346,10 @@ theorem theorem_5_1_fullyAbstract
     (henv : ∀ (σ : Ty) (P : Term SPCF), Term.Closed P →
       ∀ Env : Tmodel.Env, Tmodel.meaning Env P σ = Tmodel.meaning botEnv P σ)
     (hprog : ∀ (Es : List (Term SPCF)) (P : Term SPCF),
-      SPCFSem.Program ((appCtx Es).fill fun _ => P)) :
+      SPCFSem.Program ((appCtx Es).fill fun _ => P))
+    (hty : ∀ (σ : Ty) (P : Term SPCF), Term.Closed P → Term.HasTy [] P σ) :
     Tmodel.FullyAbstract SPCFSem := by
   intro σ N N' hN hN' hobs
-  exact (theorem_5_1 σ N N' (henv σ) hN hN' hprog).mpr hobs
+  exact (theorem_5_1 σ N N' (henv σ) (hty σ N hN) (hty σ N' hN') hN hN' hprog).mpr hobs
 
 end FA

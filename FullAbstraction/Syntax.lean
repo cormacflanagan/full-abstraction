@@ -53,7 +53,7 @@ def apps (M : Term L) (Ns : List (Term L)) : Term L :=
 
 /-- The typing relation of the simply typed λ-calculus. -/
 inductive HasTy : List (Nat × Ty) → Term L → Ty → Prop where
-  | var {Γ x σ} : (x, σ) ∈ Γ → (∀ τ, (x, τ) ∈ Γ → τ = σ) → HasTy Γ (.var x σ) σ
+  | var {Γ x σ} : (x, σ) ∈ Γ → HasTy Γ (.var x σ) σ
   | const {Γ c} : HasTy Γ (.const c) (L.constTy c)
   | app {Γ M N σ τ} : HasTy Γ M (σ ⇒ τ) → HasTy Γ N σ → HasTy Γ (.app M N) τ
   | lam {Γ x σ M τ} : HasTy ((x, σ) :: Γ) M τ → HasTy Γ (.lam x σ M) (σ ⇒ τ)
@@ -296,12 +296,59 @@ theorem subst_hasTy {Γ : List (Nat × Ty)} {x : Nat} {σ : Ty} {N : Comb L}
 
 end Comb
 
+namespace Term
+variable {L : Lang}
+
+/-- Typing of λ-terms is preserved by enlarging the context. -/
+theorem weaken : ∀ {t : Term L} {Γ Γ' : List (Nat × Ty)} {ρ : Ty},
+    (∀ p, p ∈ Γ → p ∈ Γ') → HasTy Γ t ρ → HasTy Γ' t ρ := by
+  intro t
+  induction t with
+  | var x ν => intro Γ Γ' ρ hsub h; cases h with | var hmem => exact HasTy.var (hsub _ hmem)
+  | const c => intro Γ Γ' ρ hsub h; cases h with | const => exact HasTy.const
+  | app A B ihA ihB =>
+    intro Γ Γ' ρ hsub h
+    cases h with | app hA hB => exact HasTy.app (ihA hsub hA) (ihB hsub hB)
+  | lam x ν A ih =>
+    intro Γ Γ' ρ hsub h
+    cases h with
+    | lam hA =>
+      refine HasTy.lam (ih ?_ hA)
+      intro p hp
+      rcases List.mem_cons.mp hp with rfl | hp'
+      · exact List.mem_cons_self ..
+      · exact List.mem_cons_of_mem _ (hsub p hp')
+
+/-- The type of a λ-term is determined by the term: variables and constants
+carry their type, and the other two forms read it off their subterms. -/
+theorem hasTy_unique : ∀ {t : Term L} {Γ Γ' : List (Nat × Ty)} {ρ ρ' : Ty},
+    HasTy Γ t ρ → HasTy Γ' t ρ' → ρ = ρ' := by
+  intro t
+  induction t with
+  | var x ν => intro Γ Γ' ρ ρ' h h'; cases h; cases h'; rfl
+  | const c => intro Γ Γ' ρ ρ' h h'; cases h; cases h'; rfl
+  | app A B ihA _ =>
+    intro Γ Γ' ρ ρ' h h'
+    cases h with
+    | app hA _ =>
+      cases h' with
+      | app hA' _ =>
+        have he := ihA hA hA'
+        simp only [Ty.arrow.injEq] at he
+        exact he.2
+  | lam x ν A ih =>
+    intro Γ Γ' ρ ρ' h h'
+    cases h with
+    | lam hA => cases h' with | lam hA' => rw [ih hA hA']
+
+end Term
+
 /-- `[·]_CL` preserves typing. -/
 theorem Term.toComb_hasTy {L : Lang} {Γ : List (Nat × Ty)} {N : Term L} {ρ : Ty} :
     Term.HasTy Γ N ρ → Comb.HasTy Γ (Term.toComb N) ρ := by
   intro h
   induction h with
-  | var hmem _ => exact Comb.HasTy.var hmem
+  | var hmem => exact Comb.HasTy.var hmem
   | const => exact Comb.HasTy.const
   | app _ _ ih₁ ih₂ => exact Comb.HasTy.app ih₁ ih₂
   | lam _ ih => exact Comb.lamStar_hasTy ih

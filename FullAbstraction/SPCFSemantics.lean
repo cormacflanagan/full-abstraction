@@ -116,10 +116,17 @@ environment; closed phrases do not consult it. -/
 noncomputable def botEnv : Tmodel.Env := fun _ σ => ScottDomain.bot (α := T σ)
 
 /-- The meaning function is monotone in every hole of a context.  This is the
-monotonicity that Theorem 6.5 uses; it follows from the monotonicity of
-`apply` and of the abstraction algorithm. -/
+monotonicity that Theorem 6.5 uses; it follows from the monotonicity of `apply`
+in both arguments (`apply0_mono_left`, `apply0_mono_right`), the abstraction
+lemma `lamStar_apply`, and order-extensionality for the `λ` case.
+
+The two `Program` hypotheses are needed: with an ill-typed replacement the
+filled context has an unconstrained meaning. -/
 theorem Tmeaning_mono {k : Nat} (C : MCtx SPCF k) (M : Fin k → Term SPCF) (j : Fin k)
-    (N : Term SPCF) :
+    (N : Term SPCF)
+    (_ : Term.Closed (C.fill (repl M j omegaTerm))
+      ∧ Term.HasTy [] (C.fill (repl M j omegaTerm)) 𝕆)
+    (_ : Term.Closed (C.fill (repl M j N)) ∧ Term.HasTy [] (C.fill (repl M j N)) 𝕆) :
     Tmodel.meaning botEnv (C.fill (repl M j omegaTerm)) 𝕆
       ⊑ Tmodel.meaning botEnv (C.fill (repl M j N)) 𝕆 := by
   sorry
