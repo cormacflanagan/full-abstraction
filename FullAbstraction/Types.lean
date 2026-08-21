@@ -75,6 +75,26 @@ theorem arity_foldr (l : List Ty) : (l.foldr arrow base).arity = l.length := by
 
 end Ty
 
+/-- The `k`-ary ground type `o → … → o → o`. -/
+def Ty.pow : Nat → Ty
+  | 0 => 𝕆
+  | k + 1 => 𝕆 ⇒ Ty.pow k
+
+@[simp] theorem Ty.pow_arity : ∀ k : Nat, (Ty.pow k).arity = k
+  | 0 => rfl
+  | k + 1 => by simp [Ty.pow, Ty.pow_arity k]
+
+theorem Ty.pow_arg : ∀ (k : Nat) (i : Fin (Ty.pow k).arity), (Ty.pow k).arg i = 𝕆
+  | 0, i => absurd i.isLt (by simp)
+  | k + 1, ⟨0, _⟩ => rfl
+  | k + 1, ⟨m + 1, h⟩ => Ty.pow_arg k ⟨m, by
+      have := h; simp only [Ty.pow, Ty.arity_arrow] at this; omega⟩
+
+/-- Every query of a type all of whose argument positions are exhausted is the
+trivial query. -/
+theorem arity_eq_zero_of_base {τ : Ty} (h : τ = 𝕆) : τ.arity = 0 := by
+  subst h; rfl
+
 /-- The index of `l`'s `j`-th argument, as an index of the uncurried type. -/
 def finOf (l : List Ty) (j : Fin l.length) : Fin (l.foldr Ty.arrow Ty.base).arity :=
   ⟨j.val, by rw [Ty.arity_foldr]; exact j.isLt⟩

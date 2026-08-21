@@ -532,6 +532,12 @@ def shift1 {a τ : Ty} : Query (a ⇒ τ) → Query τ
 
 end Query
 
+/-- A query at a type with no argument positions is trivial. -/
+theorem Query.eq_hole_of_arity_zero {τ : Ty} (h : τ.arity = 0) :
+    ∀ q : Query τ, q = .hole
+  | .hole => rfl
+  | .step i _ _ _ => absurd (Nat.lt_of_lt_of_eq i.isLt h) (by omega)
+
 /-- "Every query `q` of type `σ` becomes an element of `D_σ` if we replace `?`
 by `⊥`.  For the sake of brevity, we will abbreviate the path `q[?/⊥]` by the
 symbol `q`" (§4.1). -/

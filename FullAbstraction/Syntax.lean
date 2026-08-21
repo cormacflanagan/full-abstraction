@@ -422,6 +422,7 @@ def fill : MCtx L k → (Fin k → Term L) → Term L
   | .app C₁ C₂, M => .app (C₁.fill M) (C₂.fill M)
   | .lam x σ C, M => .lam x σ (C.fill M)
 
+end MCtx
 
 /-- Free variables of `λ*ₓ.P` are free variables of `P`. -/
 theorem Comb.FV_lamStar {L : Lang} (x : Nat) (σ : Ty) :
@@ -503,8 +504,6 @@ theorem Term.FV_toComb {L : Lang} :
       -- `(x,σ)` cannot survive `λ*`: check by a second pass
       exact absurd hp (Comb.FV_lamStar_self x σ (Term.toComb M))
     · exact ⟨ih p hp', hpx⟩
-
-end MCtx
 
 namespace MCtx
 variable {L : Lang} {k : Nat}
