@@ -213,13 +213,68 @@ def claim_4_8_approx {σ : Ty} (d : Tree σ) : Set (Tree σ) :=
 theorem claim_4_8 {σ : Ty} (d : Tree σ) : IsLUB (claim_4_8_approx d) d := by
   sorry
 
+/-- Two trees with the same root either are both leaves with the same value, or
+are both nodes with the same node value. -/
+theorem eq_root_cases {σ : Ty} {d e : Tree σ} (h : d.root = e.root) :
+    (∃ v, d = .leaf v ∧ e = .leaf v) ∨
+    (∃ (i : Fin σ.arity) (q : Query (σ.arg i)) (f g : Resp (σ.arg i) → Tree σ),
+      d = .node i q f ∧ e = .node i q g) := by
+  cases d with
+  | leaf v =>
+    cases e with
+    | leaf w =>
+      have hvw : v = w := by simpa [Tree.root] using h
+      exact Or.inl ⟨v, rfl, by rw [hvw]⟩
+    | node j p g => exact absurd h (by simp [Tree.root])
+  | node i q f =>
+    cases e with
+    | leaf w => exact absurd h (by simp [Tree.root])
+    | node j p g =>
+      have hij : (⟨i, q⟩ : NodeVal σ) = ⟨j, p⟩ := by
+        simpa [Tree.root] using h
+      cases hij
+      exact Or.inr ⟨i, q, f, g, rfl, rfl⟩
+
 /-- **Lemma 4.7.**  *For `f, g ∈ D_σ`, `f ⋢ g` implies that there is a query `p`
 such that `f @ p` and `g @ p` are both defined, `f @ p ⋢ g @ p`, and the
-subtrees `f @ p` and `g @ p` are immediately incomparable.* -/
-theorem lemma_4_7 {σ : Ty} (f g : Tree σ) (h : ¬ f ⊑ g) :
+subtrees `f @ p` and `g @ p` are immediately incomparable.*
+
+The proof is by induction on `f`.  If `f` and `g` have different roots the empty
+query `?` already works.  If they have the same root they are either equal
+leaves — impossible, since then `f ⊑ g` — or nodes `⟨i, q, h⟩` and `⟨i, q, h'⟩`
+with `h r ⋢ h' r` for some response `r`; prefixing the query supplied by the
+induction hypothesis with the step `⟨i, q, r⟩` gives the required query. -/
+theorem lemma_4_7 {σ : Ty} : ∀ (f g : Tree σ), ¬ Tree.Le f g →
     ∃ (p : Query σ) (f' g' : Tree σ),
-      f.at' p = some f' ∧ g.at' p = some g' ∧ ¬ f' ⊑ g' ∧ Tree.ImmIncomparable f' g' := by
-  sorry
+      f.at' p = some f' ∧ g.at' p = some g' ∧ ¬ Tree.Le f' g' ∧
+      Tree.ImmIncomparable f' g' := by
+  intro f
+  induction f with
+  | leaf v =>
+    intro g h
+    refine ⟨.hole, .leaf v, g, rfl, rfl, h, ?_⟩
+    intro hroot
+    rcases eq_root_cases hroot with ⟨w, hw, hg⟩ | ⟨i, q, f', g', hf', _⟩
+    · cases hw; exact h (hg ▸ Tree.Le.leaf v)
+    · exact absurd hf' (by simp)
+  | node i q hf ih =>
+    intro g h
+    by_cases hroot : (Tree.node i q hf).root = g.root
+    · rcases eq_root_cases hroot with ⟨w, hw, _⟩ | ⟨j, p, f', g', hfj, hgj⟩
+      · exact absurd hw (by simp)
+      · -- same node value: some branch must fail
+        cases hfj
+        have hex : ∃ r, ¬ Tree.Le (hf r) (g' r) := by
+          refine Classical.byContradiction fun hall => h ?_
+          rw [hgj]
+          exact Tree.Le.node _ _ _ _ fun r =>
+            Classical.byContradiction fun hr => hall ⟨r, hr⟩
+        obtain ⟨r, hr⟩ := hex
+        obtain ⟨p', a, b, ha, hb, hab, hinc⟩ := ih r (g' r) hr
+        refine ⟨.step i q r p', a, b, ?_, ?_, hab, hinc⟩
+        · rw [Tree.at'_step_self]; exact ha
+        · rw [hgj, Tree.at'_step_self]; exact hb
+    · exact ⟨.hole, .node i q hf, g, rfl, rfl, h, hroot⟩
 
 /-! ## Lemma 4.14, Corollary 4.15 -/
 

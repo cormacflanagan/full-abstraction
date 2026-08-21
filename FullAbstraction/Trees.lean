@@ -368,6 +368,21 @@ def ValidQuery (d : Tree σ) (q : Query σ) : Prop := ∃ e, d.at' q = some e
 (Definition 4.5). -/
 def ProbesPerimeter (d : Tree σ) (q : Query σ) : Prop := d.at' q = some bot
 
+/-- Descending into a node along its own query selects the corresponding
+branch. -/
+theorem stepAt_self (i : Fin σ.arity) (q : Query (σ.arg i))
+    (f : Resp (σ.arg i) → Tree σ) (r : Resp (σ.arg i)) :
+    (Tree.node i q f).stepAt i q r = some (f r) := by
+  simp only [Tree.stepAt, dif_pos rfl]
+  rfl
+
+@[simp] theorem at'_hole (d : Tree σ) : d.at' .hole = some d := rfl
+
+theorem at'_step_self (i : Fin σ.arity) (q : Query (σ.arg i))
+    (f : Resp (σ.arg i) → Tree σ) (r : Resp (σ.arg i)) (rest : Query σ) :
+    (Tree.node i q f).at' (.step i q r rest) = (f r).at' rest := by
+  simp only [Tree.at', stepAt_self, Option.bind]
+
 /-- `q[?/e]`: replace the `?` marker of `q` by the subtree `e`
 (Definition 4.2, extended to trees as in Corollary 4.15). -/
 noncomputable def _root_.FA.Query.substTree {σ : Ty} :
