@@ -399,6 +399,18 @@ noncomputable def applyT {σ τ : Ty} (F : T (σ ⇒ τ)) (G : T σ) : T τ wher
       show apply0 f₂.1 d₂.1 ⊑ apply0 f.1 d.1
       exact Po.le_trans (apply0_mono_left hf2 d₂.1) (apply0_mono_right f.1 hd2)
 
+/-- `apply` is monotone in its first argument. -/
+theorem applyT_mono_left {σ τ : Ty} {F G : T (σ ⇒ τ)} (h : F ⊑ G) (E : T σ) :
+    applyT F E ⊑ applyT G E := by
+  rintro c ⟨f, hf, d, hd, hc⟩
+  exact ⟨f, h f hf, d, hd, hc⟩
+
+/-- `apply` is monotone in its second argument. -/
+theorem applyT_mono_right {σ τ : Ty} (F : T (σ ⇒ τ)) {E E' : T σ} (h : E ⊑ E') :
+    applyT F E ⊑ applyT F E' := by
+  rintro c ⟨f, hf, d, hd, hc⟩
+  exact ⟨f, hf, d, h d hd, hc⟩
+
 /-! ## Lemma 4.7 and Claim 4.8 -/
 
 /-- **Claim 4.8.**  *For `d ∈ D_σ`,

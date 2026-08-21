@@ -37,6 +37,8 @@ theorem probe_index (k : Nat) (C : MCtx SPCF k) (M : Fin k → Term SPCF)
       SPCFSem.meaning (C.fill (repl M' j (errTerm b))) = SPCFSem.meaning (errTerm b) := by
   sorry
 
+theorem errTerm_omegaLike (b : Bool) : SPCFSem.OmegaLike (errTerm b) := Term.HasTy.const
+
 theorem errTerm_ne_bot (b : Bool) : SPCFSem.meaning (errTerm b) ≠ SPCFSem.bot := by
   rw [meaning_errTerm b]
   intro h
@@ -59,7 +61,7 @@ theorem errTerm_distinct :
 sequentiality of SPCF, the program `C[…]` returns `errorᵢ` if the `j`-th
 argument is `errorᵢ`, regardless of the values of the remaining arguments." -/
 theorem theorem_6_4 : SPCFSem.ErrorSensitive :=
-  ⟨errTerm, errTerm_closed, errTerm_ne_bot, errTerm_distinct, probe_index⟩
+  ⟨errTerm, errTerm_closed, errTerm_omegaLike, errTerm_ne_bot, errTerm_distinct, probe_index⟩
 
 /-! ## Theorem 6.2 -/
 
@@ -106,6 +108,7 @@ theorem theorem_6_7 : SPCFSem.ObservablySequential := by
   obtain ⟨j, hj⟩ := probe_index k C M hprobe
   refine ⟨j, ?_, catch_returns_index C M hprobe τs j hj⟩
   -- `j` is a sequentiality index, by the argument of Theorem 6.5
-  exact SemDef.seqIndex_of_propagates SPCFSem errTerm_ne_bot errTerm_distinct hj
+  exact SemDef.seqIndex_of_propagates SPCFSem errTerm_omegaLike errTerm_ne_bot
+    errTerm_distinct hj
 
 end FA

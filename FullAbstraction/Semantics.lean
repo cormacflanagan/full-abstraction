@@ -56,6 +56,11 @@ structure SemDef (L : Lang) where
   /-- A canonical divergent expression `Ω`. -/
   omega : Term L
   meaning_omega : meaning omega = bot
+  /-- The phrases that may stand where `Ω` stands: those of the same, ground,
+  type.  Definition 6.3's error expressions "denote distinct and inconsistent
+  elements of a flat domain for the ground type", so they qualify. -/
+  OmegaLike : Term L → Prop
+  omega_omegaLike : OmegaLike omega
   /-- The meaning function is monotone in every hole: replacing `Ω` by any
   phrase can only increase the answer.
 
@@ -64,7 +69,7 @@ structure SemDef (L : Lang) where
   its meaning is unconstrained, so it need not dominate the meaning of the
   well-typed `Ω`-fill. -/
   mono : ∀ {k : Nat} (C : MCtx L k) (M : Fin k → Term L) (j : Fin k) (N : Term L),
-    Program (C.fill (repl M j omega)) → Program (C.fill (repl M j N)) →
+    OmegaLike N → Program (C.fill (repl M j omega)) → Program (C.fill (repl M j N)) →
     @Po.le _ po (meaning (C.fill (repl M j omega))) (meaning (C.fill (repl M j N)))
 
 namespace SemDef
@@ -341,6 +346,8 @@ def ErrorSensitive : Prop :=
   ∃ E : Bool → Term L,
     -- `E₁` and `E₂` are closed …
     (∀ b, Term.Closed (E b)) ∧
+    -- … are of ground type, so they may stand where `Ω` stands …
+    (∀ b, P.OmegaLike (E b)) ∧
     -- … denote *proper* (non-`⊥`) elements …
     (∀ b, P.meaning (E b) ≠ P.bot) ∧
     -- … that are *distinct*, hence inconsistent in the flat ground domain …
@@ -355,6 +362,7 @@ def ErrorSensitive : Prop :=
 /-- The core of Theorem 6.5: a hole that propagates both error expressions is a
 sequentiality index. -/
 theorem seqIndex_of_propagates {E : Bool → Term L}
+    (hlike : ∀ b, P.OmegaLike (E b))
     (hne : ∀ b, P.meaning (E b) ≠ P.bot)
     (hdist : P.meaning (E true) ≠ P.meaning (E false))
     {k : Nat} {C : MCtx L k} {j : Fin k}
@@ -371,7 +379,7 @@ theorem seqIndex_of_propagates {E : Bool → Term L}
       P.meaning (C.fill (repl M' j P.omega)) ⊑[P] P.meaning (E b) := by
     intro b
     obtain ⟨hprogE, heq⟩ := hj b M' hprog
-    have hm := P.mono C (repl M' j P.omega) j (E b)
+    have hm := P.mono C (repl M' j P.omega) j (E b) (hlike b)
       (by rw [hrepl P.omega]; exact hprog) (by rw [hrepl (E b)]; exact hprogE)
     rw [hrepl (E b), hrepl P.omega, heq] at hm
     exact hm
@@ -385,10 +393,10 @@ both errors; monotonicity places `P[[C[…,Ω,…]]]` below both `P[[E₁]]` and
 `P[[E₂]]`; and since `E₁` and `E₂` denote distinct proper elements of a flat
 domain, `P[[C[…,Ω,…]]]` must be `⊥ = P[[Ω]]`. -/
 theorem theorem_6_5 (h : P.ErrorSensitive) : P.Sequential := by
-  obtain ⟨E, _hclosed, hne, hdist, hprop⟩ := h
+  obtain ⟨E, _hclosed, hlike, hne, hdist, hprop⟩ := h
   intro k C M hprobe
   obtain ⟨j, hj⟩ := hprop k C M hprobe
-  exact ⟨j, seqIndex_of_propagates P hne hdist hj⟩
+  exact ⟨j, seqIndex_of_propagates P hlike hne hdist hj⟩
 
 /-- **Definition 6.6** (*Observable Sequentiality*).
 

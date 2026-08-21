@@ -115,6 +115,90 @@ theorem meaning_omegaTerm (E : Tmodel.Env) :
 environment; closed phrases do not consult it. -/
 noncomputable def botEnv : Tmodel.Env := fun _ σ => ScottDomain.bot (α := T σ)
 
+theorem principal_bot_le {σ : Ty} (I : T σ) : Ideal.principal (DSub.bot : D σ) ⊑ I := by
+  intro a ha
+  obtain ⟨b, hb⟩ := I.nonempty'
+  have hle : a ⊑ (DSub.bot : D σ) := ha
+  exact I.downward a b (Po.le_trans hle (DSub.bot_le b)) hb
+
+/-- `apply (⊥, x) = ⊥`. -/
+theorem applyT_bot (σ τ : Ty) (x : T σ) :
+    applyT (ScottDomain.bot : T (σ ⇒ τ)) x ⊑ Ideal.principal (DSub.bot : D τ) := by
+  rintro c ⟨f, hf, d, _, hc⟩
+  have hfb : f ⊑ (DSub.bot : D (σ ⇒ τ)) :=
+    Po.le_trans (show f ⊑ FinitaryBasis.bot from hf) (FinitaryBasis.bot_le DSub.bot)
+  have hfeq : f = DSub.bot := Po.le_antisymm hfb (DSub.bot_le f)
+  subst hfeq
+  exact hc
+
+theorem hasTy_omegaTerm : Term.HasTy [] omegaTerm 𝕆 :=
+  Term.HasTy.app Term.HasTy.const Term.HasTy.const
+
+/-- Filling a multi-hole context with type-compatible replacements preserves
+typing. -/
+theorem MCtx.fill_hasTy_mono {k : Nat} (Ms Ms' : Fin k → Term SPCF)
+    (hMs : ∀ (i : Fin k) (ν : Ty) (Γ : List (Nat × Ty)),
+      Term.HasTy Γ (Ms i) ν → Term.HasTy Γ (Ms' i) ν) :
+    ∀ (C : MCtx SPCF k) (Γ : List (Nat × Ty)) (ρ : Ty),
+      Term.HasTy Γ (C.fill Ms) ρ → Term.HasTy Γ (C.fill Ms') ρ := by
+  intro C
+  induction C with
+  | hole i => intro Γ ρ h; exact hMs i ρ Γ h
+  | var x ν => intro Γ ρ h; exact h
+  | const c => intro Γ ρ h; exact h
+  | app C₁ C₂ ih₁ ih₂ =>
+    intro Γ ρ h
+    cases h with | app h₁ h₂ => exact Term.HasTy.app (ih₁ _ _ h₁) (ih₂ _ _ h₂)
+  | lam x ν C ih =>
+    intro Γ ρ h
+    cases h with | lam hC => exact Term.HasTy.lam (ih _ _ hC)
+
+/-- Monotonicity of the meaning function in every hole, in the form the
+induction needs. -/
+theorem meaning_mono_aux {k : Nat} (Ms Ms' : Fin k → Term SPCF)
+    (hMs : ∀ (i : Fin k) (ν : Ty) (Γ : List (Nat × Ty)),
+      Term.HasTy Γ (Ms i) ν → Term.HasTy Γ (Ms' i) ν)
+    (hle : ∀ (i : Fin k) (E' : Tmodel.Env) (ν : Ty),
+      Tmodel.combMeaning E' (Term.toComb (Ms i)) ν
+        ⊑ Tmodel.combMeaning E' (Term.toComb (Ms' i)) ν) :
+    ∀ (C : MCtx SPCF k) (Γ : List (Nat × Ty)) (ρ : Ty) (E : Tmodel.Env),
+      Term.HasTy Γ (C.fill Ms) ρ →
+      Tmodel.combMeaning E (Term.toComb (C.fill Ms)) ρ
+        ⊑ Tmodel.combMeaning E (Term.toComb (C.fill Ms')) ρ := by
+  intro C
+  induction C with
+  | hole i => intro Γ ρ E _; exact hle i E ρ
+  | var x ν => intro Γ ρ E _; exact Po.le_refl _
+  | const c => intro Γ ρ E _; exact Po.le_refl _
+  | app C₁ C₂ ih₁ ih₂ =>
+    intro Γ ρ E h
+    cases h with
+    | app h₁ h₂ =>
+      rename_i α
+      have e₂ : Comb.tyOf (Term.toComb (C₂.fill Ms)) = α := Term.tyOf_toComb h₂
+      have e₂' : Comb.tyOf (Term.toComb (C₂.fill Ms')) = α :=
+        Term.tyOf_toComb (MCtx.fill_hasTy_mono Ms Ms' hMs C₂ Γ α h₂)
+      show Tmodel.combMeaning E (.app (Term.toComb (C₁.fill Ms))
+        (Term.toComb (C₂.fill Ms))) ρ ⊑ _
+      rw [Model.combMeaning_app, e₂]
+      show _ ⊑ Tmodel.combMeaning E (.app (Term.toComb (C₁.fill Ms'))
+        (Term.toComb (C₂.fill Ms'))) ρ
+      rw [Model.combMeaning_app, e₂']
+      exact Po.le_trans (applyT_mono_left (ih₁ Γ (α ⇒ ρ) E h₁) _)
+        (applyT_mono_right _ (ih₂ Γ α E h₂))
+  | lam x ν C ih =>
+    intro Γ ρ E h
+    cases h with
+    | lam hC =>
+      rename_i τ
+      show Tmodel.combMeaning E (Comb.lamStar x ν (Term.toComb (C.fill Ms))) (ν ⇒ τ)
+        ⊑ Tmodel.combMeaning E (Comb.lamStar x ν (Term.toComb (C.fill Ms'))) (ν ⇒ τ)
+      refine orderExtensional_T _ _ fun z => ?_
+      rw [lamStar_apply E x ν z _ τ Γ (Term.toComb_hasTy hC),
+        lamStar_apply E x ν z _ τ Γ
+          (Term.toComb_hasTy (MCtx.fill_hasTy_mono Ms Ms' hMs C ((x, ν) :: Γ) τ hC))]
+      exact ih ((x, ν) :: Γ) τ (Model.envUpdate E x ν z) hC
+
 /-- The meaning function is monotone in every hole of a context.  This is the
 monotonicity that Theorem 6.5 uses; it follows from the monotonicity of `apply`
 in both arguments (`apply0_mono_left`, `apply0_mono_right`), the abstraction
@@ -123,13 +207,42 @@ lemma `lamStar_apply`, and order-extensionality for the `λ` case.
 The two `Program` hypotheses are needed: with an ill-typed replacement the
 filled context has an unconstrained meaning. -/
 theorem Tmeaning_mono {k : Nat} (C : MCtx SPCF k) (M : Fin k → Term SPCF) (j : Fin k)
-    (N : Term SPCF)
-    (_ : Term.Closed (C.fill (repl M j omegaTerm))
+    (N : Term SPCF) (hN : Term.HasTy [] N 𝕆)
+    (h1 : Term.Closed (C.fill (repl M j omegaTerm))
       ∧ Term.HasTy [] (C.fill (repl M j omegaTerm)) 𝕆)
     (_ : Term.Closed (C.fill (repl M j N)) ∧ Term.HasTy [] (C.fill (repl M j N)) 𝕆) :
     Tmodel.meaning botEnv (C.fill (repl M j omegaTerm)) 𝕆
       ⊑ Tmodel.meaning botEnv (C.fill (repl M j N)) 𝕆 := by
-  sorry
+  refine meaning_mono_aux (repl M j omegaTerm) (repl M j N) ?_ ?_ C [] 𝕆 botEnv h1.2
+  · intro i ν Γ hi
+    by_cases hij : i = j
+    · subst hij
+      rw [repl_self] at hi ⊢
+      have hν : ν = 𝕆 := Term.hasTy_unique hi hasTy_omegaTerm
+      subst hν
+      exact Term.weaken (fun _ hp => absurd hp (by simp)) hN
+    · simp only [repl, if_neg hij] at hi ⊢
+      exact hi
+  · intro i E' ν
+    by_cases hij : i = j
+    · subst hij
+      rw [repl_self, repl_self,
+        show Tmodel.combMeaning E' (Term.toComb omegaTerm) ν
+          = Tmodel.meaning E' omegaTerm ν from rfl]
+      by_cases hν : ν = 𝕆
+      · subst hν
+        rw [meaning_omegaTerm E']
+        exact principal_bot_le _
+      · show Tmodel.combMeaning E' (.app (.const .sub1) (.const (.num 0))) ν ⊑ _
+        rw [Model.combMeaning_app,
+          show Comb.tyOf (Comb.const (SConst.num 0) : Comb SPCF) = 𝕆 from rfl,
+          show Tmodel.combMeaning E' (Comb.const SConst.sub1) (𝕆 ⇒ ν)
+            = ScottDomain.bot from by
+              show (if h : (𝕆 ⇒ 𝕆) = (𝕆 ⇒ ν) then _ else ScottDomain.bot) = _
+              rw [dif_neg (fun h => hν (by injection h with _ h2; exact h2.symm))]]
+        exact Po.le_trans (applyT_bot 𝕆 ν _) (principal_bot_le _)
+    · simp only [repl, if_neg hij]
+      exact Po.le_refl _
 
 /-- **Definition 6.1** (*Semantic Definition of SPCF*).
 
@@ -153,6 +266,8 @@ noncomputable def SPCFSem : SemDef SPCF where
   meaning M := Tmodel.meaning botEnv M 𝕆
   omega := omegaTerm
   meaning_omega := meaning_omegaTerm botEnv
+  OmegaLike N := Term.HasTy [] N 𝕆
+  omega_omegaLike := hasTy_omegaTerm
   mono := Tmeaning_mono
 
 end FA
