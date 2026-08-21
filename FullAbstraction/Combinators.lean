@@ -15,26 +15,6 @@ namespace FA
 
 open Po
 
-/-! ## Inverting `q[?/x]` -/
-
-namespace Query
-variable {σ : Ty}
-
-/-- `q.answerOf r` returns the answer `x` with `r = q[?/x]`, if `r` is a
-response to `q` at all.  This inverts the substitution `q[?/x]` of
-Definition 4.2 and is what lets the branching functions of Definitions 4.19–4.21
-be given by case analysis on the response received. -/
-noncomputable def answerOf : Query σ → Resp σ → Option (RAns σ)
-  | .hole, .ans n => some (.num n)
-  | .hole, .node i p => some (.node i p)
-  | .hole, .step _ _ _ _ => none
-  | .step i q r rest, .step j q' r' rest' =>
-      if (⟨i, q, r⟩ : PStep σ) = ⟨j, q', r'⟩ then rest.answerOf rest' else none
-  | .step _ _ _ _, .ans _ => none
-  | .step _ _ _ _, .node _ _ => none
-
-end Query
-
 /-! ## Definition 4.19: `add1`, `sub1`, `if0`, `catch` -/
 
 /-- For a ground argument, the only query is `?` and the only responses are
@@ -136,6 +116,130 @@ basis; `K` is therefore the ideal of the finite approximations of the whole
 chain. -/
 noncomputable def treeK (σ τ : Ty) : T (σ ⇒ τ ⇒ σ) :=
   idealOfChain (fun n => Kn σ τ n .hole) fun _ _ h => Kn_le_of_le σ τ h .hole
+
+/-! ### Claim A.2: `K` performs a recursive copy -/
+
+/-- One unfolding of `apply₀ (K_{n+1}(q), d)` when `d @ q` is a node: `K`
+switches to probing the `(j+2)`-nd argument, i.e. the `j`-th argument of its
+first argument, and recurs on the query extended by that step. -/
+theorem apply0_Kn_node (σ τ : Ty) (n : Nat) (q : Query σ) (d : Tree σ) (e : Tree τ)
+    (j : Fin σ.arity) (p : Query (σ.arg j)) (h : Resp (σ.arg j) → Tree σ)
+    (hq : d.at' q = some (.node j p h)) :
+    apply0 (apply0 (Kn σ τ (n + 1) q) d) e
+      = .node j p fun r' => apply0 (apply0 (Kn σ τ n (q.snoc j p r')) d) e := by
+  rw [Kn, apply0, hq]
+  dsimp only
+  rw [Query.answerOf_substAns]
+  dsimp only
+  rw [apply0, apply0]
+  simp only [extendHole_substAns_node]
+
+/-- `apply₀ (K_{n+1}(q), d, e) = errorᵢ` when `d @ q = errorᵢ`. -/
+theorem apply0_Kn_err (σ τ : Ty) (n : Nat) (q : Query σ) (d : Tree σ) (e : Tree τ) (b : Bool)
+    (hq : d.at' q = some (.leaf (.err b))) :
+    apply0 (apply0 (Kn σ τ (n + 1) q) d) e = .leaf (.err b) := by
+  rw [Kn, apply0, hq]
+  dsimp only
+  rfl
+
+/-- `apply₀ (K_{n+1}(q), d, e) = ⌜a⌝` when `d @ q = ⌜a⌝`. -/
+theorem apply0_Kn_num (σ τ : Ty) (n : Nat) (q : Query σ) (d : Tree σ) (e : Tree τ) (a : Nat)
+    (hq : d.at' q = some (.leaf (.num a))) :
+    apply0 (apply0 (Kn σ τ (n + 1) q) d) e = .leaf (.num a) := by
+  rw [Kn, apply0, hq]
+  dsimp only
+  rw [Query.answerOf_substAns]
+  dsimp only
+  rfl
+
+/-- **Claim A.2** (the `⊑` half).  *Let `d ∈ D_σ`, `e ∈ D_τ` and let `q ∈ Q_σ` be
+a valid path in `d`.  Then `apply (K(q), d, e) = d @ q`.*
+
+Every approximant of `K(q)` yields at most `d @ q`. -/
+theorem claim_A_2_le (σ τ : Ty) : ∀ (n : Nat) (q : Query σ) (d : Tree σ) (e : Tree τ)
+    (d' : Tree σ), d.at' q = some d' → Tree.Le (apply0 (apply0 (Kn σ τ n q) d) e) d' := by
+  intro n
+  induction n with
+  | zero => intro q d e d' _; exact Tree.Le.bot _
+  | succ n ih =>
+    intro q d e d' hq
+    cases d' with
+    | leaf v =>
+      cases v with
+      | bot => rw [Kn, apply0, hq]; dsimp only; exact Tree.Le.bot _
+      | err b =>
+        rw [Kn, apply0, hq]
+        dsimp only
+        exact Tree.Le.refl _
+      | num a =>
+        rw [Kn, apply0, hq]
+        dsimp only
+        rw [Query.answerOf_substAns]
+        dsimp only
+        exact Tree.Le.refl _
+    | node j p h =>
+      rw [apply0_Kn_node σ τ n q d e j p h hq]
+      refine Tree.Le.node _ _ _ _ fun r' => ih (q.snoc j p r') d e (h r') ?_
+      rw [at'_snoc, hq]
+      exact Tree.stepAt_self j p h r'
+
+/-- **Claim A.2** (the `⊒` half).  Every finitary approximation of `d @ q` is
+reached by some approximant `Kₙ(q)`. -/
+theorem claim_A_2_ge (σ τ : Ty) : ∀ {a : Tree σ}, Tree.Finitary a →
+    ∀ (q : Query σ) (d : Tree σ) (e : Tree τ) (d' : Tree σ),
+      d.at' q = some d' → Tree.Le a d' →
+      ∃ n, Tree.Le a (apply0 (apply0 (Kn σ τ n q) d) e) := by
+  intro a ha
+  induction ha with
+  | leaf v =>
+    intro q d e d' hq hle
+    cases v with
+    | bot => exact ⟨0, Tree.Le.bot _⟩
+    | err b =>
+      cases hle with
+      | leaf _ =>
+        refine ⟨1, ?_⟩
+        rw [apply0_Kn_err σ τ 0 q d e b hq]
+        exact Tree.Le.refl _
+    | num m =>
+      cases hle with
+      | leaf _ =>
+        refine ⟨1, ?_⟩
+        rw [apply0_Kn_num σ τ 0 q d e m hq]
+        exact Tree.Le.refl _
+  | node i p g hfin _ ih =>
+    intro q d e d' hq hle
+    obtain ⟨h, rfl⟩ := Tree.eq_node_of_le hle
+    have hgh := Tree.Le_node_inv hle
+    have hat : ∀ r, d.at' (q.snoc i p r) = some (h r) := by
+      intro r
+      rw [at'_snoc, hq]
+      exact Tree.stepAt_self i p h r
+    have hex : ∀ r, ∃ n, Tree.Le (g r) (apply0 (apply0 (Kn σ τ n (q.snoc i p r)) d) e) :=
+      fun r => ih r (q.snoc i p r) d e (h r) (hat r) (hgh r)
+    obtain ⟨l, hl⟩ := hfin
+    refine ⟨maxOver l (fun r => Classical.choose (hex r)) + 1, ?_⟩
+    rw [apply0_Kn_node σ τ _ q d e i p h hq]
+    refine Tree.Le.node _ _ _ _ fun r => ?_
+    by_cases hr : g r = Tree.bot
+    · rw [hr]; exact Tree.Le.bot _
+    · exact Tree.Le.trans (Classical.choose_spec (hex r))
+        (apply0_mono_left
+          (apply0_mono_left (Kn_le_of_le σ τ
+            (le_maxOver (fun s => Classical.choose (hex s)) l r (hl r hr)) _) d) e)
+
+/-- **Claim A.2.**  *Let `d ∈ D_σ`, `e ∈ D_τ` and let `q ∈ Q_σ` be a valid path
+in `d` (`d @ q` is defined).  Then `apply (K(q), d, e) = d @ q`.*
+
+Stated as the two halves of the equality between `d @ q` and the least upper
+bound of `{apply₀ (K_n(q), d, e) | n ∈ ℕ}`. -/
+theorem claim_A_2 (σ τ : Ty) (q : Query σ) (d : Tree σ) (e : Tree τ) (d' : Tree σ)
+    (hq : d.at' q = some d') :
+    (∀ n, Tree.Le (apply0 (apply0 (Kn σ τ n q) d) e) d') ∧
+    (∀ a : Tree σ, Tree.Finitary a → Tree.Le a d' →
+      ∃ n, Tree.Le a (apply0 (apply0 (Kn σ τ n q) d) e)) :=
+  ⟨fun n => claim_A_2_le σ τ n q d e d' hq,
+   fun a hfa hle => claim_A_2_ge σ τ hfa q d e d' hq hle⟩
 
 /-! ## The combinator `I`
 
@@ -301,13 +405,6 @@ noncomputable def Tmodel : Model SPCF where
 `apply (K_{σ,τ}, d, e) = d`.* -/
 theorem lemma_A_1 (σ τ : Ty) (d : T σ) (e : T τ) :
     applyT (applyT (treeK σ τ) d) e = d := by
-  sorry
-
-/-- **Claim A.2.**  *Let `d ∈ D_σ`, `e ∈ D_τ` and let `q ∈ Q_σ` be a valid path
-in `d` (`d @ q` is defined).  Then `apply (K(q), d, e) = d @ q`.* -/
-theorem claim_A_2 (σ τ : Ty) (d : Tree σ) (e : Tree τ) (q : Query σ) (d' : Tree σ)
-    (hq : d.at' q = some d') (n : Nat) :
-    ∀ m, n ≤ m → apply0 (apply0 (Kn σ τ m q) d) e ⊑ d' := by
   sorry
 
 /-- **Definition A.4** (*Error variant*).

@@ -261,6 +261,14 @@ must produce the value `⊥`" (Definition 4.2). -/
 def FiniteProperDomain {τ : Ty} (f : Resp τ → Tree σ) : Prop :=
   ∃ l : List (Resp τ), ∀ r, f r ≠ bot → r ∈ l
 
+/-- A tree is **finitary** when every branching function in it has a finite
+proper domain, which is the shape condition of Definition 4.2 with legality
+forgotten. -/
+inductive Finitary : {σ : Ty} → Tree σ → Prop where
+  | leaf {σ : Ty} (v : Val) : Finitary (.leaf v : Tree σ)
+  | node {σ : Ty} (i : Fin σ.arity) (q : Query (σ.arg i)) (f : Resp (σ.arg i) → Tree σ) :
+      FiniteProperDomain f → (∀ r, Finitary (f r)) → Finitary (.node i q f)
+
 /-- **Definition 4.6** (*root operator*).
 
 `root a = a` for `a ∈ ℕ_⊥` and `root ⟨i,q,f⟩ = ⟨i,q⟩`. -/
@@ -592,6 +600,17 @@ theorem TreeOk_join {σ : Ty} : ∀ (d : Tree σ) (γ : Ctx σ) (e t : Tree σ),
           have hbot : Tree.join (f r) (ge r) = Tree.bot := by
             rw [hnon r hr, hnon' r hr]; rfl
           exact hbot
+
+/-- Legal subtrees are finitary. -/
+theorem Finitary_of_TreeOk {σ : Ty} {γ : Ctx σ} {d : Tree σ} (h : TreeOk γ d) :
+    Tree.Finitary d := by
+  induction h with
+  | leaf γ v => exact Tree.Finitary.leaf v
+  | node γ i q f _ hfin hsub hnon ih =>
+    refine Tree.Finitary.node i q f hfin fun r => ?_
+    by_cases hr : LegalResp q r
+    · exact ih r hr
+    · rw [hnon r hr]; exact Tree.Finitary.leaf _
 
 /-- `D_σ(γ)`, the finite subtrees legal in the context `γ`. -/
 def DSub (σ : Ty) (γ : Ctx σ) : Type := { d : Tree σ // TreeOk γ d }

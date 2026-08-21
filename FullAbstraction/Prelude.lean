@@ -93,4 +93,21 @@ theorem Countable.ofInjection {α : Type u} {β : Type v} (hβ : Countable β)
   obtain ⟨g, hg⟩ := hβ
   exact ⟨g ∘ f, fun {a b} h => hf (hg h)⟩
 
+/-! ## A maximum over a list -/
+
+/-- The maximum of `f` over the members of `l` (and `0`). -/
+def maxOver {α : Type u} (l : List α) (f : α → Nat) : Nat :=
+  l.foldr (fun a n => max (f a) n) 0
+
+theorem le_maxOver {α : Type u} (f : α → Nat) : ∀ (l : List α) (a : α), a ∈ l →
+    f a ≤ maxOver l f := by
+  intro l
+  induction l with
+  | nil => intro a h; cases h
+  | cons b l ih =>
+    intro a h
+    rcases List.mem_cons.mp h with rfl | h
+    · exact Nat.le_max_left _ _
+    · exact Nat.le_trans (ih a h) (Nat.le_max_right _ _)
+
 end FA

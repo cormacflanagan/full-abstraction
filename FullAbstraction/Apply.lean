@@ -83,6 +83,24 @@ variable {σ : Ty}
   | .hole, .node _ _ => rfl
   | .step _ _ _ rest, x => ansOf_substAns rest x
 
+/-- `q.answerOf r` returns the answer `x` with `r = q[?/x]`, if `r` is a
+response to `q` at all.  This inverts the substitution `q[?/x]` of
+Definition 4.2 and is what lets the branching functions of Definitions 4.19–4.21
+be given by case analysis on the response received. -/
+noncomputable def answerOf : Query σ → Resp σ → Option (RAns σ)
+  | .hole, .ans n => some (.num n)
+  | .hole, .node i p => some (.node i p)
+  | .hole, .step _ _ _ _ => none
+  | .step i q r rest, .step j q' r' rest' =>
+      if (⟨i, q, r⟩ : PStep σ) = ⟨j, q', r'⟩ then rest.answerOf rest' else none
+  | .step _ _ _ _, .ans _ => none
+  | .step _ _ _ _, .node _ _ => none
+
+/-- `q.snoc j p r'`: the query `q` extended by one further step. -/
+def snoc : Query σ → (j : Fin σ.arity) → Query (σ.arg j) → Resp (σ.arg j) → Query σ
+  | .hole, j, p, r' => .step j p r' .hole
+  | .step i a b rest, j, p, r' => .step i a b (rest.snoc j p r')
+
 /-- A query is **coherent** when each of its steps records a response to the
 query that step asks.  Every legal query is coherent — this is exactly what
 Definition 4.2's requirement `r ∈ ℛ_σᵢ(q)` says — so assuming coherence is no
@@ -92,6 +110,46 @@ def Coherent : Query σ → Prop
   | .step _ q r rest => r.qry = q ∧ rest.Coherent
 
 end Query
+
+/-- `answerOf` inverts `substAns`. -/
+@[simp] theorem Query.answerOf_substAns {σ : Ty} : ∀ (q : Query σ) (x : RAns σ),
+    q.answerOf (q.substAns x) = some x
+  | .hole, .num _ => rfl
+  | .hole, .node _ _ => rfl
+  | .step i p r rest, x => by
+      show (if (⟨i, p, r⟩ : PStep σ) = ⟨i, p, r⟩ then rest.answerOf (rest.substAns x)
+        else none) = some x
+      rw [if_pos rfl, Query.answerOf_substAns rest x]
+
+/-- Extending the response `q[?/⟨j,p⟩]` by a response `r'` to `p` gives `q`
+followed by the step `⟨j, p, r'⟩` (Definition 4.2, `r : f`). -/
+theorem extendHole_substAns_node {σ : Ty} : ∀ (q : Query σ) (j : Fin σ.arity)
+    (p : Query (σ.arg j)) (r' : Resp (σ.arg j)),
+    (q.substAns (.node j p)).extendHole ⟨j, r'⟩ = q.snoc j p r'
+  | .hole, j, p, r' => by
+      show (if h : j = j then Query.step j p (h ▸ r') Query.hole else Query.hole)
+        = Query.step j p r' Query.hole
+      rw [dif_pos rfl]
+  | .step i a b rest, j, p, r' => by
+      show Query.step i a b ((rest.substAns (.node j p)).extendHole ⟨j, r'⟩) = _
+      rw [extendHole_substAns_node rest j p r']
+      rfl
+
+/-- `@` along an extended query descends one further step. -/
+theorem at'_snoc {σ : Ty} : ∀ (q : Query σ) (d : Tree σ) (j : Fin σ.arity)
+    (p : Query (σ.arg j)) (r' : Resp (σ.arg j)),
+    d.at' (q.snoc j p r') = (d.at' q).bind fun t => t.stepAt j p r'
+  | .hole, d, j, p, r' => by
+      show (d.stepAt j p r').bind (fun t => t.at' .hole) = d.stepAt j p r'
+      cases d.stepAt j p r' <;> rfl
+  | .step i a b rest, d, j, p, r' => by
+      show (d.stepAt i a b).bind (fun t => t.at' (rest.snoc j p r'))
+        = ((d.stepAt i a b).bind fun t => t.at' rest).bind fun t => t.stepAt j p r'
+      cases d.stepAt i a b with
+      | none => rfl
+      | some t =>
+        show t.at' (rest.snoc j p r') = (t.at' rest).bind fun u => u.stepAt j p r'
+        exact at'_snoc rest t j p r'
 
 /-- Legal responses are responses to the query they answer. -/
 theorem qry_of_legalResp {σ : Ty} {q : Query σ} {r : Resp σ} (h : LegalResp q r) :
