@@ -32,6 +32,74 @@ noncomputable def toTree (q : Query σ) : Tree σ := q.substTree Tree.bot
 
 end Query
 
+namespace RAns
+variable {σ : Ty}
+
+/-- An answer, viewed as the one-node tree it describes. -/
+noncomputable def toTree : RAns σ → Tree σ
+  | .num n => .leaf (.num n)
+  | .node i p => .node i p fun _ => Tree.bot
+
+end RAns
+
+namespace Resp
+variable {σ : Ty}
+
+/-- The query part of a response: the path with its final answer removed. -/
+def qry : Resp σ → Query σ
+  | .ans _ => .hole
+  | .node _ _ => .hole
+  | .step i q r rest => .step i q r rest.qry
+
+/-- The answer part of a response. -/
+def ansOf : Resp σ → RAns σ
+  | .ans n => .num n
+  | .node i p => .node i p
+  | .step _ _ _ rest => rest.ansOf
+
+/-- `r = r.qry[?/r.ansOf]`: a response is its query with its answer plugged in
+(Definition 4.2, *Legal Responses*). -/
+theorem substAns_qry_ansOf : ∀ r : Resp σ, r.qry.substAns r.ansOf = r
+  | .ans _ => rfl
+  | .node _ _ => rfl
+  | .step i q r rest => by
+      show Resp.step i q r (rest.qry.substAns rest.ansOf) = _
+      rw [substAns_qry_ansOf rest]
+
+end Resp
+
+namespace Query
+variable {σ : Ty}
+
+@[simp] theorem qry_substAns : ∀ (q : Query σ) (x : RAns σ), (q.substAns x).qry = q
+  | .hole, .num _ => rfl
+  | .hole, .node _ _ => rfl
+  | .step i p r rest, x => by
+      show Query.step i p r ((rest.substAns x).qry) = _
+      rw [qry_substAns rest x]
+
+@[simp] theorem ansOf_substAns : ∀ (q : Query σ) (x : RAns σ), (q.substAns x).ansOf = x
+  | .hole, .num _ => rfl
+  | .hole, .node _ _ => rfl
+  | .step _ _ _ rest, x => ansOf_substAns rest x
+
+/-- A query is **coherent** when each of its steps records a response to the
+query that step asks.  Every legal query is coherent — this is exactly what
+Definition 4.2's requirement `r ∈ ℛ_σᵢ(q)` says — so assuming coherence is no
+more than assuming `q ∈ Q_σ` in the paper's sense. -/
+def Coherent : Query σ → Prop
+  | .hole => True
+  | .step _ q r rest => r.qry = q ∧ rest.Coherent
+
+end Query
+
+/-- Legal responses are responses to the query they answer. -/
+theorem qry_of_legalResp {σ : Ty} {q : Query σ} {r : Resp σ} (h : LegalResp q r) :
+    r.qry = q := by
+  cases h with
+  | num q n => exact Query.qry_substAns q (.num n)
+  | node q i p _ => exact Query.qry_substAns q (.node i p)
+
 /-! ## Definition 4.9: `apply` -/
 
 /-- **Definition 4.9** (*`apply`*), the auxiliary partial function `apply₀`.
@@ -209,9 +277,56 @@ value at the end of a valid query. -/
 def claim_4_8_approx {σ : Ty} (d : Tree σ) : Set (Tree σ) :=
   fun t => ∃ (q : Query σ) (a : Val), t = q.substTree (.leaf a) ∧ t ⊑ d
 
+/-- A one-step query with a `⊥` leaf is the bare node `⟨i, q, ⊥⟩`. -/
+theorem substTree_step_hole_bot {σ : Ty} (i : Fin σ.arity) (q : Query (σ.arg i))
+    (r : Resp (σ.arg i)) :
+    Query.substTree (.step i q r .hole) (.leaf .bot) = Tree.node i q fun _ => Tree.bot := by
+  simp only [Query.substTree]
+  congr 1
+  funext s
+  split <;> rfl
+
+theorem substTree_step {σ : Ty} (i : Fin σ.arity) (q : Query (σ.arg i))
+    (r : Resp (σ.arg i)) (p : Query σ) (a : Val) :
+    Query.substTree (.step i q r p) (.leaf a)
+      = Tree.node i q fun s => if s = r then Query.substTree p (.leaf a) else Tree.bot := rfl
+
+/-- The least-upper-bound half of Claim 4.8: any tree above every single-branch
+approximation of `d` is above `d`. -/
+theorem claim_4_8_least {σ : Ty} : ∀ (d v : Tree σ),
+    UpperBound (claim_4_8_approx d) v → Tree.Le d v := by
+  intro d
+  induction d with
+  | leaf a =>
+    intro v hv
+    exact hv (.leaf a) ⟨.hole, a, rfl, Tree.Le.refl _⟩
+  | node i q f ih =>
+    intro v hv
+    -- the bare node `⟨i, q, ⊥⟩` is one of the approximations, so `v` is a node
+    have hbare : Tree.Le (Tree.node i q fun _ => Tree.bot) v := by
+      have hmem : (Tree.node i q fun _ => Tree.bot) ∈ claim_4_8_approx (Tree.node i q f) := by
+        refine ⟨.step i q (Resp.ans 0) .hole, .bot, (substTree_step_hole_bot i q _).symm, ?_⟩
+        exact Tree.Le.node _ _ _ _ fun _ => Tree.Le.bot _
+      exact hv _ hmem
+    obtain ⟨g, rfl⟩ := Tree.eq_node_of_le hbare
+    refine Tree.Le.node _ _ _ _ fun s => ih s (g s) ?_
+    -- every approximation of the `s`-branch of `d` lifts to an approximation of `d`
+    rintro t ⟨p, a, rfl, hle⟩
+    have hmem : (Tree.node i q fun u => if u = s then Query.substTree p (.leaf a) else Tree.bot)
+        ∈ claim_4_8_approx (Tree.node i q f) := by
+      refine ⟨.step i q s p, a, (substTree_step i q s p a).symm, ?_⟩
+      refine Tree.Le.node _ _ _ _ fun u => ?_
+      by_cases hu : u = s
+      · subst hu; rw [if_pos rfl]; exact hle
+      · rw [if_neg hu]; exact Tree.Le.bot _
+    have := Tree.Le_node_inv (Tree.Le.trans (Tree.Le.refl _) (hv _ hmem)) s
+    rwa [if_pos rfl] at this
+
 /-- **Claim 4.8.** -/
 theorem claim_4_8 {σ : Ty} (d : Tree σ) : IsLUB (claim_4_8_approx d) d := by
-  sorry
+  refine ⟨?_, claim_4_8_least d⟩
+  rintro t ⟨p, a, rfl, hle⟩
+  exact hle
 
 /-- Two trees with the same root either are both leaves with the same value, or
 are both nodes with the same node value. -/
@@ -276,6 +391,72 @@ theorem lemma_4_7 {σ : Ty} : ∀ (f g : Tree σ), ¬ Tree.Le f g →
         · rw [hgj, Tree.at'_step_self]; exact hb
     · exact ⟨.hole, .node i q hf, g, rfl, rfl, h, hroot⟩
 
+/-! ### Reading answers out of a tree -/
+
+/-- Inversion for `@` along a step. -/
+theorem at'_step_inv {σ : Ty} {d : Tree σ} {i : Fin σ.arity} {q : Query (σ.arg i)}
+    {r : Resp (σ.arg i)} {rest : Query σ} {e : Tree σ}
+    (h : d.at' (.step i q r rest) = some e) :
+    ∃ f : Resp (σ.arg i) → Tree σ, d = .node i q f ∧ (f r).at' rest = some e := by
+  cases d with
+  | leaf v => exact absurd h (by simp [Tree.at', Tree.stepAt])
+  | node j p g =>
+    by_cases hEq : (⟨i, q⟩ : NodeVal σ) = ⟨j, p⟩
+    · have h1 : i = j := congrArg Sigma.fst hEq
+      subst h1
+      have h2 : q = p := by injection hEq
+      subst h2
+      rw [Tree.at'_step_self] at h
+      exact ⟨g, rfl, h⟩
+    · rw [show (Tree.node j p g).at' (.step i q r rest) = none by
+            simp only [Tree.at', Tree.stepAt, dif_neg hEq, Option.bind]] at h
+      exact absurd h (by simp)
+
+/-- If a tree contains the path `r`, then querying it along `r`'s query returns
+the answer that `r` records.  This is what makes `apply₀` take the branch that
+the argument's response selects (Definition 4.9). -/
+theorem at'_resp {σ : Ty} : ∀ (r : Resp σ) (d : Tree σ), Tree.Le r.toTree d →
+    (∃ n, r.ansOf = RAns.num n ∧ d.at' r.qry = some (.leaf (.num n))) ∨
+    (∃ (j : Fin σ.arity) (p : Query (σ.arg j)) (h : Resp (σ.arg j) → Tree σ),
+      r.ansOf = RAns.node j p ∧ d.at' r.qry = some (.node j p h))
+  | .ans n, d, hle => by
+      refine Or.inl ⟨n, rfl, ?_⟩
+      cases hle with
+      | leaf _ => rfl
+  | .node i p, d, hle => by
+      obtain ⟨g, rfl⟩ := Tree.eq_node_of_le hle
+      exact Or.inr ⟨i, p, g, rfl, rfl⟩
+  | .step i q r rest, d, hle => by
+      obtain ⟨g, rfl⟩ := Tree.eq_node_of_le hle
+      have hb := Tree.Le_node_inv hle r
+      rw [if_pos rfl] at hb
+      have hrec := at'_resp rest (g r) hb
+      show (∃ n, rest.ansOf = RAns.num n ∧
+              (Tree.node i q g).at' (Query.step i q r rest.qry)
+                = some (Tree.leaf (Val.num n))) ∨
+           (∃ (j : Fin σ.arity) (p : Query (σ.arg j)) (h : Resp (σ.arg j) → Tree σ),
+              rest.ansOf = RAns.node j p ∧
+              (Tree.node i q g).at' (Query.step i q r rest.qry)
+                = some (Tree.node j p h))
+      rw [Tree.at'_step_self]
+      exact hrec
+
+/-- `apply₀` on a node that probes the *first* argument takes the branch that
+the argument's response selects. -/
+theorem apply0_first {σ τ : Ty} (hi : 0 < (σ ⇒ τ).arity) (q : Query σ)
+    (g : Resp σ → Tree (σ ⇒ τ)) (d₁ : Tree σ)
+    (r : Resp σ) (hq : r.qry = q) (hle : Tree.Le r.toTree d₁) :
+    apply0 (.node ⟨0, hi⟩ q g) d₁ = apply0 (g r) d₁ := by
+  subst hq
+  have hr : r.qry.substAns r.ansOf = r := Resp.substAns_qry_ansOf r
+  rcases at'_resp r d₁ hle with ⟨n, hA, he⟩ | ⟨j, p, h, hA, he⟩
+  · rw [apply0, he]
+    show apply0 (g (r.qry.substAns (RAns.num n))) d₁ = apply0 (g r) d₁
+    rw [← hA, hr]
+  · rw [apply0, he]
+    show apply0 (g (r.qry.substAns (RAns.node j p))) d₁ = apply0 (g r) d₁
+    rw [← hA, hr]
+
 /-! ## Lemma 4.14, Corollary 4.15 -/
 
 /-- "`d₁ ⊒ ⊔ γ(i)`": `d₁` is an upper bound of the responses that `γ` records
@@ -286,13 +467,42 @@ def Ctx.Above {σ : Ty} (γ : Ctx σ) (i : Fin σ.arity) (d : Tree (σ.arg i)) :
 
 /-- **Lemma 4.14.**  *Let `d ∈ D_σ`, let `q ∈ Q_σ` be a query that determines the
 context `q̂`, and let `e` be a subtree in `D_σ(q̂)`.  If `d @ q = e` and
-`d₁ ⊒ ⊔ q̂(1)`, then `apply (d, d₁) @ shift₁ (q) = apply (e, d₁)`.* -/
-theorem lemma_4_14 {a τ : Ty} (d : Tree (a ⇒ τ)) (q : Query (a ⇒ τ)) (e : Tree (a ⇒ τ))
-    (d₁ : Tree a)
-    (hq : d.at' q = some e)
-    (hd₁ : Ctx.Above q.ctx ⟨0, Nat.succ_pos _⟩ d₁) :
-    (apply0 d d₁).at' q.shift1 = some (apply0 e d₁) := by
-  sorry
+`d₁ ⊒ ⊔ q̂(1)`, then `apply (d, d₁) @ shift₁ (q) = apply (e, d₁)`.*
+
+The hypothesis `q.Coherent` is the paper's `q ∈ Q_σ`: each step of `q` records a
+response to the query that step asks (Definition 4.2, *Legal Responses*).  The
+proof is the paper's induction on `q`: at a step probing the first argument,
+`d₁ ⊒ ⊔ q̂(1)` means `d₁` contains that step's response, so `apply₀` takes
+exactly that branch and `shift₁` erases the step; at a step probing a later
+argument, `apply₀` reproduces the node with its index shifted down by one. -/
+theorem lemma_4_14 : ∀ {a τ : Ty} (q : Query (a ⇒ τ)) (d e : Tree (a ⇒ τ)) (d₁ : Tree a),
+    q.Coherent → d.at' q = some e → Ctx.Above q.ctx ⟨0, Nat.succ_pos _⟩ d₁ →
+    (apply0 d d₁).at' q.shift1 = some (apply0 e d₁)
+  | _, _, .hole, d, e, _, _, hq, _ => by
+      have hde : d = e := by injection hq
+      subst hde
+      simp only [Query.shift1, Tree.at'_hole]
+  | a, τ, .step i p r rest, d, e, d₁, hco, hq, hab => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv hq
+      obtain ⟨hcr, hco'⟩ := hco
+      have habTail : Ctx.Above rest.ctx ⟨0, Nat.succ_pos _⟩ d₁ := fun s hs =>
+        hab s (List.mem_cons_of_mem _ hs)
+      match i with
+      | ⟨0, hi⟩ =>
+        have hle : Tree.Le r.toTree d₁ := hab r (List.mem_cons_self ..)
+        have hs : (Query.step ⟨0, hi⟩ p r rest).shift1 = rest.shift1 := by
+          simp only [Query.shift1]
+        rw [apply0_first hi p f d₁ r hcr hle, hs]
+        exact lemma_4_14 rest (f r) e d₁ hco' hrest habTail
+      | ⟨k + 1, hi⟩ =>
+        have ha : apply0 (Tree.node ⟨k + 1, hi⟩ p f) d₁
+            = Tree.node ⟨k, Nat.lt_of_succ_lt_succ hi⟩ p fun s => apply0 (f s) d₁ := by
+          rw [apply0]
+        have hs : (Query.step ⟨k + 1, hi⟩ p r rest).shift1
+            = Query.step ⟨k, Nat.lt_of_succ_lt_succ hi⟩ p r rest.shift1 := by
+          simp only [Query.shift1]
+        rw [ha, hs, Tree.at'_step_self]
+        exact lemma_4_14 rest (f r) e d₁ hco' hrest habTail
 
 /-- **Corollary 4.15.**  *Let `σ = σ₁ → … → σₖ → o`, let `q ∈ Q_σ` be a query
 determining the context `q̂`, and let `e` be a subtree in `D_σ(q̂)`.  If

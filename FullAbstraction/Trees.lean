@@ -444,6 +444,18 @@ def ValidQuery (d : Tree σ) (q : Query σ) : Prop := ∃ e, d.at' q = some e
 (Definition 4.5). -/
 def ProbesPerimeter (d : Tree σ) (q : Query σ) : Prop := d.at' q = some bot
 
+/-- Inversion for `⊑` between two nodes with the same node value. -/
+theorem Le_node_inv {i : Fin σ.arity} {q : Query (σ.arg i)}
+    {f g : Resp (σ.arg i) → Tree σ} (h : Le (.node i q f) (.node i q g)) :
+    ∀ r, Le (f r) (g r) := by
+  cases h with | node _ _ _ _ h => exact h
+
+/-- A tree above a node is a node with the same node value. -/
+theorem eq_node_of_le {i : Fin σ.arity} {q : Query (σ.arg i)}
+    {f : Resp (σ.arg i) → Tree σ} {v : Tree σ} (h : Le (.node i q f) v) :
+    ∃ g, v = .node i q g := by
+  cases h with | node _ _ _ g _ => exact ⟨g, rfl⟩
+
 /-- Descending into a node along its own query selects the corresponding
 branch. -/
 theorem stepAt_self (i : Fin σ.arity) (q : Query (σ.arg i))
