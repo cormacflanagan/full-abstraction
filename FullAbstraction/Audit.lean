@@ -54,6 +54,14 @@ section Complete
 #print axioms Term.weaken
 #print axioms Term.hasTy_unique
 #print axioms Model.combMeaning_congr_env
+#print axioms plant_step_self
+#print axioms at'_plant_self
+#print axioms le_plant
+#print axioms at'_plant_other
+#print axioms substTree_le_plant
+#print axioms TreeOk_congr_ctx
+#print axioms Resp.toTree_substAns
+#print axioms chain_directed
 #print axioms applyT_mono_left
 #print axioms applyT_mono_right
 #print axioms Model.extensional_of_orderExtensional
@@ -86,6 +94,10 @@ section DerivedOrDependent
 #print axioms soundness
 #print axioms Tmeaning_mono
 #print axioms meaning_mono_aux
+#print axioms meaning_Omega
+#print axioms Y_chain_directed
+#print axioms applyT_interpY_fix
+#print axioms corollary_4_24
 #print axioms theorem_5_1_separating
 #print axioms theorem_5_1
 #print axioms theorem_5_1_fullyAbstract
@@ -103,8 +115,6 @@ section Outstanding
 #print axioms Kn_legal_cofinal
 #print axioms In_legal_cofinal
 #print axioms lemma_A_7
-#print axioms corollary_4_24
-#print axioms Y_chain_directed
 #print axioms lemma_B_1
 #print axioms theorem_4_27
 #print axioms lemma_5_2

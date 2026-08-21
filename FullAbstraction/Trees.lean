@@ -588,6 +588,29 @@ theorem TreeOk_node_inv {σ : Ty} {γ : Ctx σ} {i : Fin σ.arity} {q : Query (�
   cases h with
   | node _ _ _ _ hq hfin hsub hnon => exact ⟨hq, hfin, hsub, hnon⟩
 
+/-- Two contexts recording the same responses about every argument are
+interchangeable in `TreeOk`. -/
+theorem TreeOk_congr_ctx {σ : Ty} : ∀ (d : Tree σ) (γ γ' : Ctx σ),
+    (∀ i, γ.at' i = γ'.at' i) → TreeOk γ d → TreeOk γ' d := by
+  intro d
+  induction d with
+  | leaf v => intro γ γ' _ _; exact TreeOk.leaf γ' v
+  | node i q f ih =>
+    intro γ γ' hset h
+    obtain ⟨hq, hfin, hsub, hnon⟩ := TreeOk_node_inv h
+    refine TreeOk.node γ' i q f (hset i ▸ hq) hfin (fun r hr => ?_) hnon
+    refine ih r (γ.cons i r) (γ'.cons i r) (fun k => ?_) (hsub r hr)
+    apply Set.ext
+    intro s
+    simp only [Ctx.at', Ctx.cons, Set.mem_def, List.mem_cons]
+    constructor
+    · rintro (heq | hm)
+      · exact Or.inl heq
+      · exact Or.inr ((hset k ▸ hm : s ∈ γ'.at' k))
+    · rintro (heq | hm)
+      · exact Or.inl heq
+      · exact Or.inr ((hset k ▸ hm : s ∈ γ.at' k))
+
 /-- The join of two legal subtrees with a common upper bound is legal.  This is
 the second half of the least-upper-bound property of Lemma 4.3. -/
 theorem TreeOk_join {σ : Ty} : ∀ (d : Tree σ) (γ : Ctx σ) (e t : Tree σ),

@@ -578,6 +578,49 @@ theorem at'_step_inv {σ : Ty} {d : Tree σ} {i : Fin σ.arity} {q : Query (σ.a
             simp only [Tree.at', Tree.stepAt, dif_neg hEq, Option.bind]] at h
       exact absurd h (by simp)
 
+/-- `q[?/e] @ q = e`: substituting `e` at the marker of `q` puts `e` exactly at
+position `q`. -/
+theorem at'_substTree {σ : Ty} : ∀ (q : Query σ) (e : Tree σ),
+    (q.substTree e).at' q = some e
+  | .hole, e => rfl
+  | .step i p r rest, e => by
+      rw [show Query.substTree (.step i p r rest) e
+            = Tree.node i p (fun s => if s = r then Query.substTree rest e else Tree.bot) from
+          rfl, Tree.at'_step_self, if_pos rfl]
+      exact at'_substTree rest e
+
+/-- The tree of a response is the tree of its query with the answer planted. -/
+theorem Resp.toTree_substAns {σ : Ty} : ∀ (q : Query σ) (x : RAns σ),
+    (q.substAns x).toTree = q.substTree x.toTree
+  | .hole, .num n => rfl
+  | .hole, .node i p => rfl
+  | .step i p r rest, x => by
+      show Tree.node i p (fun s => if s = r then (rest.substAns x).toTree else Tree.bot) = _
+      rw [Resp.toTree_substAns rest x]
+      rfl
+
+/-- `q[?/·]` is monotone. -/
+theorem substTree_mono {σ : Ty} : ∀ (q : Query σ) {e e' : Tree σ}, Tree.Le e e' →
+    Tree.Le (q.substTree e) (q.substTree e')
+  | .hole, e, e', h => h
+  | .step i p r rest, e, e', h => by
+      refine Tree.Le.node _ _ _ _ fun s => ?_
+      by_cases hs : s = r
+      · subst hs; rw [if_pos rfl, if_pos rfl]; exact substTree_mono rest h
+      · rw [if_neg hs, if_neg hs]; exact Tree.Le.refl _
+
+/-- A query's own tree is strictly below the tree of any response to it. -/
+theorem toTree_lt_substAns {σ : Ty} (q : Query σ) (i : Fin σ.arity) (p : Query (σ.arg i)) :
+    Tree.Le q.toTree (q.substAns (.node i p)).toTree ∧
+      q.toTree ≠ (q.substAns (.node i p)).toTree := by
+  rw [Resp.toTree_substAns]
+  refine ⟨substTree_mono q (Tree.Le.bot _), fun hcon => ?_⟩
+  have h1 : (Query.toTree q).at' q = some Tree.bot := at'_substTree q Tree.bot
+  have h2 : (q.substTree (RAns.toTree (RAns.node i p))).at' q
+      = some (RAns.toTree (RAns.node i p)) := at'_substTree q _
+  rw [hcon, h2] at h1
+  exact absurd (Option.some.inj h1) (by simp [RAns.toTree, Tree.bot])
+
 /-! ### Planting a subtree at the perimeter
 
 The proof of Lemma 4.16 separates two trees by feeding the argument a tree that
@@ -679,6 +722,18 @@ theorem at'_plant_other {σ : Ty} : ∀ (q : Query σ) (d e : Tree σ) (q' : Que
         exact hne (by rw [hcon])
       · rw [if_neg hr]
         exact hdr'
+
+/-- The path `q[?/e]` is below the tree obtained by planting `e` at `q`. -/
+theorem substTree_le_plant {σ : Ty} : ∀ (q : Query σ) (d e : Tree σ),
+    d.at' q = some Tree.bot → Tree.Le (q.substTree e) (plant q d e)
+  | .hole, d, e, _ => Tree.Le.refl _
+  | .step j p r rest, d, e, hd => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv hd
+      rw [plant_step_self]
+      refine Tree.Le.node _ _ _ _ fun s => ?_
+      by_cases hs : s = r
+      · subst hs; rw [if_pos rfl, if_pos rfl]; exact substTree_le_plant rest (f s) e hrest
+      · rw [if_neg hs, if_neg hs]; exact Tree.Le.bot _
 
 /-- If a tree contains the path `r`, then querying it along `r`'s query returns
 the answer that `r` records.  This is what makes `apply₀` take the branch that
@@ -843,17 +898,6 @@ theorem applyArgs_at_query : ∀ (σ : Ty) (q : Query σ) (d e : Tree σ)
       show applyArgs τ (apply0 d (ds ⟨0, Nat.succ_pos _⟩)) _
           = applyArgs τ (apply0 e (ds ⟨0, Nat.succ_pos _⟩)) _
       exact applyArgs_at_query τ q.shift1 _ _ _ (shift1_coherent q hco) h14 habs
-
-/-- `q[?/e] @ q = e`: substituting `e` at the marker of `q` puts `e` exactly at
-position `q`. -/
-theorem at'_substTree {σ : Ty} : ∀ (q : Query σ) (e : Tree σ),
-    (q.substTree e).at' q = some e
-  | .hole, e => rfl
-  | .step i p r rest, e => by
-      rw [show Query.substTree (.step i p r rest) e
-            = Tree.node i p (fun s => if s = r then Query.substTree rest e else Tree.bot) from
-          rfl, Tree.at'_step_self, if_pos rfl]
-      exact at'_substTree rest e
 
 /-- **Corollary 4.15.**  *Let `σ = σ₁ → … σₖ → o`.  Let `q ∈ Q_σ` be a query that
 determines the context `q̂`, and let `e` be a subtree in `D_σ(q̂)`.  If

@@ -144,6 +144,11 @@ each of these.
 | **Lemma 4.7** | `lemma_4_7` |
 | **Claim 4.8** | `claim_4_8` |
 | `apply` is monotone in each argument | `applyT_mono_left`, `applyT_mono_right` |
+| `apply (⊥, x) = ⊥`; `⊥` is the principal ideal of `⊥` | `applyT_bot`, `bot_eq_principal` |
+| planting a subtree at a perimeter position | `plant`, `at'_plant_self`, `le_plant`, `at'_plant_other`, `substTree_le_plant` |
+| contexts recording the same responses are interchangeable | `TreeOk_congr_ctx` |
+| a response's tree is its query's tree with the answer planted | `Resp.toTree_substAns`, `substTree_mono`, `toTree_lt_substAns` |
+| an ascending chain is directed | `chain_directed` |
 | `apply₀` is monotone in each argument | `apply0_mono_left`, `apply0_mono_right` |
 | comparable trees answer a query compatibly | `at'_mono` |
 | a tree containing a path answers that path's query | `at'_resp`, `apply0_first` |
@@ -185,6 +190,9 @@ derivation is the content.
 | **Lemma A.1** (the `K` equation) | `lemma_A_1` | Claim A.2 + `Kn_legal_cofinal` |
 | Theorem 4.22, the `(I)` equation | `theorem_4_22_I` | the `I` analogue of Claim A.2 + `In_legal_cofinal` |
 | **Corollary 4.23** (β, η) | `corollary_4_23` | Theorem 4.22; the abstraction lemma `lamStar_apply` and `beta_law` |
+| **Corollary 4.24** (the `Y` operator) | `corollary_4_24` | `applyT_interpY_fix`: `apply (Y, m) = ⊔ₙ mⁿ(⊥)` |
+| `Ω_σ` denotes `⊥` | `meaning_Omega` | extensionality |
+| `T[[Y_σ]]` is well defined | `Y_chain_directed` | `Yapprox_mono`, `chain_directed` |
 | Lemma A.6 (the `S` equation) | `lemma_A_6` | `claim_A_5` |
 | Theorem 4.22 | `theorem_4_22` | `lemma_A_6`, `lemma_A_1`, `theorem_4_22_I` |
 | Theorem 4.4: ω-algebraicity of `T_σ` | `lemma_4_3_omega_algebraic` | `dsub_countable` |
@@ -204,7 +212,7 @@ derivation is the content.
 
 ### Outstanding
 
-Fifteen declarations, stated faithfully, whose own proof is still `sorry`.
+Thirteen declarations, stated faithfully, whose own proof is still `sorry`.
 
 | Result | Lean name | Note |
 | --- | --- | --- |
@@ -214,8 +222,6 @@ Fifteen declarations, stated faithfully, whose own proof is still `sorry`.
 | **Claim A.5** (well-definedness of `S`) | `claim_A_5` | Definition 4.21 + Figure 5 + Appendix A.2 |
 | finite legal approximants of `K` / `I` are cofinal | `Kn_legal_cofinal`, `In_legal_cofinal` | the one step of Appendix A.1 left over — see below |
 | **Lemma A.7** | `lemma_A_7` | |
-| **Corollary 4.24** (the `Y` operator) | `corollary_4_24` | needs Corollary 4.23 and `Y_chain_directed` |
-| `T[[Y_σ]]` is well defined | `Y_chain_directed` | §4.3 |
 | **Lemma B.1** / **Lemma 4.26** | `lemma_B_1` | Appendix B; `lemma_4_26` is `lemma_B_1` |
 | **Theorem 4.27** (`error`, `bottom`, `catch`, `return`) | `theorem_4_27` | |
 | **Lemma 5.2** (definability of the finite elements) | `lemma_5_2`, `lemma_5_2_subtrees` | the crux of §5; **Theorem 5.1 now rests only on this and the Theorem 4.22 chain** |
@@ -227,21 +233,43 @@ Fifteen declarations, stated faithfully, whose own proof is still `sorry`.
 Both are where the *legality* conditions of Definition 4.2 — so far stated and
 used only to type the constructions — have to do real work.
 
-Lemma 4.16 separates `f` from `g` at a position where their subtrees are
-immediately incomparable (Lemma 4.7) by feeding the argument a tree that
-answers one of the two competing queries with `error₁` and the other with
-`error₂`.  That such a tree exists is exactly Definition 4.2's condition that a
-legal query never re-probes a node the accumulated context has already
-answered; making that available means proving that the responses recorded along
-a legal path about a given argument form a chain, and that a legal query probes
-the perimeter of their join.
+**Lemma 4.16.**  The proof separates `f` from `g` at a position where their
+subtrees are immediately incomparable (Lemma 4.7) by feeding the argument a tree
+that answers one of the two competing queries with an error.  The pieces that
+build such a tree are in place: `plant q d e` writes `e` at position `q` of `d`,
+and `at'_plant_self`, `le_plant`, `at'_plant_other` and `substTree_le_plant`
+say that planting at a perimeter position puts the tree there, only increases
+`d`, leaves the other perimeter positions at `⊥`, and dominates the path
+`q[?/e]`.  With those, the induction on `f` runs: at a leaf, at a node probing
+argument 1, and at a node probing a later argument, the case analysis of the
+paper's proof goes through, the invariant being that the argument built so far
+puts `⊥` at every query legal in the accumulated context.
 
-`Kn_legal_cofinal` is the mirror image: `Kₙ(?)` branches over the infinitely
+What is missing is that the argument so built is *legal*, i.e. an element of
+`D_σ`, which `orderExtensional_T` needs because `apply` quantifies over ideals
+of legal trees.  Planting at a perimeter position preserves legality only when
+the position is reached through *legal* responses, and the present encoding of
+Definition 4.2 does not make that available: `LegalResp q r` is an inductive
+predicate about the shape of `r`, not the statement that `r`'s tree is legal.
+
+The fix is a redesign of Definition 4.2, and it would be a simplification:
+take a tree context to be an approximation tree per argument
+(`Ctx σ := (i : Fin σ.arity) → Tree (σ.arg i)`) rather than a list of recorded
+responses, define `𝒬_σ(t) q` as `t @ q = ⊥` — literally the paper's "extend the
+approximation tree by exactly one node", i.e. Definition 4.5's *probes the
+perimeter* — and define `ℛ_σ(q) r` as "`r = q[?/x]` and `r`'s tree is legal",
+which is literally the paper's "this test reduces to confirming that the
+response `q[?/d]` is a well-formed tree (path)".  Under that reading the
+perimeter facts the proof needs are immediate rather than derived, and the
+chain property of the responses recorded along a path is not needed at all.
+
+**`Kn_legal_cofinal`** is the mirror image: `Kₙ(?)` branches over the infinitely
 many final answers, so it is a limit point of `T_σ` rather than an element of
 the finitary basis (Definition 4.20 describes `Kₙ` as mapping into
 `D_{σ→τ}(q̂)`, which cannot be literally right for that reason).  `K` is
 therefore the ideal of the finite *legal* trees below the chain, and what is
-missing is that those already compute whatever `Kₙ` computes.
+missing is that those already compute whatever `Kₙ` computes — again a
+statement about which finite trees are legal.
 
 ## Definitions
 
