@@ -1,0 +1,6 @@
+name = "FullAbstraction"
+version = "0.1.0"
+defaultTargets = ["FullAbstraction"]
+
+[[lean_lib]]
+name = "FullAbstraction"
