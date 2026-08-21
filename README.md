@@ -60,22 +60,43 @@ turns the simultaneous recursion of Definition 4.2 into a mutual inductive
 family `Query`/`Resp` indexed by `Ty`, whose recursive occurrences are all at
 *argument* types, i.e. structurally smaller ones.
 
-**Legality.** `𝒬_σ(R)` and `ℛ_σ(q)` are mutual inductive *predicates*
-(`LegalQuery`, `LegalResp`), again recursing only at argument types.  This
-avoids a well-founded recursion on `(depth σ, size q)` and keeps Definition 4.2
-readable.  The side condition `¬∃r[q ⊏ r ⊑ ⊔R]` — "a query `q` on argument `i`
-must extend the approximation tree `⊔γ(i)` for argument `i` by exactly one
-node", i.e. `q` *probes the perimeter* of `⊔γ(i)` in the sense of
-Definition 4.5 — is rendered without a least upper bound as "`q[?/⊥]` is not
-strictly below `s`, for any `s ∈ R`".  For the sets `R` that arise this is the
-paper's condition, because the responses recorded about one argument along a
-single path form a chain (each legal query extends the response before it), so
-`⊔R` is the last element of `R`.
+**Tree contexts.** Definition 4.2 introduces a context as "a relation
+associating argument indices with responses", used "as a set-valued function
+from indices to sets of responses".  But every use it is put to in that
+definition is through the *approximation tree* `⊔γ(i)` those responses
+determine: a node's query must "extend the approximation tree `⊔γ(i)` for
+argument `i` by exactly one node" (§4.1, p. 19).  A `Ctx σ` therefore records
+those trees directly — `γ i : Tree (σ.arg i)`.  This does not presuppose that
+`⊔γ(i)` exists, and it makes the facts the development needs immediate rather
+than derived.  The literal, bookkeeping reading survives as `RespCtx`; it is
+what the *statement* of Lemma 4.14 uses.
 
-It is *not* enough to require that `q` is not a syntactic prefix of any `s ∈ R`:
-if `s` answers the node `q` probes with a different response than `q` records,
-`q` is not a prefix of `s`, yet `q[?/⊥]` — whose final branching function
-`⟨r',⊥⟩` is the empty branching function — is still strictly below `s`.
+**Legality.** `𝒬_σ(γ(i))` is `LegalQuery t q`, and it has two halves.
+
+`t @ q = ⊥` is the paper's side condition `¬∃r[q ⊏ r ⊑ ⊔R]` together with the
+requirement that `q` extend `t`: the query follows only nodes `t` already
+contains, and the node it probes is still unanswered, i.e. `q` *probes the
+perimeter* of `t` in the sense of Definition 4.5.
+
+Note that it is *not* enough to require that `q` is not a syntactic prefix of
+any recorded `s`: if `s` answers the node `q` probes with a different response
+than `q` records, `q` is not a prefix of `s`, yet `q[?/⊥]` — whose final
+branching function `⟨r',⊥⟩` is the empty branching function — is still strictly
+below `s`, and the query does re-probe an answered node.  Stating legality
+against the approximation tree gets this right automatically.
+
+`QueryOk σ q` is the paper's `∃r ∈ R (q = r : ⟨r',?⟩)` with `r' ∈ ℛ_σᵢ(p)`: the
+response recorded at each step must itself be legal.  Following an existing path
+is not enough, because a tree carries `⊥` at the position reached by answering a
+query with an *illegal* response too, and nothing legal will ever be written
+there.  Without this clause Lemma 4.16 is false.
+
+`QueryOk` is the one place where Definition 4.2's recursion genuinely descends
+into the argument types, and it descends on `Ty.depth`: a step about argument
+`i` constrains a response of type `σᵢ`, whose intermediate answers constrain
+queries of type `(σᵢ)ⱼ`.  Everything else — `ℛ_σ(q)` (`LegalResp`, "`r = q[?/x]`
+with `x` admissible") and `D_σ(γ)` (`TreeOk`) — is then a plain definition or a
+plain inductive on trees.
 
 **Branching functions** are honest functions `Resp τ → Tree σ`, with "the proper
 domain is finite" as a side condition (`Tree.FiniteProperDomain`), exactly as in
@@ -147,12 +168,20 @@ each of these.
 | `apply (⊥, x) = ⊥`; `⊥` is the principal ideal of `⊥` | `applyT_bot`, `bot_eq_principal` |
 | planting a subtree at a perimeter position | `plant`, `at'_plant_self`, `le_plant`, `at'_plant_other`, `substTree_le_plant` |
 | contexts recording the same responses are interchangeable | `TreeOk_congr_ctx` |
+| every path to a non-`⊥` subtree of a legal tree is legal | `legalPath_of_TreeOk` |
+| a subtree reached by `@` is legal in the context its path determines | `TreeOk_at'` |
+| the tree a legal path determines is legal, and dominates the path's responses | `TreeOk_ctxFrom`, `Ctx.above_ctxFrom`, `Ctx.le_ctxFrom` |
+| recording a response opens exactly the positions one step further | `legalQuery_join_snoc` |
+| planting a leaf at a perimeter position keeps a tree legal | `TreeOk_plant_leaf` |
+| a legal query is coherent | `QueryOk.coherent` |
 | a response's tree is its query's tree with the answer planted | `Resp.toTree_substAns`, `substTree_mono`, `toTree_lt_substAns` |
 | an ascending chain is directed | `chain_directed` |
 | `apply₀` is monotone in each argument | `apply0_mono_left`, `apply0_mono_right` |
 | comparable trees answer a query compatibly | `at'_mono` |
 | a tree containing a path answers that path's query | `at'_resp`, `apply0_first` |
 | **Definition 4.9**: `apply₀` lands in `D_τ(γ')` | `apply0_ok` |
+| **Lemma 4.16** (order-extensionality for finite trees) | `lemma_4_16` |
+| — the separating argument of its proof | `lemma_4_16_separate` |
 | **Lemma 4.14** | `lemma_4_14` |
 | — its `k`-ary form | `applyArgs_at_query` |
 | **Corollary 4.15** | `corollary_4_15`, `corollary_4_15_path` |
@@ -163,7 +192,12 @@ each of these.
 | weakening, substitution and uniqueness for typing | `Comb.weaken`, `Comb.subst_hasTy`, `Term.weaken`, `Term.hasTy_unique` |
 | a term's meaning depends only on its free variables | `Model.combMeaning_congr_env` |
 | the `K` and `I` approximants form chains | `Kn_mono`, `In_mono` |
+| **Definition 4.20**: the pruned `K` / `I` approximants are legal | `KnP_ok`, `InP_ok` |
+| — they lie below the chain and lose nothing | `KnP_le_Kn`, `apply0_KnP_ge`, `InP_le_In`, `apply0_InP_ge` |
+| finite legal approximants of `K` / `I` are cofinal | `Kn_legal_cofinal`, `In_legal_cofinal` |
 | **Claim A.2** (both halves) | `claim_A_2`, `claim_A_2_le`, `claim_A_2_ge` |
+| **Lemma A.1** (the `K` equation) | `lemma_A_1` |
+| Theorem 4.22, the `(I)` equation | `theorem_4_22_I` |
 | the `I` analogue of Claim A.2 | `claim_I_le`, `claim_I_ge` |
 | order-extensionality implies extensionality (proof of Thm. 4.11) | `Model.extensional_of_orderExtensional` |
 | a hole that propagates both errors is a sequentiality index | `SemDef.seqIndex_of_propagates` |
@@ -187,14 +221,12 @@ derivation is the content.
 | --- | --- | --- |
 | Theorem 4.11 (`T` is extensional and order-extensional) | `theorem_4_11` | `orderExtensional_T` |
 | Corollary 4.18 (`T_{σ→τ} ≅ F_{σ→τ}`) | `corollary_4_18` | `orderExtensional_T` |
-| **Lemma A.1** (the `K` equation) | `lemma_A_1` | Claim A.2 + `Kn_legal_cofinal` |
-| Theorem 4.22, the `(I)` equation | `theorem_4_22_I` | the `I` analogue of Claim A.2 + `In_legal_cofinal` |
 | **Corollary 4.23** (β, η) | `corollary_4_23` | Theorem 4.22; the abstraction lemma `lamStar_apply` and `beta_law` |
 | **Corollary 4.24** (the `Y` operator) | `corollary_4_24` | `applyT_interpY_fix`: `apply (Y, m) = ⊔ₙ mⁿ(⊥)` |
 | `Ω_σ` denotes `⊥` | `meaning_Omega` | extensionality |
 | `T[[Y_σ]]` is well defined | `Y_chain_directed` | `Yapprox_mono`, `chain_directed` |
 | Lemma A.6 (the `S` equation) | `lemma_A_6` | `claim_A_5` |
-| Theorem 4.22 | `theorem_4_22` | `lemma_A_6`, `lemma_A_1`, `theorem_4_22_I` |
+| Theorem 4.22 | `theorem_4_22` | `lemma_A_6` (`lemma_A_1` and `theorem_4_22_I` are proved outright) |
 | Theorem 4.4: ω-algebraicity of `T_σ` | `lemma_4_3_omega_algebraic` | `dsub_countable` |
 | `T[[errorᵢ]] = errorᵢ` | `meaning_errTerm` | holds by `rfl`; mentions `SPCFSem` |
 | `T[[Ω]] = ⊥`, the `Ω` field of Definition 6.1 | `meaning_omegaTerm` | `apply0_sub1_zero` + monotonicity of `apply₀` |
@@ -212,15 +244,13 @@ derivation is the content.
 
 ### Outstanding
 
-Thirteen declarations, stated faithfully, whose own proof is still `sorry`.
+Ten declarations, stated faithfully, whose own proof is still `sorry`.
 
 | Result | Lean name | Note |
 | --- | --- | --- |
 | Lemma 4.3: `D_σ` is countable | `dsub_countable` | the only remaining half of Lemma 4.3; needed for ω-algebraicity alone |
-| **Lemma 4.16** | `lemma_4_16` | the extensionality lemma; needs the legality machinery in earnest — see below |
-| order-extensionality of `T` | `orderExtensional_T` | the limit form of Lemma 4.16 |
+| order-extensionality of `T` | `orderExtensional_T` | the limit form of Lemma 4.16 — see below |
 | **Claim A.5** (well-definedness of `S`) | `claim_A_5` | Definition 4.21 + Figure 5 + Appendix A.2 |
-| finite legal approximants of `K` / `I` are cofinal | `Kn_legal_cofinal`, `In_legal_cofinal` | the one step of Appendix A.1 left over — see below |
 | **Lemma A.7** | `lemma_A_7` | |
 | **Lemma B.1** / **Lemma 4.26** | `lemma_B_1` | Appendix B; `lemma_4_26` is `lemma_B_1` |
 | **Theorem 4.27** (`error`, `bottom`, `catch`, `return`) | `theorem_4_27` | |
@@ -228,48 +258,22 @@ Thirteen declarations, stated faithfully, whose own proof is still `sorry`.
 | a `k`-ary procedure probes one argument first | `probe_index` | the tree analysis behind Thms. 6.2 and 6.4 |
 | `catch` reports the sequentiality index | `catch_returns_index` | Theorem 4.27's `(catch)` equation |
 
-#### Why `lemma_4_16` and `Kn_legal_cofinal` are the hard ones
+#### What `orderExtensional_T` still needs
 
-Both are where the *legality* conditions of Definition 4.2 — so far stated and
-used only to type the constructions — have to do real work.
+Lemma 4.16 itself is proved.  What remains is the passage to the ideal
+completion, which is the argument the paper gives for Theorem 4.11: from
+`f₀ ⋢ g` with `f₀` finite and `g` an ideal, "there exists a finite `d ∈ D_σ`
+such that `apply (f₀, d) ⋢ apply (g₀, d)` **for all** `g₀ ⊑ g`", after which
+continuity of `apply` gives `apply (f₀, d) ⋢ ⊔{apply (g₀,d) | g₀ ⊑ g}`.
 
-**Lemma 4.16.**  The proof separates `f` from `g` at a position where their
-subtrees are immediately incomparable (Lemma 4.7) by feeding the argument a tree
-that answers one of the two competing queries with an error.  The pieces that
-build such a tree are in place: `plant q d e` writes `e` at position `q` of `d`,
-and `at'_plant_self`, `le_plant`, `at'_plant_other` and `substTree_le_plant`
-say that planting at a perimeter position puts the tree there, only increases
-`d`, leaves the other perimeter positions at `⊥`, and dominates the path
-`q[?/e]`.  With those, the induction on `f` runs: at a leaf, at a node probing
-argument 1, and at a node probing a later argument, the case analysis of the
-paper's proof goes through, the invariant being that the argument built so far
-puts `⊥` at every query legal in the accumulated context.
-
-What is missing is that the argument so built is *legal*, i.e. an element of
-`D_σ`, which `orderExtensional_T` needs because `apply` quantifies over ideals
-of legal trees.  Planting at a perimeter position preserves legality only when
-the position is reached through *legal* responses, and the present encoding of
-Definition 4.2 does not make that available: `LegalResp q r` is an inductive
-predicate about the shape of `r`, not the statement that `r`'s tree is legal.
-
-The fix is a redesign of Definition 4.2, and it would be a simplification:
-take a tree context to be an approximation tree per argument
-(`Ctx σ := (i : Fin σ.arity) → Tree (σ.arg i)`) rather than a list of recorded
-responses, define `𝒬_σ(t) q` as `t @ q = ⊥` — literally the paper's "extend the
-approximation tree by exactly one node", i.e. Definition 4.5's *probes the
-perimeter* — and define `ℛ_σ(q) r` as "`r = q[?/x]` and `r`'s tree is legal",
-which is literally the paper's "this test reduces to confirming that the
-response `q[?/d]` is a well-formed tree (path)".  Under that reading the
-perimeter facts the proof needs are immediate rather than derived, and the
-chain property of the responses recorded along a path is not needed at all.
-
-**`Kn_legal_cofinal`** is the mirror image: `Kₙ(?)` branches over the infinitely
-many final answers, so it is a limit point of `T_σ` rather than an element of
-the finitary basis (Definition 4.20 describes `Kₙ` as mapping into
-`D_{σ→τ}(q̂)`, which cannot be literally right for that reason).  `K` is
-therefore the ideal of the finite *legal* trees below the chain, and what is
-missing is that those already compute whatever `Kₙ` computes — again a
-statement about which finite trees are legal.
+The uniformity in `g₀` is the difficulty.  `lemma_4_16_separate` builds `d` from
+the path along which `f₀` and one `g₀` diverge, and a priori that path varies
+with `g₀`.  It does not, for two reasons that are not formalised here: the
+separating paths lie in the finite tree `f₀`, so there are finitely many of
+them, and a path that separates `f₀` from `g₁` separates it from every
+`g₀ ⊑ g₁`, so directedness of the ideal pins down a single one; and the
+subtrees `g₀ @ q` are themselves directed, so they share a root, which is all
+that the construction of `d` consults about them.
 
 ## Definitions
 
@@ -279,11 +283,12 @@ All of the paper's definitions are formalised:
 not constructed — see the docstring), 2.7 (`Po`, `ScottDomain.bot`),
 2.8 (`Model.DenEquiv`, `SemDef.ObsEquiv`, `Model.FullyAbstract`),
 2.9 (`SemDef.Sequential`), 3.1 (`SPCF`), 4.1 (`Tmodel`),
-4.2 (`Query`, `Resp`, `Ctx`, `CtxOk`, `LegalQuery`, `LegalResp`, `Tree`,
-`TreeOk`, `DSub`, `D`, `Query.substAns`, `Resp.extendHole`),
+4.2 (`Query`, `Resp`, `Ctx`, `RespCtx`, `CtxOk`, `QueryOk`, `LegalQuery`,
+`LegalResp`, `Tree`, `TreeOk`, `DSub`, `D`, `Query.substAns`,
+`Resp.extendHole`),
 4.5 (`Tree.at'`, `Tree.ValidQuery`, `Query.prefixOf`),
 4.6 (`Tree.root`, `Tree.ImmIncomparable`), 4.9 (`apply0`, `applyT`),
-4.10 (`Model.Extensional`, `Model.OrderExtensional`), 4.12 (`Query.ctx`),
+4.10 (`Model.Extensional`, `Model.OrderExtensional`), 4.12 (`Query.ctx`, `Query.ctxFrom`, `Query.ctxList`),
 4.13 (`Query.shift1`), 4.17 (`funOf`, `FunDom`, `FunLe`),
 4.19 (`treeAdd1`, `treeSub1`, `treeIf0`, `treeCatch`), 4.20 (`Kn`, `treeK`),
 4.21 (`treeS`), 4.25 (`EvalCtx`), 5.3 (`Representable`), 6.1 (`SPCFSem`),
