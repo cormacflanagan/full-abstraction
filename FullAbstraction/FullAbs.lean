@@ -112,12 +112,58 @@ theorem soundness (σ : Ty) (M N : Term SPCF) (h : Tmodel.DenEquiv σ M N) :
     SemDef.ObsEquiv SPCFSem M N := by
   sorry
 
-/-- The separation step of Theorem 5.1. -/
+/-- `apply` is determined by its values on *finite* arguments: this is the
+continuity of `apply` in its second argument (Definition 4.9). -/
+theorem applyT_eq_of_principal {σ τ : Ty} (F G : T (σ ⇒ τ))
+    (h : ∀ d : D σ, applyT F (Ideal.principal d) = applyT G (Ideal.principal d)) :
+    ∀ E : T σ, applyT F E = applyT G E := by
+  intro E
+  apply Ideal.ext
+  intro c
+  have key : ∀ (F' G' : T (σ ⇒ τ)),
+      (∀ d : D σ, applyT F' (Ideal.principal d) = applyT G' (Ideal.principal d)) →
+      c ∈ applyT F' E → c ∈ applyT G' E := by
+    rintro F' G' hFG ⟨f, hf, d, hd, hc⟩
+    have hdd : d ∈ Ideal.principal d := Po.le_refl d
+    have hmem : c ∈ applyT F' (Ideal.principal d) := ⟨f, hf, d, hdd, hc⟩
+    rw [hFG d] at hmem
+    obtain ⟨g, hg, d', hd', hc'⟩ := hmem
+    exact ⟨g, hg, d, hd, Po.le_trans hc' (apply0_mono_right g.1 hd')⟩
+  exact ⟨key F G h, key G F fun d => (h d).symm⟩
+
+/-- Two elements of `T_σ` that apply alike to all tuples of *finite* arguments
+are equal.  The induction is on `σ`: extensionality (Theorem 4.11) reduces
+equality at `σ → τ` to equality of the applications, continuity reduces those to
+finite arguments, and the induction hypothesis at `τ` consumes the remaining
+arguments. -/
+theorem eq_of_principal_applyIdeals : ∀ (σ : Ty) (F G : T σ),
+    (∀ ds : (i : Fin σ.arity) → D (σ.arg i),
+      applyIdeals σ F (fun i => Ideal.principal (ds i))
+        = applyIdeals σ G (fun i => Ideal.principal (ds i))) → F = G
+  | .base, F, G, h => h fun i => absurd i.isLt (by simp)
+  | .arrow a τ, F, G, h => by
+      refine theorem_4_11.2 a τ F G fun x => ?_
+      refine applyT_eq_of_principal F G (fun d => ?_) x
+      refine eq_of_principal_applyIdeals τ (applyT F (Ideal.principal d))
+        (applyT G (Ideal.principal d)) fun es => ?_
+      exact h fun i =>
+        match i with
+        | ⟨0, _⟩ => d
+        | ⟨j + 1, hj⟩ => es ⟨j, Nat.lt_of_succ_lt_succ hj⟩
+
+/-- The separation step of Theorem 5.1.
+
+"Since `T[[M]]_E ≠ T[[N]]_E`, the domains `T_σᵢ` are algebraic, `apply` is
+continuous, and SPCF is extensional, it is easy to prove by contradiction that
+there exist finite trees `d₁ ⊑ t₁, …, dₖ ⊑ tₖ` such that
+`apply (T[[M]]_E, d₁, …, dₖ) ≠ apply (T[[N]]_E, d₁, …, dₖ)`." -/
 theorem separation (σ : Ty) (F G : T σ) (h : F ≠ G) :
     ∃ ds : (i : Fin σ.arity) → D (σ.arg i),
       applyIdeals σ F (fun i => Ideal.principal (ds i))
-        ≠ applyIdeals σ G (fun i => Ideal.principal (ds i)) := by
-  sorry
+        ≠ applyIdeals σ G (fun i => Ideal.principal (ds i)) :=
+  Classical.byContradiction fun hcon =>
+    h (eq_of_principal_applyIdeals σ F G fun ds =>
+      Classical.byContradiction fun hne => hcon ⟨ds, hne⟩)
 
 /-- The meaning of an application, in terms of `apply`. -/
 theorem meaning_app {L : Lang} (M : Model L) (E : M.Env) (t u : Comb L) (a ρ : Ty)
