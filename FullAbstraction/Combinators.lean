@@ -525,7 +525,7 @@ theorem KnP_ok (σ τ : Ty) (d : Tree σ) (hd : TreeOk Ctx.empty d) :
                 refine ih (q.snoc j p r') _ ?_ ?_
                 · rw [Ctx.cons_other _ _ fun he =>
                     K_zero_ne_shift σ τ j he.symm, Ctx.cons_self]
-                  exact legalQuery_join_snoc q _ j p r' h1
+                  exact legalQuery_join_snoc q _ j p r' h1 hr'
                 · intro i
                   rw [Query.ctx_snoc]
                   by_cases hij : i = j
@@ -928,7 +928,7 @@ theorem InP_ok (σ : Ty) (d : Tree σ) (hd : TreeOk Ctx.empty d) :
                 refine ih (q.snoc j p r') _ ?_ ?_
                 · rw [Ctx.cons_other _ _ fun he => I_zero_ne_shift σ j he.symm,
                     Ctx.cons_self]
-                  exact legalQuery_join_snoc q _ j p r' h1
+                  exact legalQuery_join_snoc q _ j p r' h1 hr'
                 · intro i
                   rw [Query.ctx_snoc]
                   by_cases hij : i = j
@@ -1063,7 +1063,7 @@ theorem Kn_legal_cofinal (σ τ : Ty) (n : Nat) (d : D σ) (e : D τ) (a : D σ)
     ∃ k : D (σ ⇒ τ ⇒ σ), Tree.Le k.1 (Kn σ τ n .hole) ∧
       Tree.Le a.1 (apply0 (apply0 k.1 d.1) e.1) :=
   ⟨⟨KnP σ τ n .hole d.1,
-      KnP_ok σ τ d.1 d.2 n .hole Ctx.empty rfl fun _ => rfl⟩,
+      KnP_ok σ τ d.1 d.2 n .hole Ctx.empty LegalQuery.root fun _ => rfl⟩,
     KnP_le_Kn σ τ n .hole d.1, apply0_KnP_ge σ τ n .hole d.1 e.1 a.1 h⟩
 
 /-- **Lemma A.1.**  *For all `d ∈ T_σ`, `e ∈ T_τ`,
@@ -1137,7 +1137,7 @@ chain `Iₙ(?)` are cofinal for application. -/
 theorem In_legal_cofinal (σ : Ty) (n : Nat) (d : D σ) (a : D σ)
     (h : Tree.Le a.1 (apply0 (In σ n .hole) d.1)) :
     ∃ k : D (σ ⇒ σ), Tree.Le k.1 (In σ n .hole) ∧ Tree.Le a.1 (apply0 k.1 d.1) :=
-  ⟨⟨InP σ n .hole d.1, InP_ok σ d.1 d.2 n .hole Ctx.empty rfl fun _ => rfl⟩,
+  ⟨⟨InP σ n .hole d.1, InP_ok σ d.1 d.2 n .hole Ctx.empty LegalQuery.root fun _ => rfl⟩,
     InP_le_In σ n .hole d.1, apply0_InP_ge σ n .hole d.1 a.1 h⟩
 
 /-- The `(I)` equation of Theorem 4.22; "the proof for `I` closely follows the

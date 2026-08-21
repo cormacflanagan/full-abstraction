@@ -562,6 +562,36 @@ end Query
 
 /-! ## Legal queries and legal responses (Definition 4.2) -/
 
+/-- **The responses recorded along a query are themselves legal.**
+
+Definition 4.2's `𝒬_σ(R)` asks for `q = r : ⟨r',?⟩` where `r` is a *recorded*
+response and `r' ∈ ℛ_σᵢ(p)` is a *legal* response to the query `p` that the last
+step asks.  Following an existing path is not enough: a tree carries `⊥` at the
+position reached by answering `p` with an illegal `r'` too, and that position is
+not a legal query — nothing legal will ever be written there.
+
+This is the one place where Definition 4.2's recursion genuinely descends into
+the argument types, and it descends on `Ty.depth`: a step about argument `i`
+constrains a response of type `σᵢ`, whose intermediate answers constrain queries
+of type `(σᵢ)ⱼ`.  The condition on an answer is spelled out here rather than
+written as `RAns.Ok` because that predicate is defined below in terms of this
+one. -/
+def QueryOk : (σ : Ty) → Query σ → Prop
+  | _, .hole => True
+  | σ, .step i p s rest =>
+      (∃ x : RAns (σ.arg i), s = p.substAns x ∧
+        (match x with
+          | .num _ => True
+          | .node j p' =>
+              (p.ctx j).at' p' = some Tree.bot ∧ QueryOk ((σ.arg i).arg j) p'))
+      ∧ QueryOk σ rest
+termination_by σ q => (σ.depth, q.length)
+decreasing_by
+  · exact Prod.Lex.left _ _ (Nat.lt_trans (Ty.depth_arg_lt _ j) (Ty.depth_arg_lt σ i))
+  · exact Prod.Lex.right _ (Nat.lt_succ_self _)
+
+@[simp] theorem QueryOk_hole {σ : Ty} : QueryOk σ .hole := by rw [QueryOk]; trivial
+
 /-- `𝒬_σ(γ(i))`: `q` is a **legal query** about an argument whose approximation
 tree is `t`.
 
@@ -569,12 +599,12 @@ tree is `t`.
 `{q ∈ Q_σ | ¬∃r[q ⊏ r ⊑ ⊔R], ∃r ∈ R (q = r : ⟨r',?⟩)}`."
 
 Operationally (§4.1, p. 19): "a query `q` on argument `i` must extend the
-approximation tree `⊔γ(i)` for argument `i` by exactly one node".  That is
-exactly what is written here.  `t @ q = ⊥` says both that `q` follows only nodes
-`t` already contains — so `q` extends `t` and, by the last clause of the
-definition, `q = r : ⟨r',?⟩` for the response `r` recorded along it — and that
-the node `q` probes is still unanswered, which is the side condition
-`¬∃r[q ⊏ r ⊑ ⊔R]`, the *probes the perimeter* condition of Definition 4.5.
+approximation tree `⊔γ(i)` for argument `i` by exactly one node".  That is the
+first conjunct: `t @ q = ⊥` says both that `q` follows only nodes `t` already
+contains — so `q` extends `t` — and that the node `q` probes is still
+unanswered, which is the side condition `¬∃r[q ⊏ r ⊑ ⊔R]`, i.e. the *probes the
+perimeter* condition of Definition 4.5.  The second conjunct is `r' ∈ ℛ_σᵢ(p)`
+for each step, as discussed at `QueryOk`.
 
 Two remarks on the paper's phrasing.  First, `¬∃r[q ⊏ r ⊑ ⊔R]` is genuinely
 stronger than "`q` is not a prefix of any `s ∈ R`": if `s` answers the node `q`
@@ -582,17 +612,19 @@ probes with a *different* response than `q` records, `q` is not a prefix of `s`,
 yet `q[?/⊥]` is still strictly below `s` and the query does re-probe an answered
 node.  Stating legality against the approximation tree gets this right
 automatically.  Second, `⊔R` need not be assumed to exist. -/
-def LegalQuery {σ : Ty} (t : Tree σ) (q : Query σ) : Prop := t.at' q = some Tree.bot
+def LegalQuery {σ : Ty} (t : Tree σ) (q : Query σ) : Prop :=
+  t.at' q = some Tree.bot ∧ QueryOk σ q
 
 /-- `? ∈ 𝒬_σ(∅)`. -/
-theorem LegalQuery.root {σ : Ty} : LegalQuery (Tree.bot : Tree σ) .hole := rfl
+theorem LegalQuery.root {σ : Ty} : LegalQuery (Tree.bot : Tree σ) .hole :=
+  ⟨rfl, QueryOk_hole⟩
 
 /-- `𝒬_σ(∅) = {?}`: in the empty context no query but `?` is legal. -/
 theorem LegalQuery.eq_hole_of_bot {σ : Ty} : ∀ {q : Query σ},
     LegalQuery (Tree.bot : Tree σ) q → q = .hole
   | .hole, _ => rfl
   | .step _ _ _ _, h =>
-      absurd h (by simp [LegalQuery, Tree.at', Tree.stepAt, Tree.bot])
+      absurd h.1 (by simp [Tree.at', Tree.stepAt, Tree.bot])
 
 /-- The side condition on the answer `x` of a legal response `q[?/x]`
 (Definition 4.2, *Legal Responses*).
@@ -620,6 +652,18 @@ theorem LegalResp.num {σ : Ty} (q : Query σ) (n : Nat) :
 theorem LegalResp.node {σ : Ty} (q : Query σ) (i : Fin σ.arity) (p : Query (σ.arg i))
     (h : LegalQuery (q.ctx i) p) : LegalResp q (q.substAns (.node i p)) :=
   ⟨.node i p, rfl, h⟩
+
+/-- `QueryOk` says exactly that each step of a query records a legal response to
+the query that step asks. -/
+theorem QueryOk_step {σ : Ty} (i : Fin σ.arity) (p : Query (σ.arg i))
+    (s : Resp (σ.arg i)) (rest : Query σ) :
+    QueryOk σ (.step i p s rest) ↔ (LegalResp p s ∧ QueryOk σ rest) := by
+  rw [QueryOk]
+  constructor
+  · rintro ⟨⟨x, hx, hox⟩, hrest⟩
+    exact ⟨⟨x, hx, by cases x <;> exact hox⟩, hrest⟩
+  · rintro ⟨⟨x, hx, hox⟩, hrest⟩
+    exact ⟨⟨x, hx, by cases x <;> exact hox⟩, hrest⟩
 
 /-! ## Definition 4.2: the finitary bases `D_σ(γ)` -/
 

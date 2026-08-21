@@ -130,6 +130,15 @@ theorem at'_snoc {σ : Ty} : ∀ (q : Query σ) (d : Tree σ) (j : Fin σ.arity)
         show t.at' (rest.snoc j p r') = (t.at' rest).bind fun u => u.stepAt j p r'
         exact at'_snoc rest t j p r'
 
+/-- Every legal query is coherent: each step records a response to the query
+that step asks. -/
+theorem QueryOk.coherent {σ : Ty} : ∀ {q : Query σ}, QueryOk σ q → q.Coherent
+  | .hole, _ => trivial
+  | .step i p s rest, h => by
+      obtain ⟨hs, hrest⟩ := (QueryOk_step i p s rest).mp h
+      obtain ⟨x, rfl, _⟩ := hs
+      exact ⟨Query.qry_substAns p x, QueryOk.coherent hrest⟩
+
 /-- Legal responses are responses to the query they answer. -/
 theorem qry_of_legalResp {σ : Ty} {q : Query σ} {r : Resp σ} (h : LegalResp q r) :
     r.qry = q := by
@@ -945,15 +954,21 @@ theorem TreeOk_at' {σ : Ty} : ∀ (q : Query σ) (γ : Ctx σ) (d e : Tree σ),
         · rw [hnon r hr]; exact TreeOk.leaf _ _
       exact TreeOk_at' rest (γ.cons i r) (f r) e hfr hrest
 
+/-- Extending a legal query by one step keeps every recorded response legal. -/
+theorem QueryOk_snoc {σ : Ty} : ∀ (q : Query σ) (j : Fin σ.arity) (p : Query (σ.arg j))
+    (r' : Resp (σ.arg j)), QueryOk σ q → LegalResp p r' → QueryOk σ (q.snoc j p r')
+  | .hole, j, p, r', _, hr => (QueryOk_step j p r' .hole).mpr ⟨hr, QueryOk_hole⟩
+  | .step i a b rest, j, p, r', hq, hr => by
+      obtain ⟨hb, hrest⟩ := (QueryOk_step i a b rest).mp hq
+      exact (QueryOk_step i a b (rest.snoc j p r')).mpr
+        ⟨hb, QueryOk_snoc rest j p r' hrest hr⟩
+
 /-- Recording the response `q[?/⟨j,p,⊥⟩]` opens exactly the positions one step
 beyond `q`: what was the perimeter position `q` becomes the perimeter position
-`q ⟨j,p,r'⟩`, for every `r'`.
-
-This is the step of Definition 4.2 that says a legal query "extends the
-approximation tree by exactly one node". -/
-theorem legalQuery_join_snoc {σ : Ty} : ∀ (q : Query σ) (t : Tree σ) (j : Fin σ.arity)
-    (p : Query (σ.arg j)) (r' : Resp (σ.arg j)), LegalQuery t q →
-    LegalQuery (Tree.join t (q.substAns (.node j p)).toTree) (q.snoc j p r')
+`q ⟨j,p,r'⟩`, for every `r'`. -/
+theorem at'_join_snoc {σ : Ty} : ∀ (q : Query σ) (t : Tree σ) (j : Fin σ.arity)
+    (p : Query (σ.arg j)) (r' : Resp (σ.arg j)), t.at' q = some Tree.bot →
+    (Tree.join t (q.substAns (.node j p)).toTree).at' (q.snoc j p r') = some Tree.bot
   | .hole, t, j, p, r', ht => by
       have htb : t = Tree.bot := by injection ht
       subst htb
@@ -968,9 +983,18 @@ theorem legalQuery_join_snoc {σ : Ty} : ∀ (q : Query σ) (t : Tree σ) (j : F
               (if s = b then (rest.substAns (.node j p)).toTree else Tree.bot) := by
         show Tree.join (Tree.node i a f) (Tree.node i a _) = _
         rw [Tree.join_node_self]
-      show LegalQuery _ (Query.step i a b (rest.snoc j p r'))
-      rw [LegalQuery, hjoin, Tree.at'_step_self, if_pos rfl]
-      exact legalQuery_join_snoc rest (f b) j p r' hrest
+      show Tree.at' _ (Query.step i a b (rest.snoc j p r')) = _
+      rw [hjoin, Tree.at'_step_self, if_pos rfl]
+      exact at'_join_snoc rest (f b) j p r' hrest
+
+/-- **Definition 4.2's "extend by exactly one node".**  Recording the response
+`q[?/⟨j,p,⊥⟩]` turns the perimeter position `q` into the perimeter positions
+`q ⟨j,p,r'⟩`, one for each legal response `r'` to `p`. -/
+theorem legalQuery_join_snoc {σ : Ty} (q : Query σ) (t : Tree σ) (j : Fin σ.arity)
+    (p : Query (σ.arg j)) (r' : Resp (σ.arg j)) (ht : LegalQuery t q)
+    (hr : LegalResp p r') :
+    LegalQuery (Tree.join t (q.substAns (.node j p)).toTree) (q.snoc j p r') :=
+  ⟨at'_join_snoc q t j p r' ht.1, QueryOk_snoc q j p r' ht.2 hr⟩
 
 /-! ## Lemma 4.16, Theorem 4.11 -/
 
