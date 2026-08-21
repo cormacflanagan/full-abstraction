@@ -504,15 +504,120 @@ theorem lemma_4_14 : ∀ {a τ : Ty} (q : Query (a ⇒ τ)) (d e : Tree (a ⇒ �
         rw [ha, hs, Tree.at'_step_self]
         exact lemma_4_14 rest (f r) e d₁ hco' hrest habTail
 
-/-- **Corollary 4.15.**  *Let `σ = σ₁ → … → σₖ → o`, let `q ∈ Q_σ` be a query
-determining the context `q̂`, and let `e` be a subtree in `D_σ(q̂)`.  If
-`d ⊒ q[?/e]` and `dᵢ ⊒ ⊔ q̂(i)` for `1 ≤ i ≤ k`, then
-`apply (d, d₁, …, dₖ) = apply (q[?/e], d₁, …, dₖ) = apply (e, d₁, …, dₖ)`.* -/
-theorem corollary_4_15 {a τ : Ty} (q : Query (a ⇒ τ)) (e d : Tree (a ⇒ τ)) (d₁ : Tree a)
-    (hd : q.substTree e ⊑ d)
-    (hd₁ : Ctx.Above q.ctx ⟨0, Nat.succ_pos _⟩ d₁) :
-    apply0 d d₁ = apply0 (q.substTree e) d₁ ∧ apply0 (q.substTree e) d₁ = apply0 e d₁ := by
-  sorry
+/-! ### `shift₁` and tree contexts -/
+
+/-- `shift₁` preserves coherence. -/
+theorem shift1_coherent : ∀ {a τ : Ty} (q : Query (a ⇒ τ)), q.Coherent → q.shift1.Coherent
+  | _, _, .hole, _ => by simp only [Query.shift1]; exact trivial
+  | a, τ, .step i p r rest, hco => by
+      obtain ⟨hcr, hco'⟩ := hco
+      match i with
+      | ⟨0, hi⟩ =>
+        rw [show (Query.step ⟨0, hi⟩ p r rest).shift1 = rest.shift1 by
+          simp only [Query.shift1]]
+        exact shift1_coherent rest hco'
+      | ⟨k + 1, hi⟩ =>
+        rw [show (Query.step ⟨k + 1, hi⟩ p r rest).shift1
+            = Query.step ⟨k, Nat.lt_of_succ_lt_succ hi⟩ p r rest.shift1 by
+          simp only [Query.shift1]]
+        exact ⟨hcr, shift1_coherent rest hco'⟩
+
+/-- A pair recorded in the context of `shift₁ q` about argument `i` is recorded
+in the context of `q` about argument `i + 1`. -/
+theorem mem_ctx_shift1 : ∀ {a τ : Ty} (q : Query (a ⇒ τ)) (i : Fin τ.arity)
+    (hi : i.val + 1 < (a ⇒ τ).arity) (r : Resp (τ.arg i)),
+    (⟨i, r⟩ : (j : Fin τ.arity) × Resp (τ.arg j)) ∈ q.shift1.ctx →
+    (⟨⟨i.val + 1, hi⟩, r⟩ : (j : Fin (a ⇒ τ).arity) × Resp ((a ⇒ τ).arg j)) ∈ q.ctx
+  | _, _, .hole, i, hi, r, hmem => by
+      rw [show (Query.hole : Query (_ ⇒ _)).shift1 = Query.hole by
+        simp only [Query.shift1]] at hmem
+      exact absurd hmem (by simp [Query.ctx])
+  | a, τ, .step j p s rest, i, hi, r, hmem => by
+      match j with
+      | ⟨0, hj⟩ =>
+        rw [show (Query.step ⟨0, hj⟩ p s rest).shift1 = rest.shift1 by
+          simp only [Query.shift1]] at hmem
+        exact List.mem_cons_of_mem _ (mem_ctx_shift1 rest i hi r hmem)
+      | ⟨k + 1, hk⟩ =>
+        rw [show (Query.step ⟨k + 1, hk⟩ p s rest).shift1
+            = Query.step ⟨k, Nat.lt_of_succ_lt_succ hk⟩ p s rest.shift1 by
+          simp only [Query.shift1]] at hmem
+        rcases List.mem_cons.mp hmem with heq | htail
+        · -- the head: `i = ⟨k, _⟩` and `r = s`
+          have hik : i = ⟨k, Nat.lt_of_succ_lt_succ hk⟩ := congrArg Sigma.fst heq
+          subst hik
+          have hrs : r = s := by injection heq
+          subst hrs
+          exact List.mem_cons_self ..
+        · exact List.mem_cons_of_mem _ (mem_ctx_shift1 rest i hi r htail)
+
+/-- The `k`-ary form of Lemma 4.14: applying all the arguments to `d` gives the
+same ground answer as applying them to the subtree `d @ q`, provided each
+argument extends what `q̂` records about it. -/
+theorem applyArgs_at_query : ∀ (σ : Ty) (q : Query σ) (d e : Tree σ)
+    (ds : (i : Fin σ.arity) → Tree (σ.arg i)),
+    q.Coherent → d.at' q = some e → (∀ i, Ctx.Above q.ctx i (ds i)) →
+    applyArgs σ d ds = applyArgs σ e ds
+  | .base, q, d, e, ds, _, hq, _ => by
+      cases q with
+      | hole =>
+        have hde : d = e := by injection hq
+        subst hde
+        rfl
+      | step i _ _ _ => exact absurd i.isLt (by simp)
+  | .arrow a τ, q, d, e, ds, hco, hq, hab => by
+      have h14 := lemma_4_14 q d e (ds ⟨0, Nat.succ_pos _⟩) hco hq (hab _)
+      have habs : ∀ i : Fin τ.arity,
+          Ctx.Above q.shift1.ctx i (ds ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩) := by
+        intro i r hr
+        exact hab ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩ r
+          (mem_ctx_shift1 q i (Nat.succ_lt_succ i.isLt) r hr)
+      show applyArgs τ (apply0 d (ds ⟨0, Nat.succ_pos _⟩)) _
+          = applyArgs τ (apply0 e (ds ⟨0, Nat.succ_pos _⟩)) _
+      exact applyArgs_at_query τ q.shift1 _ _ _ (shift1_coherent q hco) h14 habs
+
+/-- `q[?/e] @ q = e`: substituting `e` at the marker of `q` puts `e` exactly at
+position `q`. -/
+theorem at'_substTree {σ : Ty} : ∀ (q : Query σ) (e : Tree σ),
+    (q.substTree e).at' q = some e
+  | .hole, e => rfl
+  | .step i p r rest, e => by
+      rw [show Query.substTree (.step i p r rest) e
+            = Tree.node i p (fun s => if s = r then Query.substTree rest e else Tree.bot) from
+          rfl, Tree.at'_step_self, if_pos rfl]
+      exact at'_substTree rest e
+
+/-- **Corollary 4.15.**  *Let `σ = σ₁ → … σₖ → o`.  Let `q ∈ Q_σ` be a query that
+determines the context `q̂`, and let `e` be a subtree in `D_σ(q̂)`.  If
+`d ⊒ q[?/e]` and `dᵢ ⊒ ⊔ q̂(i)` for `i`, `1 ≤ i ≤ k`, then*
+`apply (d, d₁, …, dₖ) = apply (q[?/e], d₁, …, dₖ) = apply (e, d₁, …, dₖ)`.
+
+Both equations are instances of the `k`-ary form of Lemma 4.14.
+
+A remark on the hypothesis.  Read literally, `d ⊒ q[?/e]` makes the first
+equation false: taking `q = ?` and `e = ⊥` it would say that `apply` is constant
+above `⊥`.  The reading under which the corollary is true, and the one the paper
+uses (§5, in the representability argument, where the corollary is applied to
+`q[?/aⱼ]` itself), is that `d` carries `e` *at* position `q`, i.e. `d @ q = e`.
+That is the hypothesis taken here; the second equation, which is the one the
+paper actually invokes, needs no hypothesis on `d` at all. -/
+theorem corollary_4_15 (σ : Ty) (q : Query σ) (e d : Tree σ)
+    (ds : (i : Fin σ.arity) → Tree (σ.arg i))
+    (hco : q.Coherent) (hd : d.at' q = some e)
+    (hab : ∀ i, Ctx.Above q.ctx i (ds i)) :
+    applyArgs σ d ds = applyArgs σ (q.substTree e) ds ∧
+    applyArgs σ (q.substTree e) ds = applyArgs σ e ds := by
+  have h₂ : applyArgs σ (q.substTree e) ds = applyArgs σ e ds :=
+    applyArgs_at_query σ q (q.substTree e) e ds hco (at'_substTree q e) hab
+  exact ⟨by rw [applyArgs_at_query σ q d e ds hco hd hab, h₂], h₂⟩
+
+/-- The half of Corollary 4.15 the paper invokes: a path carrying `e` at its
+marker applies exactly like `e`. -/
+theorem corollary_4_15_path (σ : Ty) (q : Query σ) (e : Tree σ)
+    (ds : (i : Fin σ.arity) → Tree (σ.arg i))
+    (hco : q.Coherent) (hab : ∀ i, Ctx.Above q.ctx i (ds i)) :
+    applyArgs σ (q.substTree e) ds = applyArgs σ e ds :=
+  applyArgs_at_query σ q (q.substTree e) e ds hco (at'_substTree q e) hab
 
 /-! ## Lemma 4.16, Theorem 4.11 -/
 
