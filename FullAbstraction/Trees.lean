@@ -865,14 +865,197 @@ theorem dsub_lub_of_finite_bounded {σ : Ty} {γ : Ctx σ} : ∀ l : List (DSub 
     · intro v hv
       exact hj.2.2 v.1 (hv a hamem) (hd.2 v fun x hx => hv x (hsub x hx))
 
+/-! ### Countability of the syntactic material -/
+
+/-- An injection of `Val` into `Nat`. -/
+def Val.encode : Val → Nat
+  | .bot => 0
+  | .err b => if b then 1 else 2
+  | .num n => n + 3
+
+theorem Val.encode_inj : ∀ {v w : Val}, v.encode = w.encode → v = w
+  | .bot, .bot, _ => rfl
+  | .bot, .err b, h => by cases b <;> exact absurd h (by simp [Val.encode])
+  | .bot, .num n, h => by exact absurd h (by simp [Val.encode])
+  | .err b, .bot, h => by cases b <;> exact absurd h (by simp [Val.encode])
+  | .err b, .err b', h => by
+      cases b <;> cases b' <;> first | rfl | exact absurd h (by simp [Val.encode])
+  | .err b, .num n, h => by
+      cases b <;> exact absurd h (by simp [Val.encode])
+  | .num n, .bot, h => by exact absurd h (by simp [Val.encode])
+  | .num n, .err b, h => by
+      cases b <;> exact absurd h (by simp [Val.encode])
+  | .num n, .num m, h => by
+      simp only [Val.encode, Nat.add_right_cancel_iff] at h
+      rw [h]
+
+mutual
+/-- An injection of queries into `Enc`. -/
+def Query.enc : {σ : Ty} → Query σ → Enc
+  | _, .hole => .leaf 0
+  | _, .step i q r rest => .node (.leaf i.val) (.node q.enc (.node r.enc rest.enc))
+
+/-- An injection of responses into `Enc`. -/
+def Resp.enc : {σ : Ty} → Resp σ → Enc
+  | _, .ans n => .leaf n
+  | _, .node i p => .node (.leaf 0) (.node (.leaf i.val) p.enc)
+  | _, .step i q r rest =>
+      .node (.leaf 1) (.node (.leaf i.val) (.node q.enc (.node r.enc rest.enc)))
+end
+
+mutual
+theorem Query.enc_inj : ∀ {σ : Ty} (q q' : Query σ), q.enc = q'.enc → q = q'
+  | _, .hole, .hole, _ => rfl
+  | _, .hole, .step _ _ _ _, h => by exact Enc.noConfusion h
+  | _, .step _ _ _ _, .hole, h => by exact Enc.noConfusion h
+  | _, .step i q r rest, .step i' q' r' rest', h => by
+      injection h with h1 h2
+      injection h1 with hi
+      injection h2 with h3 h4
+      injection h4 with h5 h6
+      have hii : i = i' := Fin.ext hi
+      subst hii
+      have hq : q = q' := Query.enc_inj q q' h3
+      subst hq
+      have hr : r = r' := Resp.enc_inj r r' h5
+      subst hr
+      rw [Query.enc_inj rest rest' h6]
+
+theorem Resp.enc_inj : ∀ {σ : Ty} (r r' : Resp σ), r.enc = r'.enc → r = r'
+  | _, .ans n, .ans m, h => by
+      injection h with h1
+      rw [h1]
+  | _, .ans _, .node _ _, h => by exact Enc.noConfusion h
+  | _, .ans _, .step _ _ _ _, h => by exact Enc.noConfusion h
+  | _, .node _ _, .ans _, h => by exact Enc.noConfusion h
+  | _, .step _ _ _ _, .ans _, h => by exact Enc.noConfusion h
+  | _, .node i p, .node i' p', h => by
+      injection h with h1 h2
+      injection h2 with h3 h4
+      injection h3 with hi
+      have hii : i = i' := Fin.ext hi
+      subst hii
+      rw [Query.enc_inj p p' h4]
+  | _, .node _ _, .step _ _ _ _, h => by
+      injection h with h1 h2
+      injection h1 with h0
+      exact absurd h0 (by omega)
+  | _, .step _ _ _ _, .node _ _, h => by
+      injection h with h1 h2
+      injection h1 with h0
+      exact absurd h0 (by omega)
+  | _, .step i q r rest, .step i' q' r' rest', h => by
+      injection h with h1 h2
+      injection h2 with h3 h4
+      injection h3 with hi
+      injection h4 with h5 h6
+      injection h6 with h7 h8
+      have hii : i = i' := Fin.ext hi
+      subst hii
+      have hq : q = q' := Query.enc_inj q q' h5
+      subst hq
+      have hr : r = r' := Resp.enc_inj r r' h7
+      subst hr
+      rw [Resp.enc_inj rest rest' h8]
+end
+
+/-- Inversion for `Finitary` at a node. -/
+theorem Tree.Finitary_node_inv {σ : Ty} {i : Fin σ.arity} {q : Query (σ.arg i)}
+    {f : Resp (σ.arg i) → Tree σ} (h : Tree.Finitary (.node i q f)) :
+    Tree.FiniteProperDomain f ∧ ∀ r, Tree.Finitary (f r) := by
+  cases h with
+  | node _ _ _ hfin hsub => exact ⟨hfin, hsub⟩
+
+/-- An injection of *finitary* trees into `Enc`.
+
+A branching function with a finite proper domain is determined by its node
+value together with its (encoded) branches over any list covering the proper
+domain: everything off the list is `⊥`.  The list is `Classical.choose` of the
+finiteness proposition, which depends only on the branching function, so the
+encoding is a genuine function of the tree. -/
+noncomputable def encFin {σ : Ty} : (d : Tree σ) → Tree.Finitary d → Enc
+  | .leaf v, _ => .leaf v.encode
+  | .node i q f, h =>
+      .node (.node (.leaf i.val) q.enc)
+        (encList ((Classical.choose (Tree.Finitary_node_inv h).1).map
+          fun r => Enc.node r.enc (encFin (f r) ((Tree.Finitary_node_inv h).2 r))))
+
+theorem encFin_inj {σ : Ty} : ∀ (d e : Tree σ) (hd : Tree.Finitary d)
+    (he : Tree.Finitary e), encFin d hd = encFin e he → d = e
+  | .leaf v, .leaf w, _, _, h => by
+      simp only [encFin] at h
+      injection h with h1
+      rw [Val.encode_inj h1]
+  | .leaf _, .node _ _ _, _, _, h => by
+      simp only [encFin] at h
+      exact Enc.noConfusion h
+  | .node _ _ _, .leaf _, _, _, h => by
+      simp only [encFin] at h
+      exact Enc.noConfusion h
+  | .node i q f, .node i' q' f', hd, he, h => by
+      simp only [encFin] at h
+      injection h with h1 h2
+      injection h1 with h1a h1b
+      injection h1a with hi
+      have hii : i = i' := Fin.ext hi
+      subst hii
+      have hqq : q = q' := Query.enc_inj q q' h1b
+      subst hqq
+      have hmap := encList_inj _ _ h2
+      have hlists : ∀ (l1 l2 : List (Resp (σ.arg i)))
+          (hf1 : ∀ r, Tree.Finitary (f r)) (hf2 : ∀ r, Tree.Finitary (f' r)),
+          l1.map (fun r => Enc.node r.enc (encFin (f r) (hf1 r)))
+            = l2.map (fun r => Enc.node r.enc (encFin (f' r) (hf2 r))) →
+          l1 = l2 ∧ ∀ r, r ∈ l1 → f r = f' r := by
+        intro l1
+        induction l1 with
+        | nil =>
+          intro l2 _ _ hm
+          cases l2 with
+          | nil => exact ⟨rfl, fun r hr => absurd hr (by simp)⟩
+          | cons _ _ => exact absurd hm (by simp)
+        | cons r l1 ih =>
+          intro l2 hf1 hf2 hm
+          cases l2 with
+          | nil => exact absurd hm (by simp)
+          | cons r₂ l2 =>
+            simp only [List.map_cons, List.cons.injEq] at hm
+            obtain ⟨hh, ht⟩ := hm
+            injection hh with hr1 hr2
+            have hrr : r = r₂ := Resp.enc_inj r r₂ hr1
+            subst hrr
+            have hbr : f r = f' r := encFin_inj (f r) (f' r) (hf1 r) (hf2 r) hr2
+            obtain ⟨hl, hall⟩ := ih l2 hf1 hf2 ht
+            refine ⟨by rw [hl], fun s hs => ?_⟩
+            rcases List.mem_cons.mp hs with rfl | hs
+            · exact hbr
+            · exact hall s hs
+      obtain ⟨hl, hall⟩ := hlists _ _ _ _ hmap
+      have hfeq : f = f' := by
+        funext r
+        by_cases hr : r ∈ Classical.choose (Tree.Finitary_node_inv hd).1
+        · exact hall r hr
+        · have h1 : f r = Tree.bot := by
+            refine Classical.byContradiction fun hne => ?_
+            exact hr (Classical.choose_spec (Tree.Finitary_node_inv hd).1 r hne)
+          have h2 : f' r = Tree.bot := by
+            refine Classical.byContradiction fun hne => ?_
+            have hmem := Classical.choose_spec (Tree.Finitary_node_inv he).1 r hne
+            rw [← hl] at hmem
+            exact hr hmem
+          rw [h1, h2]
+      rw [hfeq]
+
 /-- `D_σ(γ)` is countable: "`D_σ` is countable because every branching function
 has a finite proper domain" (proof of Lemma 4.3).
 
-This is the *only* remaining obligation of Lemma 4.3.  It is not needed to build
-`T_σ` or for parts (1)–(3) of Theorem 4.4; it is what makes `T_σ`
-**ω**-algebraic (`lemma_4_3_omega_algebraic`). -/
+Legal trees are finitary (`Finitary_of_TreeOk`), and `encFin` injects the
+finitary trees into the countable type `Enc`. -/
 theorem dsub_countable {σ : Ty} {γ : Ctx σ} : Countable (DSub σ γ) := by
-  sorry
+  refine Countable.ofInjection countable_Enc
+    (fun d => encFin d.1 (Finitary_of_TreeOk d.2)) ?_
+  intro a b h
+  exact Subtype.ext (encFin_inj a.1 b.1 _ _ h)
 
 /-- **Lemma 4.3.**  *`D_σ` is a finitary basis.*
 

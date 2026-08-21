@@ -93,6 +93,95 @@ theorem Countable.ofInjection {α : Type u} {β : Type v} (hβ : Countable β)
   obtain ⟨g, hg⟩ := hβ
   exact ⟨g ∘ f, fun {a b} h => hf (hg h)⟩
 
+/-! ## A countable type of S-expressions
+
+Used to prove that the syntactic material of §4 — paths, and finitary trees —
+is countable (the countability half of Lemma 4.3). -/
+
+/-- `2^a · (2b + 1)`: an injective pairing of two naturals. -/
+def npair (a b : Nat) : Nat := 2 ^ a * (2 * b + 1)
+
+theorem npair_inj : ∀ (a b c d : Nat), npair a b = npair c d → a = c ∧ b = d := by
+  intro a
+  induction a with
+  | zero =>
+    intro b c d h
+    cases c with
+    | zero =>
+      simp only [npair, Nat.pow_zero, Nat.one_mul] at h
+      omega
+    | succ c' =>
+      exfalso
+      rw [npair, npair, Nat.pow_zero, Nat.one_mul, Nat.pow_succ,
+        Nat.mul_comm (2 ^ c') 2, Nat.mul_assoc] at h
+      omega
+  | succ a' ih =>
+    intro b c d h
+    cases c with
+    | zero =>
+      exfalso
+      rw [npair, npair, Nat.pow_zero, Nat.one_mul, Nat.pow_succ,
+        Nat.mul_comm (2 ^ a') 2, Nat.mul_assoc] at h
+      omega
+    | succ c' =>
+      rw [npair, npair, Nat.pow_succ, Nat.pow_succ, Nat.mul_comm (2 ^ a') 2,
+        Nat.mul_comm (2 ^ c') 2, Nat.mul_assoc, Nat.mul_assoc] at h
+      have h4 : npair a' b = npair c' d :=
+        Nat.eq_of_mul_eq_mul_left (by omega) h
+      obtain ⟨h5, h6⟩ := ih b c' d h4
+      exact ⟨by omega, h6⟩
+
+/-- Finite binary trees with `Nat`-labelled leaves: enough structure to encode
+any finitary first-order syntax. -/
+inductive Enc where
+  | leaf : Nat → Enc
+  | node : Enc → Enc → Enc
+
+namespace Enc
+
+/-- An injection of `Enc` into `Nat`: leaves go to even numbers, nodes to odd
+ones via the pairing `npair`. -/
+def toNat : Enc → Nat
+  | .leaf n => 2 * n
+  | .node l r => 2 * npair l.toNat r.toNat + 1
+
+theorem toNat_inj : ∀ (e e' : Enc), e.toNat = e'.toNat → e = e'
+  | .leaf n, .leaf m, h => by
+      simp only [toNat] at h
+      have : n = m := by omega
+      rw [this]
+  | .leaf n, .node l r, h => by
+      exfalso
+      simp only [toNat] at h
+      omega
+  | .node l r, .leaf n, h => by
+      exfalso
+      simp only [toNat] at h
+      omega
+  | .node l r, .node l' r', h => by
+      simp only [toNat] at h
+      have h1 : npair l.toNat r.toNat = npair l'.toNat r'.toNat := by omega
+      obtain ⟨h2, h3⟩ := npair_inj _ _ _ _ h1
+      rw [toNat_inj l l' h2, toNat_inj r r' h3]
+
+end Enc
+
+theorem countable_Enc : Countable Enc :=
+  ⟨Enc.toNat, fun {a b} h => Enc.toNat_inj a b h⟩
+
+/-- Encode a list of `Enc`s as a single `Enc`. -/
+def encList : List Enc → Enc
+  | [] => .leaf 0
+  | e :: es => .node e (encList es)
+
+theorem encList_inj : ∀ (l l' : List Enc), encList l = encList l' → l = l'
+  | [], [], _ => rfl
+  | [], _ :: _, h => Enc.noConfusion h
+  | _ :: _, [], h => Enc.noConfusion h
+  | e :: es, e' :: es', h => by
+      injection h with h1 h2
+      rw [h1, encList_inj es es' h2]
+
 /-! ## A maximum over a list -/
 
 /-- The maximum of `f` over the members of `l` (and `0`). -/

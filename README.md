@@ -160,6 +160,8 @@ each of these.
 | — the join of two bounded trees is their lub | `Tree.join_spec` |
 | — the join of two legal subtrees is legal | `TreeOk_join` |
 | **Lemma 4.3**: `D_σ` is a finitary basis | `lemma_4_3` |
+| **Lemma 4.3**: `D_σ` is countable | `dsub_countable` (via `Enc`, `encFin_inj`) |
+| Theorem 4.4: ω-algebraicity of `T_σ` | `lemma_4_3_omega_algebraic` |
 | the finite approximations of a tree are directed | `finiteApprox_directed` |
 | legal subtrees are finitary | `Finitary_of_TreeOk` |
 | **Lemma 4.7** | `lemma_4_7` |
@@ -230,7 +232,6 @@ derivation is the content.
 | `T[[Y_σ]]` is well defined | `Y_chain_directed` | `Yapprox_mono`, `chain_directed` |
 | Lemma A.6 (the `S` equation) | `lemma_A_6` | `claim_A_5` |
 | Theorem 4.22 | `theorem_4_22` | `lemma_A_6` (`lemma_A_1` and `theorem_4_22_I` are proved outright) |
-| Theorem 4.4: ω-algebraicity of `T_σ` | `lemma_4_3_omega_algebraic` | `dsub_countable` |
 | `T[[errorᵢ]] = errorᵢ` | `meaning_errTerm` | holds by `rfl`; mentions `SPCFSem` |
 | `T[[Ω]] = ⊥`, the `Ω` field of Definition 6.1 | `meaning_omegaTerm` | `apply0_sub1_zero` + monotonicity of `apply₀` |
 | the meaning of `(M E₁ … Eₖ)` | `meaning_apps` | the typing lemmas above |
@@ -247,11 +248,10 @@ derivation is the content.
 
 ### Outstanding
 
-Nine declarations, stated faithfully, whose own proof is still `sorry`.
+Eight declarations, stated faithfully, whose own proof is still `sorry`.
 
 | Result | Lean name | Note |
 | --- | --- | --- |
-| Lemma 4.3: `D_σ` is countable | `dsub_countable` | the only remaining half of Lemma 4.3; needed for ω-algebraicity alone |
 | **Claim A.5** (well-definedness of `S`) | `claim_A_5` | Definition 4.21 + Figure 5 + Appendix A.2 |
 | **Lemma A.7** | `lemma_A_7` | |
 | **Lemma B.1** / **Lemma 4.26** | `lemma_B_1` | Appendix B; `lemma_4_26` is `lemma_B_1` |

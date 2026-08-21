@@ -94,6 +94,12 @@ section Complete
 #print axioms orderExtensional_T
 #print axioms theorem_4_11
 #print axioms corollary_4_18
+#print axioms Val.encode_inj
+#print axioms Query.enc_inj
+#print axioms Resp.enc_inj
+#print axioms encFin_inj
+#print axioms dsub_countable
+#print axioms lemma_4_3_omega_algebraic
 end Complete
 
 section DerivedOrDependent
@@ -103,7 +109,6 @@ section DerivedOrDependent
 -- mentioning `SPCFSem` from `Tmeaning_mono`.
 #print axioms theorem_4_22
 #print axioms lemma_A_6
-#print axioms lemma_4_3_omega_algebraic
 #print axioms meaning_omegaTerm
 #print axioms meaning_errTerm
 #print axioms meaning_apps
@@ -131,7 +136,6 @@ end DerivedOrDependent
 
 section Outstanding
 -- Results still resting on `sorryAx` because their own proof is `sorry`.
-#print axioms dsub_countable
 #print axioms claim_A_5
 #print axioms lemma_A_7
 #print axioms lemma_B_1
