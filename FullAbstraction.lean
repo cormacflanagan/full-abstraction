@@ -15,3 +15,5 @@ import FullAbstraction.Order
 import FullAbstraction.Types
 import FullAbstraction.Syntax
 import FullAbstraction.Semantics
+import FullAbstraction.Trees
+import FullAbstraction.Apply

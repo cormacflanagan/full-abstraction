@@ -335,4 +335,51 @@ theorem theorem_4_4_countably_many_finite [FinitaryBasis α] :
   simp only at h
   rw [hI, hJ, h]
 
+/-! ## Scott domains
+
+"A Scott domain is the ideal completion of a finitary basis [7, 20]. … By this
+construction, a domain is a bounded-complete, ω-algebraic cpo (complete partial
+order)." (§4.1) -/
+
+/-- A **Scott domain**: a bounded-complete, ω-algebraic cpo.  These are exactly
+the properties that Theorem 4.4 establishes for ideal completions. -/
+class ScottDomain (α : Type u) extends Po α where
+  /-- `⊥`, the least element (Definition 2.7). -/
+  bot : α
+  bot_le : ∀ a, Po.le bot a
+  /-- Least upper bounds of directed sets (Theorem 4.4(1a)). -/
+  dsup : ∀ S : Set α, DirectedSet S → α
+  dsup_isLUB : ∀ (S : Set α) (h : DirectedSet S), IsLUB S (dsup S h)
+  /-- Least upper bounds of bounded sets (Theorem 4.4(1b)). -/
+  bsup : ∀ S : Set α, Bounded S → α
+  bsup_isLUB : ∀ (S : Set α) (h : Bounded S), IsLUB S (bsup S h)
+  /-- The finite (compact) elements (Theorem 4.4(2)). -/
+  Fin' : α → Prop
+  /-- Algebraicity (Theorem 4.4(3)). -/
+  algebraic : ∀ a : α, IsLUB (fun b => Fin' b ∧ Po.le b a) a
+  /-- ω-algebraicity: there are only countably many finite elements. -/
+  countable_fin : Countable { a : α // Fin' a }
+
+/-- **Theorem 4.4**, packaged: the ideal completion of a finitary basis is a
+Scott domain. -/
+noncomputable instance idealScottDomain [FinitaryBasis α] : ScottDomain (Ideal α) where
+  toPo := inferInstance
+  bot := Ideal.principal (FinitaryBasis.bot : α)
+  bot_le J := by
+    intro a ha
+    obtain ⟨b, hb⟩ := J.nonempty'
+    exact J.downward a b (Po.le_trans ha (FinitaryBasis.bot_le b)) hb
+  dsup S h := Ideal.dirSup S h
+  dsup_isLUB S h := Ideal.isLUB_dirSup S h
+  bsup S h := Ideal.bddSup S h
+  bsup_isLUB S h := Ideal.isLUB_bddSup S h
+  Fin' := Ideal.IsFinite
+  algebraic I := by
+    constructor
+    · rintro J ⟨hfin, hJI⟩ a ha; exact hJI a ha
+    · intro V hV a ha
+      refine hV (Ideal.principal a) ⟨theorem_4_4_principal_isFinite a, ?_⟩ a (Po.le_refl a)
+      intro b hb; exact I.downward b a hb ha
+  countable_fin := theorem_4_4_countably_many_finite
+
 end FA

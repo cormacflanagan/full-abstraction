@@ -98,8 +98,8 @@ function `M[[apply_{σ,τ}]] : M_{σ→τ} × M_σ → M_τ`." -/
 structure Model (L : Lang) where
   /-- The Scott domain `M_σ` interpreting the type `σ`. -/
   Dom : Ty → Type
-  /-- Each `M_σ` is a domain: here, the ideal completion of a finitary basis. -/
-  basis : ∀ σ, FinitaryBasis (Dom σ)
+  /-- "`M` maps each type `σ` to a Scott domain `M_σ`" (Definition 2.3). -/
+  dom : ∀ σ, ScottDomain (Dom σ)
   /-- The interpretation of the constants of `L`. -/
   interpConst : (c : L.Const) → Dom (L.constTy c)
   /-- The interpretation of `S_{σ,τ,ρ}`. -/
@@ -114,8 +114,8 @@ structure Model (L : Lang) where
 namespace Model
 variable {L : Lang} (M : Model L)
 
-/-- Each `M_σ` is a finitary basis, hence in particular a partial order. -/
-instance domBasis (M : Model L) (σ : Ty) : FinitaryBasis (M.Dom σ) := M.basis σ
+/-- Each `M_σ` is a Scott domain, hence in particular a partial order. -/
+instance domScott (M : Model L) (σ : Ty) : ScottDomain (M.Dom σ) := M.dom σ
 
 /-- An environment `E` maps each variable `x^σ` to an element of `M_σ`. -/
 def Env := (x : Nat) → (σ : Ty) → M.Dom σ
@@ -130,13 +130,13 @@ The definition is partial in the same sense as the paper's: the interpretation
 of an ill-typed application is unconstrained, so we return a default element of
 the expected domain. -/
 def combMeaning (E : M.Env) : (t : Comb L) → (σ : Ty) → M.Dom σ
-  | .var x τ, σ => if h : τ = σ then h ▸ E x τ else (M.basis σ).elt
-  | .const c, σ => if h : L.constTy c = σ then h ▸ M.interpConst c else (M.basis σ).elt
+  | .var x τ, σ => if h : τ = σ then h ▸ E x τ else (M.dom σ).bot
+  | .const c, σ => if h : L.constTy c = σ then h ▸ M.interpConst c else (M.dom σ).bot
   | .S a b c, σ =>
       if h : ((a ⇒ b ⇒ c) ⇒ (a ⇒ b) ⇒ a ⇒ c) = σ then h ▸ M.interpS a b c
-      else (M.basis σ).elt
-  | .K a b, σ => if h : (a ⇒ b ⇒ a) = σ then h ▸ M.interpK a b else (M.basis σ).elt
-  | .I a, σ => if h : (a ⇒ a) = σ then h ▸ M.interpI a else (M.basis σ).elt
+      else (M.dom σ).bot
+  | .K a b, σ => if h : (a ⇒ b ⇒ a) = σ then h ▸ M.interpK a b else (M.dom σ).bot
+  | .I a, σ => if h : (a ⇒ a) = σ then h ▸ M.interpI a else (M.dom σ).bot
   | .app t u, σ =>
       let α := Comb.tyOf u
       M.apply (combMeaning E t (α ⇒ σ)) (combMeaning E u α)
