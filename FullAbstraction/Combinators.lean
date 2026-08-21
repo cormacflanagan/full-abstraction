@@ -960,25 +960,212 @@ functions `T : R × Q → …` and `encode : D_{σ→τ} × Q_τ → Q_{σ→τ}
 /-- The type of the `S` combinator. -/
 abbrev STy (σ τ ρ : Ty) : Ty := (σ ⇒ τ ⇒ ρ) ⇒ (σ ⇒ τ) ⇒ σ ⇒ ρ
 
-/-- **Definition A.3** (`S`, `T`, `Sₙ`, `Tₙ`) together with **Claim A.5**.
+section SCombinator
+variable {σ τ ρ : Ty}
 
-"*The following two statements about `Sₙ` and `Tₙ` both hold: 1. For all `p_S`
-and `q₁` satisfying the invariant `Φ`, `Sₙ(p_S, q₁) ∈ D_{(σ→τ→ρ)→(σ→τ)→σ→ρ}(p̂_S)`
-… `S = ⊔ₙ {Sₙ(?,?)} ∈ T_{(σ→τ→ρ)→(σ→τ)→σ→ρ}`*"
+/-- The unique proper branch of a branching function, when there is one
+(Figure 5, fact 1: "the approximation `d₂` has exactly one son below each node
+value of the form `⟨1,p⟩`"). -/
+noncomputable def properBranch {γ δ : Ty} (f : Resp γ → Tree δ) : Resp γ :=
+  @dite _ _ (Classical.propDecidable _)
+    (fun h : ∃ r, f r ≠ Tree.bot => Classical.choose h) (fun _ => .ans 0)
 
-together with **Lemma A.6**, "*For all `e₁, e₂, e₃` in appropriate domains,
-`apply (S(?,?), e₁, e₂, e₃) = apply (apply (e₁, e₃), apply (e₂, e₃))`*".
+/-- Figure 5's `encode : D_{σ→τ} × Q_τ → Q_{σ→τ}`: reconstruct the query about
+`y` corresponding to a query about `y·z`, threading it through the accumulated
+knowledge `d₂` — replay `d₂`'s probes of `z` (each has a unique recorded
+answer), and step through its other nodes as the query dictates. -/
+noncomputable def encode : Tree (σ ⇒ τ) → Query τ → Query (σ ⇒ τ)
+  | .leaf _, _ => .hole
+  | .node ⟨0, h0⟩ qz f, p =>
+      .step ⟨0, h0⟩ qz (properBranch f) (encode (f (properBranch f)) p)
+  | .node ⟨_ + 1, _⟩ _ _, .hole => .hole
+  | .node ⟨j + 1, hj⟩ qt f, .step i p' r rest =>
+      if h : (⟨i, p'⟩ : NodeVal τ) = ⟨⟨j, Nat.lt_of_succ_lt_succ hj⟩, qt⟩ then
+        .step ⟨j + 1, hj⟩ qt
+          (Tree.castResp (congrArg Sigma.fst h) r
+            : Resp (τ.arg ⟨j, Nat.lt_of_succ_lt_succ hj⟩))
+          (encode (f (Tree.castResp (congrArg Sigma.fst h) r
+            : Resp (τ.arg ⟨j, Nat.lt_of_succ_lt_succ hj⟩))) rest)
+      else .hole
 
-Packaging the construction of Definition 4.21 and Figure 5 as a single existence
-statement lets every use of `S` in the development be a genuine consequence of
-Appendix A rather than a further assumption. -/
-theorem claim_A_5 (σ τ ρ : Ty) :
-    ∃ S : T (STy σ τ ρ), ∀ (e₁ : T (σ ⇒ τ ⇒ ρ)) (e₂ : T (σ ⇒ τ)) (e₃ : T σ),
-      applyT (applyT (applyT S e₁) e₂) e₃ = applyT (applyT e₁ e₃) (applyT e₂ e₃) := by
+mutual
+/-- **Definition A.3 / Figure 8**, the generating function `Sₙ` in state-passing
+form: the paper's path argument `p_S` is replaced by the data actually consulted
+— the current query `q₁` on argument 1 (the paper's redundant second argument)
+and the approximation trees `d₂ = ⊔ĉp_S(2)`, `d₃ = ⊔ĉp_S(3)` of arguments 2
+and 3, which the tree-context reading of Definition 4.2 provides directly. -/
+noncomputable def Sfun : Nat → Query (σ ⇒ τ ⇒ ρ) → Tree (σ ⇒ τ) → Tree σ →
+    Tree (STy σ τ ρ)
+  | 0, _, _, _ => Tree.bot
+  | n + 1, q₁, d₂, d₃ =>
+      .node ⟨0, Nat.succ_pos _⟩ q₁ fun r₁ =>
+        match q₁.answerOf r₁ with
+        | some (.num a) => .leaf (.num a)
+        | some (.node ⟨0, h0⟩ p) =>
+            -- `x` asks about `z` at `p`: consult `d₃`
+            match d₃.at' p with
+            | some (.leaf (.num a)) =>
+                Sfun n (q₁.snoc ⟨0, h0⟩ p (p.substAns (.num a))) d₂ d₃
+            | some (.node jz pz _) =>
+                Sfun n (q₁.snoc ⟨0, h0⟩ p (p.substAns (.node jz pz))) d₂ d₃
+            | some (.leaf .bot) =>
+                -- unknown: probe argument 3
+                .node ⟨2, by show 2 < ρ.arity + 3; omega⟩ p fun s =>
+                  Sfun n (q₁.snoc ⟨0, h0⟩ p s) d₂ (Tree.join d₃ s.toTree)
+            | _ => Tree.bot
+        | some (.node ⟨1, _⟩ p) =>
+            -- `x` asks about `y·z` at `p`: switch to probing argument 2
+            Tfun n q₁ p (encode d₂ p) d₂ d₃
+        | some (.node ⟨i + 2, hi⟩ p) =>
+            -- `x` asks about `ρᵢ`: probe argument `i + 3`
+            .node ⟨i + 3, by
+                show i + 3 < ρ.arity + 3
+                have h' : i + 2 < ρ.arity + 2 := hi
+                omega⟩ p
+              fun s => Sfun n (q₁.snoc ⟨i + 2, hi⟩ p s) d₂ d₃
+        | none => Tree.bot
+
+/-- **Definition A.3 / Figure 8**, the generating function `Tₙ`, likewise in
+state-passing form; `p` is the pending query of `x` about `y·z` and `q₂` the
+current query on argument 2. -/
+noncomputable def Tfun : Nat → Query (σ ⇒ τ ⇒ ρ) → Query τ → Query (σ ⇒ τ) →
+    Tree (σ ⇒ τ) → Tree σ → Tree (STy σ τ ρ)
+  | 0, _, _, _, _, _ => Tree.bot
+  | n + 1, q₁, p, q₂, d₂, d₃ =>
+      .node ⟨1, by show 1 < ρ.arity + 3; omega⟩ q₂ fun r₂ =>
+        match q₂.answerOf r₂ with
+        | some (.num a) =>
+            -- `y` answers a numeral: it resolves `x`'s query about `y·z`
+            Sfun n (q₁.snoc ⟨1, by show 1 < ρ.arity + 2; omega⟩ p
+                (p.substAns (.num a)))
+              (Tree.join d₂ r₂.toTree) d₃
+        | some (.node ⟨0, h0⟩ pz) =>
+            -- `y` asks about `z` at `pz`: consult `d₃`
+            match d₃.at' pz with
+            | some (.leaf (.num a)) =>
+                Tfun n q₁ p (q₂.snoc ⟨0, h0⟩ pz (pz.substAns (.num a)))
+                  (Tree.join d₂ r₂.toTree) d₃
+            | some (.node jz pzz _) =>
+                Tfun n q₁ p (q₂.snoc ⟨0, h0⟩ pz (pz.substAns (.node jz pzz)))
+                  (Tree.join d₂ r₂.toTree) d₃
+            | some (.leaf .bot) =>
+                .node ⟨2, by show 2 < ρ.arity + 3; omega⟩ pz fun s =>
+                  Tfun n q₁ p (q₂.snoc ⟨0, h0⟩ pz s)
+                    (Tree.join d₂ r₂.toTree) (Tree.join d₃ s.toTree)
+            | _ => Tree.bot
+        | some (.node ⟨j + 1, hj⟩ pj) =>
+            -- `y` announces a node about `τⱼ`: it resolves `x`'s query
+            Sfun n (q₁.snoc ⟨1, by show 1 < ρ.arity + 2; omega⟩ p
+                (p.substAns (.node ⟨j, Nat.lt_of_succ_lt_succ hj⟩ pj)))
+              (Tree.join d₂ r₂.toTree) d₃
+        | none => Tree.bot
+end
+
+end SCombinator
+
+section SCombinator
+variable {σ τ ρ : Ty}
+
+mutual
+/-- The approximants `Sₙ` form a chain in the fuel. -/
+theorem Sfun_mono : ∀ (n : Nat) (q₁ : Query (σ ⇒ τ ⇒ ρ)) (d₂ : Tree (σ ⇒ τ))
+    (d₃ : Tree σ), Tree.Le (Sfun n q₁ d₂ d₃) (Sfun (n + 1) q₁ d₂ d₃)
+  | 0, _, _, _ => Tree.Le.bot _
+  | n + 1, q₁, d₂, d₃ => by
+      simp only [Sfun]
+      refine Tree.Le.node _ _ _ _ fun r₁ => ?_
+      cases hq : q₁.answerOf r₁ with
+      | none => exact Tree.Le.refl _
+      | some x =>
+        cases x with
+        | num a => exact Tree.Le.refl _
+        | node i p =>
+          match i with
+          | ⟨0, h0⟩ =>
+            dsimp only
+            cases hd : d₃.at' p with
+            | none => exact Tree.Le.refl _
+            | some t =>
+              cases t with
+              | leaf v =>
+                cases v with
+                | bot =>
+                  exact Tree.Le.node _ _ _ _ fun s => Sfun_mono n _ _ _
+                | err b => exact Tree.Le.refl _
+                | num a => exact Sfun_mono n _ _ _
+              | node jz pz fz => exact Sfun_mono n _ _ _
+          | ⟨1, h1⟩ =>
+            dsimp only
+            exact Tfun_mono n _ _ _ _ _
+          | ⟨i + 2, hi⟩ =>
+            dsimp only
+            exact Tree.Le.node _ _ _ _ fun s => Sfun_mono n _ _ _
+
+/-- The approximants `Tₙ` form a chain in the fuel. -/
+theorem Tfun_mono : ∀ (n : Nat) (q₁ : Query (σ ⇒ τ ⇒ ρ)) (p : Query τ)
+    (q₂ : Query (σ ⇒ τ)) (d₂ : Tree (σ ⇒ τ)) (d₃ : Tree σ),
+    Tree.Le (Tfun n q₁ p q₂ d₂ d₃) (Tfun (n + 1) q₁ p q₂ d₂ d₃)
+  | 0, _, _, _, _, _ => Tree.Le.bot _
+  | n + 1, q₁, p, q₂, d₂, d₃ => by
+      simp only [Tfun]
+      refine Tree.Le.node _ _ _ _ fun r₂ => ?_
+      cases hq : q₂.answerOf r₂ with
+      | none => exact Tree.Le.refl _
+      | some x =>
+        cases x with
+        | num a => exact Sfun_mono n _ _ _
+        | node j pj =>
+          match j with
+          | ⟨0, h0⟩ =>
+            dsimp only
+            cases hd : d₃.at' pj with
+            | none => exact Tree.Le.refl _
+            | some t =>
+              cases t with
+              | leaf v =>
+                cases v with
+                | bot => exact Tree.Le.node _ _ _ _ fun s => Tfun_mono n _ _ _ _ _
+                | err b => exact Tree.Le.refl _
+                | num a => exact Tfun_mono n _ _ _ _ _
+              | node jz pzz fz => exact Tfun_mono n _ _ _ _ _
+          | ⟨j' + 1, hj⟩ =>
+            dsimp only
+            exact Sfun_mono n _ _ _
+end
+
+theorem Sfun_le_of_le {m n : Nat} (h : m ≤ n) (q₁ : Query (σ ⇒ τ ⇒ ρ))
+    (d₂ : Tree (σ ⇒ τ)) (d₃ : Tree σ) :
+    Tree.Le (Sfun m q₁ d₂ d₃) (Sfun n q₁ d₂ d₃) := by
+  induction h with
+  | refl => exact Tree.Le.refl _
+  | step _ ih => exact Tree.Le.trans ih (Sfun_mono _ q₁ d₂ d₃)
+
+end SCombinator
+
+/-- `S_{σ,τ,ρ}` denotes the tree `S(?,?)` of **Definition 4.21**:
+`⊔ₙ Sₙ(?, ?)`, starting from the trivial query and empty knowledge. -/
+noncomputable def treeS (σ τ ρ : Ty) : T (STy σ τ ρ) :=
+  idealOfChain (fun n => Sfun n .hole Tree.bot Tree.bot)
+    (fun _ _ h => Sfun_le_of_le h .hole Tree.bot Tree.bot)
+
+/-- **Lemma A.6.**  *For all `e₁, e₂, e₃` in appropriate domains,
+`apply (S(?,?), e₁, e₂, e₃) = apply (apply (e₁, e₃), apply (e₂, e₃))`.*
+
+The two halves are Claim A.4's analogue (every approximant computes at most
+the right-hand side) and Lemma A.7 (the approximants reach every finite
+approximation of it). -/
+theorem lemma_A_6 (σ τ ρ : Ty) (e₁ : T (σ ⇒ τ ⇒ ρ)) (e₂ : T (σ ⇒ τ)) (e₃ : T σ) :
+    applyT (applyT (applyT (treeS σ τ ρ) e₁) e₂) e₃
+      = applyT (applyT e₁ e₃) (applyT e₂ e₃) := by
   sorry
 
-/-- `S_{σ,τ,ρ}` denotes the tree `S(?,?)` of Definition 4.21. -/
-noncomputable def treeS (σ τ ρ : Ty) : T (STy σ τ ρ) := Classical.choose (claim_A_5 σ τ ρ)
+/-- **Claim A.5**, packaged: the tree `S(?,?)` of Definition 4.21 exists and
+satisfies the `(S)` equation.  The construction is `Sfun`/`Tfun` above; the
+equation is Lemma A.6. -/
+theorem claim_A_5 (σ τ ρ : Ty) :
+    ∃ S : T (STy σ τ ρ), ∀ (e₁ : T (σ ⇒ τ ⇒ ρ)) (e₂ : T (σ ⇒ τ)) (e₃ : T σ),
+      applyT (applyT (applyT S e₁) e₂) e₃ = applyT (applyT e₁ e₃) (applyT e₂ e₃) :=
+  ⟨treeS σ τ ρ, lemma_A_6 σ τ ρ⟩
 
 /-! ## `Ω_σ` and the meaning of `Y_σ` (§4.3) -/
 
@@ -1122,15 +1309,6 @@ theorem lemma_A_7 (σ τ ρ : Ty) :
         ∃ n, apply0 (apply0 (apply0 (Sn n) e₁) e₂) e₃
               = apply0 (apply0 e₁ e₃) (apply0 e₂ e₃) := by
   sorry
-
-/-- **Lemma A.6.**  *For all `e₁, e₂, e₃` in appropriate domains,
-`apply (S(?,?), e₁, e₂, e₃) = apply (apply (e₁, e₃), apply (e₂, e₃))`.*
-
-An immediate consequence of Claim A.5. -/
-theorem lemma_A_6 (σ τ ρ : Ty) (e₁ : T (σ ⇒ τ ⇒ ρ)) (e₂ : T (σ ⇒ τ)) (e₃ : T σ) :
-    applyT (applyT (applyT (treeS σ τ ρ) e₁) e₂) e₃
-      = applyT (applyT e₁ e₃) (applyT e₂ e₃) :=
-  Classical.choose_spec (claim_A_5 σ τ ρ) e₁ e₂ e₃
 
 /-- The `I` analogue of `Kn_legal_cofinal`: the finite legal trees below the
 chain `Iₙ(?)` are cofinal for application. -/
