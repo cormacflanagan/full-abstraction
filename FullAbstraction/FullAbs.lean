@@ -119,13 +119,49 @@ theorem separation (σ : Ty) (F G : T σ) (h : F ≠ G) :
         ≠ applyIdeals σ G (fun i => Ideal.principal (ds i)) := by
   sorry
 
-/-- The meaning of `(M E₁ … Eₖ)` is `apply (T[[M]], T[[E₁]], …, T[[Eₖ]])`. -/
-theorem meaning_apps (σ : Ty) (M : Term SPCF) (E : (i : Fin σ.arity) → Term SPCF)
-    (ds : (i : Fin σ.arity) → T (σ.arg i))
-    (hE : ∀ i, Tmodel.meaning botEnv (E i) (σ.arg i) = ds i) :
+/-- The meaning of an application, in terms of `apply`. -/
+theorem meaning_app {L : Lang} (M : Model L) (E : M.Env) (t u : Comb L) (a ρ : Ty)
+    (hu : Comb.tyOf u = a) :
+    M.combMeaning E (.app t u) ρ = M.apply (M.combMeaning E t (a ⇒ ρ)) (M.combMeaning E u a) := by
+  subst hu; rfl
+
+/-- The meaning of `(M E₁ … Eₖ)` is `apply (T[[M]], T[[E₁]], …, T[[Eₖ]])`.
+
+This is what makes the applicative context `C[·] = ([·] E₁ … Eₖ)` of the proof
+of Theorem 5.1 compute the `k`-ary application of the meanings. -/
+theorem meaning_apps : ∀ (σ : Ty) (M : Term SPCF) (E : (i : Fin σ.arity) → Term SPCF)
+    (ds : (i : Fin σ.arity) → T (σ.arg i)),
+    (∀ i, Term.HasTy [] (E i) (σ.arg i)) →
+    (∀ i, Tmodel.meaning botEnv (E i) (σ.arg i) = ds i) →
     Tmodel.meaning botEnv (Term.apps M (List.ofFn E)) 𝕆
-      = applyIdeals σ (Tmodel.meaning botEnv M σ) ds := by
-  sorry
+      = applyIdeals σ (Tmodel.meaning botEnv M σ) ds
+  | .base, M, E, ds, _, _ => by
+      show Tmodel.meaning botEnv (Term.apps M (List.ofFn E)) 𝕆 = _
+      rw [show (List.ofFn E : List (Term SPCF)) = [] from List.ofFn_zero]
+      rfl
+  | .arrow a τ, M, E, ds, hty, hE => by
+      have hsucc : (List.ofFn E : List (Term SPCF))
+          = E ⟨0, Nat.succ_pos _⟩ :: List.ofFn fun i : Fin τ.arity =>
+              E ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩ := by
+        rw [List.ofFn_succ]
+        rfl
+      have hstep : Term.apps M (List.ofFn E)
+          = Term.apps (.app M (E ⟨0, Nat.succ_pos _⟩)) (List.ofFn fun i : Fin τ.arity =>
+              E ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩) := by
+        rw [hsucc]; rfl
+      rw [hstep,
+        meaning_apps τ (.app M (E ⟨0, Nat.succ_pos _⟩))
+          (fun i => E ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩)
+          (fun i => ds ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩)
+          (fun i => hty ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩)
+          (fun i => hE ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩)]
+      show applyIdeals τ (Tmodel.combMeaning botEnv
+        (.app (Term.toComb M) (Term.toComb (E ⟨0, Nat.succ_pos _⟩))) τ) _ = _
+      rw [meaning_app Tmodel botEnv _ _ a τ (Term.tyOf_toComb (hty ⟨0, Nat.succ_pos _⟩))]
+      have h0 : Tmodel.combMeaning botEnv (Term.toComb (E ⟨0, Nat.succ_pos _⟩)) a
+          = ds ⟨0, Nat.succ_pos _⟩ := hE ⟨0, Nat.succ_pos _⟩
+      rw [h0]
+      rfl
 
 /-! ## Theorem 5.1 -/
 
@@ -157,12 +193,14 @@ theorem theorem_5_1_separating (σ : Ty) (M N : Term SPCF)
   let Es : List (Term SPCF) := List.ofFn E
   have hM := hobs (appCtx Es) (hprog Es M) (hprog Es N)
   rw [appCtx_fill, appCtx_fill] at hM
+  have hEty : ∀ i, Term.HasTy [] (E i) (σ.arg i) :=
+    fun i => (Classical.choose_spec (hrep i)).2.1
   have hMval : SPCFSem.meaning (Term.apps M Es)
       = applyIdeals σ (Tmodel.meaning botEnv M σ) (fun i => Ideal.principal (ds i)) :=
-    meaning_apps σ M E _ hE
+    meaning_apps σ M E _ hEty hE
   have hNval : SPCFSem.meaning (Term.apps N Es)
       = applyIdeals σ (Tmodel.meaning botEnv N σ) (fun i => Ideal.principal (ds i)) :=
-    meaning_apps σ N E _ hE
+    meaning_apps σ N E _ hEty hE
   exact hds (hMval ▸ hNval ▸ hM)
 
 /-- **Theorem 5.1** (*Full Abstraction of `T` and SPCF*).

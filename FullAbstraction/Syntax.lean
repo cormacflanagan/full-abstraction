@@ -177,6 +177,94 @@ def Term.toComb {L : Lang} : Term L → Comb L
 
 /-! ## The constants of PCF and SPCF -/
 
+/-! ## The translation preserves types
+
+Figure 1's `[·]_CL` and `λ*` take well-typed λ-terms to well-typed combinatory
+terms of the same type; `Comb.tyOf` computes that type. -/
+
+namespace Comb
+variable {L : Lang}
+
+/-- `tyOf` computes the type of a well-typed combinatory term. -/
+theorem tyOf_of_hasTy {Γ : List (Nat × Ty)} {c : Comb L} {ρ : Ty} :
+    HasTy Γ c ρ → c.tyOf = ρ := by
+  intro h
+  induction h with
+  | var _ => rfl
+  | const => rfl
+  | S => rfl
+  | K => rfl
+  | I => rfl
+  | app _ _ ihM _ => show (match tyOf _ with | .arrow _ b => b | _ => 𝕆) = _
+                     rw [ihM]
+
+/-- The abstraction algorithm `λ*` of Figure 1 preserves typing. -/
+theorem lamStar_hasTy {Γ : List (Nat × Ty)} {x : Nat} {σ : Ty} :
+    ∀ {t : Comb L} {τ : Ty}, HasTy ((x, σ) :: Γ) t τ → HasTy Γ (lamStar x σ t) (σ ⇒ τ) := by
+  intro t
+  induction t with
+  | var y ρ =>
+    intro τ h
+    cases h with
+    | var hmem =>
+      by_cases hx : y = x ∧ ρ = σ
+      · obtain ⟨rfl, rfl⟩ := hx
+        show HasTy Γ (lamStar y ρ (.var y ρ)) (ρ ⇒ ρ)
+        rw [show lamStar y ρ (Comb.var y ρ : Comb L) = .I ρ by simp [lamStar]]
+        exact HasTy.I
+      · rw [show lamStar x σ (Comb.var y ρ : Comb L) = .app (.K ρ σ) (.var y ρ) by
+          simp only [lamStar, if_neg hx]]
+        refine HasTy.app HasTy.K (HasTy.var ?_)
+        rcases List.mem_cons.mp hmem with heq | hmem'
+        · have h1 : y = x := congrArg Prod.fst heq
+          have h2 : ρ = σ := congrArg Prod.snd heq
+          exact absurd ⟨h1, h2⟩ hx
+        · exact hmem'
+  | const c =>
+    intro τ h
+    cases h with
+    | const => exact HasTy.app HasTy.K HasTy.const
+  | S a b c =>
+    intro τ h
+    cases h with
+    | S => exact HasTy.app HasTy.K HasTy.S
+  | K a b =>
+    intro τ h
+    cases h with
+    | K => exact HasTy.app HasTy.K HasTy.K
+  | I a =>
+    intro τ h
+    cases h with
+    | I => exact HasTy.app HasTy.K HasTy.I
+  | app M₁ M₂ ih₁ ih₂ =>
+    intro τ h
+    cases h with
+    | app hM₁ hM₂ =>
+      rename_i ρ
+      have e₂ : tyOf M₂ = ρ := tyOf_of_hasTy hM₂
+      have e₁ : tyOf (Comb.app M₁ M₂) = τ := tyOf_of_hasTy (HasTy.app hM₁ hM₂)
+      rw [show lamStar x σ (Comb.app M₁ M₂)
+          = .app (.app (.S σ (tyOf M₂) (tyOf (Comb.app M₁ M₂))) (lamStar x σ M₁))
+              (lamStar x σ M₂) from rfl, e₂, e₁]
+      exact HasTy.app (HasTy.app HasTy.S (ih₁ hM₁)) (ih₂ hM₂)
+
+end Comb
+
+/-- `[·]_CL` preserves typing. -/
+theorem Term.toComb_hasTy {L : Lang} {Γ : List (Nat × Ty)} {N : Term L} {ρ : Ty} :
+    Term.HasTy Γ N ρ → Comb.HasTy Γ (Term.toComb N) ρ := by
+  intro h
+  induction h with
+  | var hmem _ => exact Comb.HasTy.var hmem
+  | const => exact Comb.HasTy.const
+  | app _ _ ih₁ ih₂ => exact Comb.HasTy.app ih₁ ih₂
+  | lam _ ih => exact Comb.lamStar_hasTy ih
+
+/-- The type of the combinatory form of a well-typed term. -/
+theorem Term.tyOf_toComb {L : Lang} {Γ : List (Nat × Ty)} {N : Term L} {ρ : Ty}
+    (h : Term.HasTy Γ N ρ) : (Term.toComb N).tyOf = ρ :=
+  Comb.tyOf_of_hasTy (Term.toComb_hasTy h)
+
 /-- The constants of SPCF (Definition 3.1).  PCF is the sublanguage that omits
 `err` and `catch`:
 
