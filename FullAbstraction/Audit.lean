@@ -89,6 +89,11 @@ section Complete
 #print axioms TreeOk_ctxFrom
 #print axioms lemma_4_16_separate
 #print axioms lemma_4_16
+#print axioms Finitary_live_queries
+#print axioms uniform_separation
+#print axioms orderExtensional_T
+#print axioms theorem_4_11
+#print axioms corollary_4_18
 end Complete
 
 section DerivedOrDependent
@@ -96,8 +101,6 @@ section DerivedOrDependent
 -- `sorry`; `#print axioms` therefore reports `sorryAx`.  Anything mentioning
 -- `Tmodel` inherits it from `Y_chain_directed` and `claim_A_5`, and anything
 -- mentioning `SPCFSem` from `Tmeaning_mono`.
-#print axioms theorem_4_11
-#print axioms corollary_4_18
 #print axioms theorem_4_22
 #print axioms lemma_A_6
 #print axioms lemma_4_3_omega_algebraic
@@ -129,7 +132,6 @@ end DerivedOrDependent
 section Outstanding
 -- Results still resting on `sorryAx` because their own proof is `sorry`.
 #print axioms dsub_countable
-#print axioms orderExtensional_T
 #print axioms claim_A_5
 #print axioms lemma_A_7
 #print axioms lemma_B_1

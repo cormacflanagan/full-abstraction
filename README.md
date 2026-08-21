@@ -182,6 +182,11 @@ each of these.
 | **Definition 4.9**: `apply₀` lands in `D_τ(γ')` | `apply0_ok` |
 | **Lemma 4.16** (order-extensionality for finite trees) | `lemma_4_16` |
 | — the separating argument of its proof | `lemma_4_16_separate` |
+| a finitary tree has finitely many live positions | `Finitary_live_queries` |
+| uniform separation of a finite tree from an ideal | `uniform_separation` |
+| order-extensionality of `T` | `orderExtensional_T` |
+| **Theorem 4.11** (`T` is extensional and order-extensional) | `theorem_4_11` |
+| **Corollary 4.18** (`T_{σ→τ} ≅ F_{σ→τ}`) | `corollary_4_18` |
 | **Lemma 4.14** | `lemma_4_14` |
 | — its `k`-ary form | `applyArgs_at_query` |
 | **Corollary 4.15** | `corollary_4_15`, `corollary_4_15_path` |
@@ -219,8 +224,6 @@ derivation is the content.
 
 | Result | Lean name | Derived from |
 | --- | --- | --- |
-| Theorem 4.11 (`T` is extensional and order-extensional) | `theorem_4_11` | `orderExtensional_T` |
-| Corollary 4.18 (`T_{σ→τ} ≅ F_{σ→τ}`) | `corollary_4_18` | `orderExtensional_T` |
 | **Corollary 4.23** (β, η) | `corollary_4_23` | Theorem 4.22; the abstraction lemma `lamStar_apply` and `beta_law` |
 | **Corollary 4.24** (the `Y` operator) | `corollary_4_24` | `applyT_interpY_fix`: `apply (Y, m) = ⊔ₙ mⁿ(⊥)` |
 | `Ω_σ` denotes `⊥` | `meaning_Omega` | extensionality |
@@ -244,12 +247,11 @@ derivation is the content.
 
 ### Outstanding
 
-Ten declarations, stated faithfully, whose own proof is still `sorry`.
+Nine declarations, stated faithfully, whose own proof is still `sorry`.
 
 | Result | Lean name | Note |
 | --- | --- | --- |
 | Lemma 4.3: `D_σ` is countable | `dsub_countable` | the only remaining half of Lemma 4.3; needed for ω-algebraicity alone |
-| order-extensionality of `T` | `orderExtensional_T` | the limit form of Lemma 4.16 — see below |
 | **Claim A.5** (well-definedness of `S`) | `claim_A_5` | Definition 4.21 + Figure 5 + Appendix A.2 |
 | **Lemma A.7** | `lemma_A_7` | |
 | **Lemma B.1** / **Lemma 4.26** | `lemma_B_1` | Appendix B; `lemma_4_26` is `lemma_B_1` |
@@ -258,22 +260,20 @@ Ten declarations, stated faithfully, whose own proof is still `sorry`.
 | a `k`-ary procedure probes one argument first | `probe_index` | the tree analysis behind Thms. 6.2 and 6.4 |
 | `catch` reports the sequentiality index | `catch_returns_index` | Theorem 4.27's `(catch)` equation |
 
-#### What `orderExtensional_T` still needs
+#### How Theorem 4.11 gets its uniformity
 
-Lemma 4.16 itself is proved.  What remains is the passage to the ideal
-completion, which is the argument the paper gives for Theorem 4.11: from
-`f₀ ⋢ g` with `f₀` finite and `g` an ideal, "there exists a finite `d ∈ D_σ`
-such that `apply (f₀, d) ⋢ apply (g₀, d)` **for all** `g₀ ⊑ g`", after which
-continuity of `apply` gives `apply (f₀, d) ⋢ ⊔{apply (g₀,d) | g₀ ⊑ g}`.
-
-The uniformity in `g₀` is the difficulty.  `lemma_4_16_separate` builds `d` from
-the path along which `f₀` and one `g₀` diverge, and a priori that path varies
-with `g₀`.  It does not, for two reasons that are not formalised here: the
-separating paths lie in the finite tree `f₀`, so there are finitely many of
-them, and a path that separates `f₀` from `g₁` separates it from every
-`g₀ ⊑ g₁`, so directedness of the ideal pins down a single one; and the
-subtrees `g₀ @ q` are themselves directed, so they share a root, which is all
-that the construction of `d` consults about them.
+The passage from Lemma 4.16 (finite trees) to `orderExtensional_T` (ideals)
+needs, for a finite `f₀ ∉ G`, one finite argument `d` with
+`apply (f₀, d) ⋢ apply (g₀, d)` for *every* `g₀ ∈ G` — the separating argument
+must not depend on `g₀`.  `uniform_separation` gets this from two facts.  The
+separating positions produced by Lemma 4.7 all lie in the finite tree `f₀`, so
+there are finitely many of them (`Finitary_live_queries`); choosing, for each
+one that any member of `G` ever answers properly, a member that does, and a
+bound `g⁎ ∈ G` of those finitely many members (`Ideal.list_bounded`), Lemma 4.7
+against `g⁎` yields a position at which every member of `G` above `g⁎` — hence,
+by directedness, effectively every member — carries a subtree with the *same
+root* as `g⁎`'s.  And the root is all that the separating construction
+(`lemma_4_16_separate`) consults about the right-hand side.
 
 ## Definitions
 

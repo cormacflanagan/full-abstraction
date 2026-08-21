@@ -996,6 +996,45 @@ theorem legalQuery_join_snoc {σ : Ty} (q : Query σ) (t : Tree σ) (j : Fin σ.
     LegalQuery (Tree.join t (q.substAns (.node j p)).toTree) (q.snoc j p r') :=
   ⟨at'_join_snoc q t j p r' ht.1, QueryOk_snoc q j p r' ht.2 hr⟩
 
+/-- A finitary tree has only finitely many **live positions**: there is a list
+containing every query `q` with `d @ q` defined and proper.  A path to a proper
+subtree passes only through proper branches, of which each node has finitely
+many. -/
+theorem Finitary_live_queries {σ : Ty} : ∀ {d : Tree σ}, Tree.Finitary d →
+    ∃ l : List (Query σ), ∀ (q : Query σ) (e : Tree σ),
+      d.at' q = some e → e ≠ Tree.bot → q ∈ l := by
+  intro d hd
+  induction hd with
+  | leaf v =>
+    refine ⟨[.hole], fun q e hq he => ?_⟩
+    cases q with
+    | hole => exact List.mem_cons_self ..
+    | step j p r rest => exact absurd hq (by simp [Tree.at', Tree.stepAt])
+  | node i p f hfin _ ih =>
+    obtain ⟨pl, hpl⟩ := hfin
+    have hL : ∀ r, ∃ lr : List (Query σ), ∀ (q : Query σ) (e : Tree σ),
+        (f r).at' q = some e → e ≠ Tree.bot → q ∈ lr := fun r => ih r
+    refine ⟨.hole :: pl.flatMap (fun r => (Classical.choose (hL r)).map (.step i p r)),
+      fun q e hq he => ?_⟩
+    cases q with
+    | hole => exact List.mem_cons_self ..
+    | step j p' r rest =>
+      obtain ⟨f₂, hf₂, hrest⟩ := at'_step_inv hq
+      injection hf₂ with hji hpp hff
+      subst hji
+      have hp2 : p = p' := eq_of_heq hpp
+      subst hp2
+      have hf2 : f = f₂ := eq_of_heq hff
+      subst hf2
+      have hfr : f r ≠ Tree.bot := by
+        intro hb
+        rw [hb] at hrest
+        cases rest with
+        | hole => exact he (Option.some.inj hrest).symm
+        | step _ _ _ _ => exact absurd hrest (by simp [Tree.at', Tree.stepAt, Tree.bot])
+      refine List.mem_cons_of_mem _ (List.mem_flatMap.mpr ⟨r, hpl r hfr, ?_⟩)
+      exact List.mem_map.mpr ⟨rest, Classical.choose_spec (hL r) rest e hrest he, rfl⟩
+
 /-! ### Legal paths
 
 The argument tree that the proof of Lemma 4.16 feeds to `f` and `g` is `⊔ q̂(1)`,
@@ -1217,7 +1256,8 @@ theorem lemma_4_16_separate {σ τ : Ty} (γ : Ctx (σ ⇒ τ))
     (f' g' : Tree (σ ⇒ τ)) (hfok : TreeOk γ f') (hgok : TreeOk γ g')
     (hnle : ¬ Tree.Le f' g') (hroot : f'.root ≠ g'.root) :
     ∃ d : Tree σ, TreeOk Ctx.empty d ∧ Tree.Le (γ ⟨0, Nat.succ_pos _⟩) d ∧
-      ¬ Tree.Le (apply0 f' d) (apply0 g' d) := by
+      ∀ g'' : Tree (σ ⇒ τ), g''.root = g'.root →
+        ¬ Tree.Le (apply0 f' d) (apply0 g'' d) := by
   -- planting an error at a perimeter position of the first argument's tree
   have hplant : ∀ (p : Query σ) (b : Bool), LegalQuery (γ ⟨0, Nat.succ_pos _⟩) p →
       ∃ d : Tree σ, TreeOk Ctx.empty d ∧ Tree.Le (γ ⟨0, Nat.succ_pos _⟩) d ∧
@@ -1236,23 +1276,41 @@ theorem lemma_4_16_separate {σ τ : Ty} (γ : Ctx (σ ⇒ τ))
     cases g' with
     | leaf w =>
       refine ⟨_, hd₁, Tree.Le.refl _, ?_⟩
-      show ¬ Tree.Le (Tree.leaf v : Tree τ) (Tree.leaf w)
-      have hvw : v ≠ w := fun he => hnle (he ▸ Tree.Le.leaf v)
-      exact Tree.not_leaf_le_leaf hvb hvw
+      rintro (w'' | ⟨j'', p'', k''⟩) hgr
+      · simp only [Tree.root, Sum.inl.injEq] at hgr
+        rw [hgr]
+        show ¬ Tree.Le (Tree.leaf v : Tree τ) (Tree.leaf w)
+        have hvw : v ≠ w := fun he => hnle (he ▸ Tree.Le.leaf v)
+        exact Tree.not_leaf_le_leaf hvb hvw
+      · exact absurd hgr (by simp [Tree.root])
     | node j p' k' =>
       match j with
       | ⟨0, hj⟩ =>
         obtain ⟨hp', _, _, _⟩ := TreeOk_node_inv hgok
         obtain ⟨d, hdok, hdle, hdp, _⟩ := hplant p' v.otherErr hp'
         refine ⟨d, hdok, hdle, ?_⟩
-        show ¬ Tree.Le (Tree.leaf v) (apply0 (Tree.node ⟨0, hj⟩ p' k') d)
-        rw [apply0, hdp]
-        exact Tree.not_leaf_le_leaf hvb fun he => Val.err_otherErr_ne v he.symm
+        rintro (w'' | ⟨j'', p'', k''⟩) hgr
+        · exact absurd hgr (by simp [Tree.root])
+        · simp only [Tree.root, Sum.inr.injEq] at hgr
+          have h1 : j'' = ⟨0, hj⟩ := congrArg Sigma.fst hgr
+          subst h1
+          have h2 : p'' = p' := by injection hgr
+          rw [h2]
+          show ¬ Tree.Le (Tree.leaf v) (apply0 (Tree.node ⟨0, hj⟩ p' k'') d)
+          rw [apply0, hdp]
+          exact Tree.not_leaf_le_leaf hvb fun he => Val.err_otherErr_ne v he.symm
       | ⟨m + 1, hj⟩ =>
         refine ⟨_, hd₁, Tree.Le.refl _, ?_⟩
-        show ¬ Tree.Le (Tree.leaf v) (apply0 (Tree.node ⟨m + 1, hj⟩ p' k') _)
-        rw [apply0]
-        exact Tree.not_leaf_le_node hvb
+        rintro (w'' | ⟨j'', p'', k''⟩) hgr
+        · exact absurd hgr (by simp [Tree.root])
+        · simp only [Tree.root, Sum.inr.injEq] at hgr
+          have h1 : j'' = ⟨m + 1, hj⟩ := congrArg Sigma.fst hgr
+          subst h1
+          have h2 : p'' = p' := by injection hgr
+          rw [h2]
+          show ¬ Tree.Le (Tree.leaf v) (apply0 (Tree.node ⟨m + 1, hj⟩ p' k'') _)
+          rw [apply0]
+          exact Tree.not_leaf_le_node hvb
   | node i p k =>
     cases g' with
     | leaf w =>
@@ -1261,17 +1319,26 @@ theorem lemma_4_16_separate {σ τ : Ty} (γ : Ctx (σ ⇒ τ))
         obtain ⟨hp, _, _, _⟩ := TreeOk_node_inv hfok
         obtain ⟨d, hdok, hdle, hdp, _⟩ := hplant p w.otherErr hp
         refine ⟨d, hdok, hdle, ?_⟩
-        show ¬ Tree.Le (apply0 (Tree.node ⟨0, hi⟩ p k) d) (Tree.leaf w)
-        rw [apply0, hdp]
-        exact Tree.not_leaf_le_leaf (fun he => Val.noConfusion he)
-          (fun he => Val.err_otherErr_ne w he)
+        rintro (w'' | ⟨j'', p'', k''⟩) hgr
+        · simp only [Tree.root, Sum.inl.injEq] at hgr
+          rw [hgr]
+          show ¬ Tree.Le (apply0 (Tree.node ⟨0, hi⟩ p k) d) (Tree.leaf w)
+          rw [apply0, hdp]
+          exact Tree.not_leaf_le_leaf (fun he => Val.noConfusion he)
+            (fun he => Val.err_otherErr_ne w he)
+        · exact absurd hgr (by simp [Tree.root])
       | ⟨n + 1, hi⟩ =>
         refine ⟨_, hd₁, Tree.Le.refl _, ?_⟩
-        show ¬ Tree.Le (apply0 (Tree.node ⟨n + 1, hi⟩ p k) _) (Tree.leaf w)
-        rw [apply0]
-        exact Tree.not_le_leaf
+        rintro (w'' | ⟨j'', p'', k''⟩) hgr
+        · simp only [Tree.root, Sum.inl.injEq] at hgr
+          rw [hgr]
+          show ¬ Tree.Le (apply0 (Tree.node ⟨n + 1, hi⟩ p k) _) (Tree.leaf w)
+          rw [apply0]
+          exact Tree.not_le_leaf
+        · exact absurd hgr (by simp [Tree.root])
     | node j p' k' =>
-      have hnv : (⟨i, p⟩ : NodeVal (σ ⇒ τ)) ≠ ⟨j, p'⟩ := fun he => hroot (by rw [Tree.root, Tree.root, he])
+      have hnv : (⟨i, p⟩ : NodeVal (σ ⇒ τ)) ≠ ⟨j, p'⟩ := fun he =>
+        hroot (by rw [Tree.root, Tree.root, he])
       match i, j with
       | ⟨0, hi⟩, ⟨0, hj⟩ =>
         obtain ⟨hp, _, _, _⟩ := TreeOk_node_inv hfok
@@ -1279,38 +1346,68 @@ theorem lemma_4_16_separate {σ τ : Ty} (γ : Ctx (σ ⇒ τ))
         have hpp : p ≠ p' := fun he => hnv (by subst he; rfl)
         obtain ⟨d, hdok, hdle, hdp, hdo⟩ := hplant p true hp
         refine ⟨d, hdok, hdle, ?_⟩
-        show ¬ Tree.Le (apply0 (Tree.node ⟨0, hi⟩ p k) d) (apply0 (Tree.node ⟨0, hj⟩ p' k') d)
-        rw [apply0, apply0, hdp, hdo p' hp' hpp]
-        exact Tree.not_leaf_le_leaf (fun he => Val.noConfusion he) (fun he => Val.noConfusion he)
+        rintro (w'' | ⟨j'', p'', k''⟩) hgr
+        · exact absurd hgr (by simp [Tree.root])
+        · simp only [Tree.root, Sum.inr.injEq] at hgr
+          have h1 : j'' = ⟨0, hj⟩ := congrArg Sigma.fst hgr
+          subst h1
+          have h2 : p'' = p' := by injection hgr
+          rw [h2]
+          show ¬ Tree.Le (apply0 (Tree.node ⟨0, hi⟩ p k) d)
+            (apply0 (Tree.node ⟨0, hj⟩ p' k'') d)
+          rw [apply0, apply0, hdp, hdo p' hp' hpp]
+          exact Tree.not_leaf_le_leaf (fun he => Val.noConfusion he)
+            (fun he => Val.noConfusion he)
       | ⟨0, hi⟩, ⟨m + 1, hj⟩ =>
         obtain ⟨hp, _, _, _⟩ := TreeOk_node_inv hfok
         obtain ⟨d, hdok, hdle, hdp, _⟩ := hplant p true hp
         refine ⟨d, hdok, hdle, ?_⟩
-        show ¬ Tree.Le (apply0 (Tree.node ⟨0, hi⟩ p k) d)
-          (apply0 (Tree.node ⟨m + 1, hj⟩ p' k') d)
-        rw [apply0, apply0, hdp]
-        exact Tree.not_leaf_le_node (fun he => Val.noConfusion he)
+        rintro (w'' | ⟨j'', p'', k''⟩) hgr
+        · exact absurd hgr (by simp [Tree.root])
+        · simp only [Tree.root, Sum.inr.injEq] at hgr
+          have h1 : j'' = ⟨m + 1, hj⟩ := congrArg Sigma.fst hgr
+          subst h1
+          have h2 : p'' = p' := by injection hgr
+          rw [h2]
+          show ¬ Tree.Le (apply0 (Tree.node ⟨0, hi⟩ p k) d)
+            (apply0 (Tree.node ⟨m + 1, hj⟩ p' k'') d)
+          rw [apply0, apply0, hdp]
+          exact Tree.not_leaf_le_node (fun he => Val.noConfusion he)
       | ⟨n + 1, hi⟩, ⟨0, hj⟩ =>
         obtain ⟨hp', _, _, _⟩ := TreeOk_node_inv hgok
         obtain ⟨d, hdok, hdle, hdp, _⟩ := hplant p' true hp'
         refine ⟨d, hdok, hdle, ?_⟩
-        show ¬ Tree.Le (apply0 (Tree.node ⟨n + 1, hi⟩ p k) d)
-          (apply0 (Tree.node ⟨0, hj⟩ p' k') d)
-        rw [apply0, apply0, hdp]
-        exact Tree.not_le_leaf
+        rintro (w'' | ⟨j'', p'', k''⟩) hgr
+        · exact absurd hgr (by simp [Tree.root])
+        · simp only [Tree.root, Sum.inr.injEq] at hgr
+          have h1 : j'' = ⟨0, hj⟩ := congrArg Sigma.fst hgr
+          subst h1
+          have h2 : p'' = p' := by injection hgr
+          rw [h2]
+          show ¬ Tree.Le (apply0 (Tree.node ⟨n + 1, hi⟩ p k) d)
+            (apply0 (Tree.node ⟨0, hj⟩ p' k'') d)
+          rw [apply0, apply0, hdp]
+          exact Tree.not_le_leaf
       | ⟨n + 1, hi⟩, ⟨m + 1, hj⟩ =>
         refine ⟨_, hd₁, Tree.Le.refl _, ?_⟩
-        show ¬ Tree.Le (apply0 (Tree.node ⟨n + 1, hi⟩ p k) _)
-          (apply0 (Tree.node ⟨m + 1, hj⟩ p' k') _)
-        rw [apply0, apply0]
-        refine Tree.not_node_le_node fun he => hnv ?_
-        have hnm : n = m := by
-          have := congrArg (fun x => x.1.val) he
-          simpa using this
-        subst hnm
-        have hpp : p = p' := by injection he
-        subst hpp
-        rfl
+        rintro (w'' | ⟨j'', p'', k''⟩) hgr
+        · exact absurd hgr (by simp [Tree.root])
+        · simp only [Tree.root, Sum.inr.injEq] at hgr
+          have h1 : j'' = ⟨m + 1, hj⟩ := congrArg Sigma.fst hgr
+          subst h1
+          have h2 : p'' = p' := by injection hgr
+          rw [h2]
+          show ¬ Tree.Le (apply0 (Tree.node ⟨n + 1, hi⟩ p k) _)
+            (apply0 (Tree.node ⟨m + 1, hj⟩ p' k'') _)
+          rw [apply0, apply0]
+          refine Tree.not_node_le_node fun he => hnv ?_
+          have hnm : n = m := by
+            have := congrArg (fun x => x.1.val) he
+            simpa using this
+          subst hnm
+          have hpp2 : p = p' := by injection he
+          subst hpp2
+          rfl
 
 /-- **Lemma 4.16.**  *Let `f, g` be elements in `D_{σ→τ}`.  If for all finite
 `d ∈ D_σ`, `apply (f, d) ⊑ apply (g, d)`, then `f ⊑ g`.*
@@ -1351,28 +1448,132 @@ theorem lemma_4_16 {σ τ : Ty} (f g : Tree (σ ⇒ τ))
   · rw [h14f] at hn; exact Option.noConfusion hn
   · have h1 : apply0 f' d = e := Option.some.inj (h14f.symm.trans he)
     have h2 : apply0 g' d = e' := Option.some.inj (h14g.symm.trans he')
-    exact hsep (h1 ▸ h2 ▸ hee)
+    exact hsep g' rfl (h1 ▸ h2 ▸ hee)
 
-/-- The ideal-completion form of Lemma 4.16, and the remaining step of
-Theorem 4.11.
+/-- **Uniform separation**: the content of Theorem 4.11's continuity argument.
+If the finite `f₀ ∈ D_{σ→τ}` is not in the ideal `G`, then a *single* finite
+argument `d` witnesses `apply (f₀, d) ⋢ apply (g₀, d)` for every `g₀ ∈ G` at
+once.
 
-Lemma 4.16 is now proved for finite trees.  What is still missing is the passage
-to `T_σ`, which is the argument the paper gives for Theorem 4.11: from
-`f₀ ⋢ g` with `f₀` finite and `g` an ideal, "there exists a finite `d ∈ D_σ`
-such that `apply (f₀, d) ⋢ apply (g₀, d)` **for all** `g₀ ⊑ g`", after which
-continuity of `apply` gives `apply (f₀, d) ⋢ ⊔{apply (g₀,d) | g₀ ⊑ g}`.
+Uniformity holds for two reasons.  The separating positions produced by
+Lemma 4.7 all lie in the finite tree `f₀`, so there are finitely many of them
+(`Finitary_live_queries`); choosing, for each one that any member of `G` ever
+answers properly, a member that does, and a bound `g⁎ ∈ G` of those finitely
+many members, Lemma 4.7 against `g⁎` yields a position `q` at which every
+`g₀ ⊒ g⁎` — hence, by directedness, effectively every `g₀ ∈ G` — carries a
+subtree with the *same root* as `g⁎ @ q`.  And the root is all the separating
+argument (`lemma_4_16_separate`) consults about the right-hand side. -/
+theorem uniform_separation {σ τ : Ty} (f₀ : Tree (σ ⇒ τ)) (hf : TreeOk Ctx.empty f₀)
+    (G : T (σ ⇒ τ)) (hnot : ∀ g : D (σ ⇒ τ), g ∈ G → ¬ Tree.Le f₀ g.1) :
+    ∃ d : Tree σ, TreeOk Ctx.empty d ∧
+      ∀ g : D (σ ⇒ τ), g ∈ G → ¬ Tree.Le (apply0 f₀ d) (apply0 g.1 d) := by
+  -- the finitely many positions of `f₀` carrying a proper subtree
+  obtain ⟨l, hl⟩ := Finitary_live_queries (Finitary_of_TreeOk hf)
+  -- for each position that some member of `G` answers properly, a witness
+  have hsel : ∃ ws : List (D (σ ⇒ τ)), (∀ w, w ∈ ws → w ∈ G) ∧
+      ∀ q, q ∈ l →
+        (∃ g : D (σ ⇒ τ), g ∈ G ∧ ∃ e, g.1.at' q = some e ∧ e ≠ Tree.bot) →
+        ∃ w, w ∈ ws ∧ ∃ e, w.1.at' q = some e ∧ e ≠ Tree.bot := by
+    clear hl
+    induction l with
+    | nil => exact ⟨[], fun _ h => absurd h (by simp), fun q hq => absurd hq (by simp)⟩
+    | cons q l ih =>
+      obtain ⟨ws, hws, hcov⟩ := ih
+      by_cases hq : ∃ g : D (σ ⇒ τ), g ∈ G ∧ ∃ e, g.1.at' q = some e ∧ e ≠ Tree.bot
+      · obtain ⟨g, hg, he⟩ := hq
+        refine ⟨g :: ws, fun w hw => ?_, fun q' hq' hex => ?_⟩
+        · rcases List.mem_cons.mp hw with rfl | hw
+          · exact hg
+          · exact hws w hw
+        · rcases List.mem_cons.mp hq' with rfl | hq'
+          · exact ⟨g, List.mem_cons_self .., he⟩
+          · obtain ⟨w, hw, hwe⟩ := hcov q' hq' hex
+            exact ⟨w, List.mem_cons_of_mem _ hw, hwe⟩
+      · refine ⟨ws, hws, fun q' hq' hex => ?_⟩
+        rcases List.mem_cons.mp hq' with rfl | hq'
+        · exact absurd hex hq
+        · exact hcov q' hq' hex
+  obtain ⟨ws, hws, hcov⟩ := hsel
+  -- a single member of `G` above all the witnesses
+  obtain ⟨gm, hgm, hub⟩ := G.list_bounded ws hws
+  -- Lemma 4.7 against that member
+  obtain ⟨q, f', g', hfq, hgq, hnle, hroot⟩ := lemma_4_7 f₀ gm.1 (hnot gm hgm)
+  have hf'ne : f' ≠ Tree.bot := fun hb => hnle (hb ▸ Tree.Le.bot g')
+  have hql : q ∈ l := hl q f' hfq hf'ne
+  -- above `gm`, the root of the subtree at `q` is fixed
+  have hstable : ∀ g : D (σ ⇒ τ), g ∈ G → gm ⊑ g →
+      ∃ g'', g.1.at' q = some g'' ∧ g''.root = g'.root := by
+    intro g hg hle
+    rcases at'_mono q (show Tree.Le gm.1 g.1 from hle) with hn | ⟨e, e', he, he', hee⟩
+    · rw [hgq] at hn; exact Option.noConfusion hn
+    · have hge : g' = e := by rw [hgq] at he; exact Option.some.inj he
+      subst hge
+      refine ⟨e', he', ?_⟩
+      by_cases hb : g' = Tree.bot
+      · -- no member of `G` answers `q` properly, so `e' = ⊥` too
+        have he'b : e' = Tree.bot := by
+          refine Classical.byContradiction fun hne => ?_
+          obtain ⟨w, hw, ew, hew, hewne⟩ := hcov q hql ⟨g, hg, e', he', hne⟩
+          rcases at'_mono q (show Tree.Le w.1 gm.1 from hub w hw) with
+            hn | ⟨a, b, ha, hb', hab⟩
+          · rw [hew] at hn; exact Option.noConfusion hn
+          · have h1 : ew = a := by rw [hew] at ha; exact Option.some.inj ha
+            have h2 : g' = b := by rw [hgq] at hb'; exact Option.some.inj hb'
+            subst h1
+            rw [← h2, hb] at hab
+            exact hewne (Tree.eq_bot_of_le_bot hab)
+        rw [he'b, hb]
+      · exact Tree.root_of_le hee hb
+  -- the context determined by the separating path
+  have hpath : q.LegalIn Ctx.empty := legalPath_of_TreeOk q Ctx.empty f₀ f' hf hfq hf'ne
+  have hco : q.Coherent := QueryOk.coherent (Query.queryOk_of_legalIn Ctx.empty q hpath)
+  have hd₁ : TreeOk Ctx.empty (q.ctx ⟨0, Nat.succ_pos _⟩) :=
+    TreeOk_ctxFrom q Ctx.empty hpath (fun _ => TreeOk.leaf _ _) _
+  have hab₁ : RespCtx.Above q.ctxList ⟨0, Nat.succ_pos _⟩ (q.ctx ⟨0, Nat.succ_pos _⟩) :=
+    Ctx.above_ctxFrom q Ctx.empty hpath _
+  -- the separating argument
+  obtain ⟨d, hdok, hdle, hsep⟩ := lemma_4_16_separate q.ctx hd₁ f' g'
+    (TreeOk_at' q Ctx.empty f₀ f' hf hfq) (TreeOk_at' q Ctx.empty gm.1 g' gm.2 hgq)
+    hnle hroot
+  refine ⟨d, hdok, fun g hg hcon => ?_⟩
+  -- pass to an upper bound of `g` and `gm` in `G`
+  obtain ⟨g₁, hg₁, hleg, hlegm⟩ := G.directed' g gm hg hgm
+  have hcon₁ : Tree.Le (apply0 f₀ d) (apply0 g₁.1 d) :=
+    Tree.Le.trans hcon (apply0_mono_left (show Tree.Le g.1 g₁.1 from hleg) d)
+  obtain ⟨g'', hg''q, hg''root⟩ := hstable g₁ hg₁ hlegm
+  -- Lemma 4.14 transports the disagreement to `shift₁ q`
+  have habd : RespCtx.Above q.ctxList ⟨0, Nat.succ_pos _⟩ d :=
+    fun r hr => Tree.Le.trans (hab₁ r hr) hdle
+  have h14f := lemma_4_14 q f₀ f' d hco hfq habd
+  have h14g := lemma_4_14 q g₁.1 g'' d hco hg''q habd
+  rcases at'_mono q.shift1 hcon₁ with hn | ⟨e, e', he, he', hee⟩
+  · rw [h14f] at hn; exact Option.noConfusion hn
+  · have h1 : apply0 f' d = e := Option.some.inj (h14f.symm.trans he)
+    have h2 : apply0 g'' d = e' := Option.some.inj (h14g.symm.trans he')
+    exact hsep g'' hg''root (h1 ▸ h2 ▸ hee)
 
-The uniformity in `g₀` is the whole difficulty: `lemma_4_16_separate` builds `d`
-from the path along which `f₀` and one `g₀` diverge, and a priori that path
-varies with `g₀`.  It does not, for two reasons that are not formalised here:
-the separating paths lie in the finite tree `f₀`, so there are finitely many of
-them, and a path that separates `f₀` from `g₁` separates it from every
-`g₀ ⊑ g₁`, so directedness of the ideal pins down a single one; and the
-subtrees `g₀ @ q` are themselves directed, so they share a root, which is all
-the construction of `d` consults about them. -/
+/-- The ideal-completion form of Lemma 4.16, i.e. the remaining step of
+**Theorem 4.11**: `apply (F, ·) ⊑ apply (G, ·)` pointwise forces `F ⊑ G` in
+`T_{σ→τ}`.
+
+Given a finite `f₀ ∈ F` not in `G`, `uniform_separation` produces one finite
+argument `d` on which `f₀` disagrees with every member of `G`; applying the
+hypothesis at the principal ideal of `d` then exhibits a member of `G` it must
+agree with. -/
 theorem orderExtensional_T {σ τ : Ty} (F G : T (σ ⇒ τ))
     (h : ∀ E : T σ, applyT F E ⊑ applyT G E) : F ⊑ G := by
-  sorry
+  intro f₀ hf₀
+  refine Classical.byContradiction fun hnot => ?_
+  have hnotG : ∀ g : D (σ ⇒ τ), g ∈ G → ¬ Tree.Le f₀.1 g.1 := fun g hg hle =>
+    hnot (G.downward f₀ g hle hg)
+  obtain ⟨d, hdok, hsep⟩ := uniform_separation f₀.1 f₀.2 G hnotG
+  -- apply both sides to the principal ideal of `d`
+  have hc : applyD f₀ ⟨d, hdok⟩ ∈ applyT F (Ideal.principal ⟨d, hdok⟩) :=
+    ⟨f₀, hf₀, ⟨d, hdok⟩, Ideal.mem_principal.mpr (Po.le_refl _), Po.le_refl _⟩
+  obtain ⟨g, hg, e, he, hle⟩ := h (Ideal.principal ⟨d, hdok⟩) _ hc
+  refine hsep g hg ?_
+  exact Tree.Le.trans (show Tree.Le (apply0 f₀.1 d) (apply0 g.1 e.1) from hle)
+    (apply0_mono_right g.1 (show Tree.Le e.1 d from he))
 
 /-- **Theorem 4.11.**  *`T` is extensional and order-extensional.*
 

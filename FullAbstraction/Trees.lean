@@ -457,6 +457,20 @@ theorem not_node_le_node {i j : Fin σ.arity} {q : Query (σ.arg i)} {q' : Query
     (hne : (⟨i, q⟩ : NodeVal σ) ≠ ⟨j, q'⟩) : ¬ Le (.node i q f) (.node j q' g) := by
   intro h; cases h; exact hne rfl
 
+/-- `d ⊑ ⊥` forces `d = ⊥`. -/
+theorem eq_bot_of_le_bot {d : Tree σ} (h : Le d bot) : d = bot := by
+  cases h with
+  | bot _ => rfl
+  | leaf v => rfl
+
+/-- The root of a tree is fixed by any proper approximation: comparable trees
+share their root as soon as the smaller one is not `⊥`. -/
+theorem root_of_le {d e : Tree σ} (h : Le d e) (hd : d ≠ bot) : e.root = d.root := by
+  cases h with
+  | bot _ => exact absurd rfl hd
+  | leaf v => rfl
+  | node i q f g _ => rfl
+
 /-- A tree above a node is a node with the same node value. -/
 theorem eq_node_of_le {i : Fin σ.arity} {q : Query (σ.arg i)}
     {f : Resp (σ.arg i) → Tree σ} {v : Tree σ} (h : Le (.node i q f) v) :
