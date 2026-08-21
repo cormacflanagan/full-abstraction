@@ -779,6 +779,65 @@ theorem Y_chain_directed (σ : Ty) :
 noncomputable def interpY (σ : Ty) : T ((σ ⇒ σ) ⇒ σ) :=
   ScottDomain.dsup _ (Y_chain_directed σ)
 
+/-- `mⁿ(⊥)`, the `n`-th approximation to the least fixed point of `m`. -/
+noncomputable def Yiter (σ : Ty) (m : T (σ ⇒ σ)) (n : Nat) : T σ :=
+  (mkTreeModel interpBase).combMeaning
+    (Model.envUpdate (fun _ _ => ScottDomain.bot) 0 (σ ⇒ σ) m) (Yunfold σ n) σ
+
+theorem Yiter_zero (σ : Ty) (m : T (σ ⇒ σ)) :
+    Yiter σ m 0 = Ideal.principal (DSub.bot : D σ) :=
+  meaning_Omega interpBase rfl rfl σ _
+
+theorem Yiter_succ (σ : Ty) (m : T (σ ⇒ σ)) (n : Nat) :
+    Yiter σ m (n + 1) = applyT m (Yiter σ m n) := by
+  have hty : Comb.tyOf (Yunfold σ n) = σ := Comb.tyOf_of_hasTy (hasTy_Yunfold σ n [])
+  show (mkTreeModel interpBase).combMeaning _ (.app (.var 0 (σ ⇒ σ)) (Yunfold σ n)) σ = _
+  rw [Model.combMeaning_app, hty, Model.combMeaning_var, Model.envUpdate_self]
+  rfl
+
+/-- The `n`-th approximant of `Y_σ`, applied to `m`, is `mⁿ(⊥)`. -/
+theorem applyT_Yapprox (σ : Ty) (m : T (σ ⇒ σ)) (n : Nat) :
+    applyT ((mkTreeModel interpBase).combMeaning (fun _ _ => ScottDomain.bot)
+      (Yapprox σ n) ((σ ⇒ σ) ⇒ σ)) m = Yiter σ m n :=
+  lamStar_apply' interpBase _ 0 (σ ⇒ σ) m (Yunfold σ n) σ [] (hasTy_Yunfold σ n [])
+
+/-- `apply (Y_σ, m) = ⊔ₙ mⁿ(⊥)`. -/
+theorem mem_applyT_interpY (σ : Ty) (m : T (σ ⇒ σ)) (c : D σ) :
+    c ∈ applyT (interpY σ) m ↔ ∃ n, c ∈ Yiter σ m n := by
+  constructor
+  · rintro ⟨f, ⟨F, ⟨n, rfl⟩, hfF⟩, d, hd, hc⟩
+    exact ⟨n, (applyT_Yapprox σ m n) ▸ (⟨f, hfF, d, hd, hc⟩ :
+      c ∈ applyT ((mkTreeModel interpBase).combMeaning (fun _ _ => ScottDomain.bot)
+        (Yapprox σ n) ((σ ⇒ σ) ⇒ σ)) m)⟩
+  · rintro ⟨n, hn⟩
+    have hn' : c ∈ applyT ((mkTreeModel interpBase).combMeaning (fun _ _ => ScottDomain.bot)
+        (Yapprox σ n) ((σ ⇒ σ) ⇒ σ)) m := (applyT_Yapprox σ m n) ▸ hn
+    obtain ⟨f, hfF, d, hd, hc⟩ := hn'
+    exact ⟨f, ⟨_, ⟨n, rfl⟩, hfF⟩, d, hd, hc⟩
+
+/-- `Y_σ` yields a fixed point: `apply (m, apply (Y_σ, m)) = apply (Y_σ, m)`.
+
+`apply (Y_σ, m) = ⊔ₙ mⁿ(⊥)`, and applying `m` shifts the chain by one, which
+leaves the least upper bound unchanged because `m⁰(⊥) = ⊥`. -/
+theorem applyT_interpY_fix (σ : Ty) (m : T (σ ⇒ σ)) :
+    applyT m (applyT (interpY σ) m) = applyT (interpY σ) m := by
+  refine Po.le_antisymm ?_ ?_
+  · rintro c ⟨f, hf, d, hd, hc⟩
+    obtain ⟨n, hn⟩ := (mem_applyT_interpY σ m d).mp hd
+    refine (mem_applyT_interpY σ m c).mpr ⟨n + 1, ?_⟩
+    rw [Yiter_succ]
+    exact (applyT m (Yiter σ m n)).downward c (applyD f d) hc ⟨f, hf, d, hn, Po.le_refl _⟩
+  · intro c hc
+    obtain ⟨n, hn⟩ := (mem_applyT_interpY σ m c).mp hc
+    cases n with
+    | zero =>
+      rw [Yiter_zero] at hn
+      exact principal_bot_le _ c hn
+    | succ n =>
+      rw [Yiter_succ] at hn
+      obtain ⟨f, hf, d, hd, hcd⟩ := hn
+      exact ⟨f, hf, d, (mem_applyT_interpY σ m d).mpr ⟨n, hd⟩, hcd⟩
+
 /-- **Definition 4.1** (*Tree model for SPCF*).
 
 "`T` is the model for SPCF mapping: (1) each type `σ` to the tree domain `T_σ`;
@@ -964,6 +1023,20 @@ theorem corollary_4_24 (σ : Ty) (M : Comb SPCF) (E : Tmodel.Env)
     (hM : Comb.HasTy [] M (σ ⇒ σ)) :
     Tmodel.combMeaning E (.app M (.app (.const (.Y σ)) M)) σ
       = Tmodel.combMeaning E (.app (.const (.Y σ)) M) σ := by
-  sorry
+  have hMty : Comb.tyOf M = (σ ⇒ σ) := Comb.tyOf_of_hasTy hM
+  have hYc : Tmodel.combMeaning E (Comb.const (SConst.Y σ)) ((σ ⇒ σ) ⇒ σ) = interpY σ :=
+    Model.combMeaning_const (M := Tmodel) E (SConst.Y σ)
+  have hY : Tmodel.combMeaning E (.app (.const (.Y σ)) M) σ
+      = applyT (interpY σ) (Tmodel.combMeaning E M (σ ⇒ σ)) := by
+    rw [Model.combMeaning_app, hMty, hYc]
+    rfl
+  have hOuter : Tmodel.combMeaning E (.app M (.app (.const (.Y σ)) M)) σ
+      = applyT (Tmodel.combMeaning E M (σ ⇒ σ))
+          (Tmodel.combMeaning E (.app (.const (.Y σ)) M) σ) := by
+    rw [Model.combMeaning_app,
+      show Comb.tyOf (Comb.app (Comb.const (SConst.Y σ)) M : Comb SPCF) = σ from rfl]
+    rfl
+  rw [hOuter, hY]
+  exact applyT_interpY_fix σ _
 
 end FA
