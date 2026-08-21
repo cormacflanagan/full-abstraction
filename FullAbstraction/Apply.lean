@@ -11,27 +11,6 @@ namespace FA
 
 open Po
 
-namespace Resp
-variable {σ : Ty}
-
-/-- "Every response `r` of type `σ` is a finite tree in `D_σ`" (§4.1). -/
-noncomputable def toTree : Resp σ → Tree σ
-  | .ans n => .leaf (.num n)
-  | .node i p => .node i p (fun _ => Tree.bot)
-  | .step i q r rest => .node i q (fun s => if s = r then rest.toTree else Tree.bot)
-
-end Resp
-
-namespace Query
-variable {σ : Ty}
-
-/-- "Every query `q` of type `σ` becomes an element of `D_σ` if we replace `?`
-by `⊥`.  For the sake of brevity, we will abbreviate the path `q[?/⊥]` by the
-symbol `q`" (§4.1). -/
-noncomputable def toTree (q : Query σ) : Tree σ := q.substTree Tree.bot
-
-end Query
-
 namespace RAns
 variable {σ : Ty}
 

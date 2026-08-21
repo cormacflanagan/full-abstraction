@@ -63,10 +63,19 @@ family `Query`/`Resp` indexed by `Ty`, whose recursive occurrences are all at
 **Legality.** `𝒬_σ(R)` and `ℛ_σ(q)` are mutual inductive *predicates*
 (`LegalQuery`, `LegalResp`), again recursing only at argument types.  This
 avoids a well-founded recursion on `(depth σ, size q)` and keeps Definition 4.2
-readable.  The side condition `¬∃r[q ⊏ r ⊑ ⊔R]` is rendered as "no response
-already in `R` extends `q`", which is the paper's stated intent: "a query `q` on
-argument `i` must extend the approximation tree `⊔γ(i)` for argument `i` by
-exactly one node".
+readable.  The side condition `¬∃r[q ⊏ r ⊑ ⊔R]` — "a query `q` on argument `i`
+must extend the approximation tree `⊔γ(i)` for argument `i` by exactly one
+node", i.e. `q` *probes the perimeter* of `⊔γ(i)` in the sense of
+Definition 4.5 — is rendered without a least upper bound as "`q[?/⊥]` is not
+strictly below `s`, for any `s ∈ R`".  For the sets `R` that arise this is the
+paper's condition, because the responses recorded about one argument along a
+single path form a chain (each legal query extends the response before it), so
+`⊔R` is the last element of `R`.
+
+It is *not* enough to require that `q` is not a syntactic prefix of any `s ∈ R`:
+if `s` answers the node `q` probes with a different response than `q` records,
+`q` is not a prefix of `s`, yet `q[?/⊥]` — whose final branching function
+`⟨r',⊥⟩` is the empty branching function — is still strictly below `s`.
 
 **Branching functions** are honest functions `Resp τ → Tree σ`, with "the proper
 domain is finite" as a side condition (`Tree.FiniteProperDomain`), exactly as in
@@ -87,6 +96,12 @@ and this is what interprets those constants.
 **Definition 6.3.** The paper writes the conclusion of error-sensitivity as
 `P[[C[M'₁,…,Eⱼ,…,M'ₖ]]] = P[[Eⱼ]]`.  The proof of Theorem 6.5 uses it for *both*
 error expressions at the *same* hole `j`, so that is how it is formalised.
+
+**Well-typedness.** Definition 2.2 ends "and the type constraints of typed
+λ-calculus".  Where a result depends on them — Corollaries 4.23 and 4.24, and
+`meaning_apps` — the corresponding `Comb.HasTy` / `Term.HasTy` hypotheses are
+present; without them the equations are false, since `Model.combMeaning`
+returns `⊥` at a type a term does not have.
 
 **Indices.** The paper numbers arguments from 1; Lean's `Fin` numbers from 0.
 Where this matters — notably `catch`, which the paper says returns `j − 1` — the
@@ -183,7 +198,7 @@ Eighteen declarations, stated faithfully, whose own proof is still `sorry`.
 | finite legal approximants of `K` / `I` are cofinal | `Kn_legal_cofinal`, `In_legal_cofinal` | the one step of Appendix A.1 left over — see below |
 | **Lemma A.7** | `lemma_A_7` | |
 | **Corollary 4.23** (β, η) | `corollary_4_23` | reduces to Theorem 4.22 by the usual combinatory-logic induction |
-| **Corollary 4.24** (the `Y` operator) | `corollary_4_24` | |
+| **Corollary 4.24** (the `Y` operator) | `corollary_4_24` | needs Corollary 4.23 and `Y_chain_directed` |
 | `T[[Y_σ]]` is well defined | `Y_chain_directed` | §4.3 |
 | **Lemma B.1** / **Lemma 4.26** | `lemma_B_1` | Appendix B; `lemma_4_26` is `lemma_B_1` |
 | **Theorem 4.27** (`error`, `bottom`, `catch`, `return`) | `theorem_4_27` | |

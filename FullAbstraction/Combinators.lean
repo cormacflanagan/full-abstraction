@@ -609,6 +609,10 @@ theorem theorem_4_22 :
 
 /-- **Corollary 4.23** (`β`, `η`).
 
+The well-typedness hypotheses render Definition 2.2's "and the type constraints
+of typed λ-calculus"; without them the equations fail, because `combMeaning`
+returns `⊥` at a type a term does not have.
+
 "(i) If `E` is an environment that binds each variable `x^σ` in
 `FV(M) ∪ FV(N)` to an element in `T_σ`, then
 `T[[apply (λ*y . M, N)]]_E = T[[M[y := N]]]_E`.  (ii) … then
@@ -617,18 +621,20 @@ theorem theorem_4_22 :
 "Both equations can be proved using standard methods; the proof of (η) depends
 on the extensionality theorem (Theorem 4.11)." -/
 theorem corollary_4_23 :
-    (∀ (E : Tmodel.Env) (y : Nat) (σ ρ : Ty) (M N : Comb SPCF),
+    (∀ (E : Tmodel.Env) (Γ : List (Nat × Ty)) (y : Nat) (σ ρ : Ty) (M N : Comb SPCF),
+      Comb.HasTy ((y, σ) :: Γ) M ρ → Comb.HasTy Γ N σ →
       Tmodel.combMeaning E (.app (Comb.lamStar y σ M) N) ρ
         = Tmodel.combMeaning E (Comb.subst y σ N M) ρ) ∧
-    (∀ (E : Tmodel.Env) (y : Nat) (σ τ : Ty) (M : Comb SPCF),
-      (y, σ) ∉ Comb.FV M →
+    (∀ (E : Tmodel.Env) (Γ : List (Nat × Ty)) (y : Nat) (σ τ : Ty) (M : Comb SPCF),
+      Comb.HasTy Γ M (σ ⇒ τ) → (y, σ) ∉ Comb.FV M →
       Tmodel.combMeaning E (Comb.lamStar y σ (.app M (.var y σ))) (σ ⇒ τ)
         = Tmodel.combMeaning E M (σ ⇒ τ)) := by
   sorry
 
 /-- **Corollary 4.24** (`Y` operator).  *For all closed combinatory terms `M` of
 type `σ → σ`, `T[[apply (M, apply (Y_σ, M))]] = T[[apply (Y_σ, M)]]`.* -/
-theorem corollary_4_24 (σ : Ty) (M : Comb SPCF) (E : Tmodel.Env) :
+theorem corollary_4_24 (σ : Ty) (M : Comb SPCF) (E : Tmodel.Env)
+    (hM : Comb.HasTy [] M (σ ⇒ σ)) :
     Tmodel.combMeaning E (.app M (.app (.const (.Y σ)) M)) σ
       = Tmodel.combMeaning E (.app (.const (.Y σ)) M) σ := by
   sorry

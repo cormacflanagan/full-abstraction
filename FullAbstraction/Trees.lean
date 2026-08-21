@@ -192,41 +192,6 @@ def Query.prefixOf {σ : Ty} : Query σ → Resp σ → Prop
   | .step _ _ _ _, .ans _ => False
   | .step _ _ _ _, .node _ _ => False
 
-/-! ## Legal queries and legal responses (Definition 4.2) -/
-
-mutual
-/-- `𝒬_σ(R)`: the **legal queries** extending a set `R` of previous responses.
-
-"`𝒬_σ(R) = {?}` if `R = ∅`, and otherwise
-`{q ∈ Q_σ | ¬∃r[q ⊏ r ⊑ ⊔R], ∃r ∈ R (q = r : ⟨r',?⟩)}`."
-
-Operationally (§4.1, p. 19): "a query `q` on argument `i` must extend the
-approximation tree `⊔γ(i)` for argument `i` by exactly one node".  -/
-inductive LegalQuery : {σ : Ty} → Set (Resp σ) → Query σ → Prop where
-  /-- `𝒬_σ(∅) = {?}`. -/
-  | root {σ : Ty} {R : Set (Resp σ)} :
-      ¬ Set.Nonempty R → LegalQuery R .hole
-  /-- `q = r : ⟨r', ?⟩` for some `r ∈ R`, and `q` does not re-probe a node that
-  `R` has already answered. -/
-  | extend {σ : Ty} {R : Set (Resp σ)} {r : Resp σ} {i : Fin σ.arity}
-      {p : Query (σ.arg i)} {r' : Resp (σ.arg i)} :
-      r ∈ R → r.lastNode = some ⟨i, p⟩ → LegalResp p r' →
-      (¬ ∃ s, s ∈ R ∧ (r.extendHole ⟨i, r'⟩).prefixOf s) →
-      LegalQuery R (r.extendHole ⟨i, r'⟩)
-/-- `ℛ_σ(q)`: the **legal responses** to the query `q`.
-
-"`ℛ_σ(q) = {r ∈ R_σ | r = q[?/a] for a ∈ ℕ or r = q[?/⟨i,p,⊥⟩]}`", where the
-intermediate answer `⟨i,p,⊥⟩` must itself be able to "appear at the point
-specified by `q` in the selected argument tree", i.e. `p` must be a legal query
-in the tree context `q̂` determined by `q`. -/
-inductive LegalResp : {σ : Ty} → Query σ → Resp σ → Prop where
-  /-- `r = q[?/a]` for a final answer `a ∈ ℕ`. -/
-  | num {σ : Ty} (q : Query σ) (n : Nat) : LegalResp q (q.substAns (.num n))
-  /-- `r = q[?/⟨i,p,⊥⟩]` for an intermediate answer. -/
-  | node {σ : Ty} (q : Query σ) (i : Fin σ.arity) (p : Query (σ.arg i)) :
-      LegalQuery (q.ctxAt i) p → LegalResp q (q.substAns (.node i p))
-end
-
 /-! ## Trees (Definition 4.2, *Subtrees*) -/
 
 /-- The *preliminary* form of `D_σ` (§4.1): "An element of type `σ` is either a
@@ -518,6 +483,67 @@ def shift1 {a τ : Ty} : Query (a ⇒ τ) → Query τ
       .step ⟨i, Nat.lt_of_succ_lt_succ h⟩ p r (shift1 rest)
 
 end Query
+
+/-- "Every query `q` of type `σ` becomes an element of `D_σ` if we replace `?`
+by `⊥`.  For the sake of brevity, we will abbreviate the path `q[?/⊥]` by the
+symbol `q`" (§4.1). -/
+noncomputable def Query.toTree {σ : Ty} (q : Query σ) : Tree σ := q.substTree Tree.bot
+
+/-- "Every response `r` of type `σ` is a finite tree in `D_σ`" (§4.1). -/
+noncomputable def Resp.toTree {σ : Ty} : Resp σ → Tree σ
+  | .ans n => .leaf (.num n)
+  | .node i p => .node i p (fun _ => Tree.bot)
+  | .step i q r rest => .node i q (fun s => if s = r then rest.toTree else Tree.bot)
+
+/-! ## Legal queries and legal responses (Definition 4.2) -/
+
+mutual
+/-- `𝒬_σ(R)`: the **legal queries** extending a set `R` of previous responses.
+
+"`𝒬_σ(R) = {?}` if `R = ∅`, and otherwise
+`{q ∈ Q_σ | ¬∃r[q ⊏ r ⊑ ⊔R], ∃r ∈ R (q = r : ⟨r',?⟩)}`."
+
+Operationally (§4.1, p. 19): "a query `q` on argument `i` must extend the
+approximation tree `⊔γ(i)` for argument `i` by exactly one node".  -/
+inductive LegalQuery : {σ : Ty} → Set (Resp σ) → Query σ → Prop where
+  /-- `𝒬_σ(∅) = {?}`. -/
+  | root {σ : Ty} {R : Set (Resp σ)} :
+      ¬ Set.Nonempty R → LegalQuery R .hole
+  /-- `q = r : ⟨r', ?⟩` for some `r ∈ R`, together with the side condition
+  `¬∃r[q ⊏ r ⊑ ⊔R]`: the query must *probe the perimeter* of what is already
+  known (Definition 4.5), i.e. `q[?/⊥]` must not be strictly below anything
+  `R` has already answered.
+
+  The condition is rendered without a least upper bound as "`q[?/⊥]` is not
+  strictly below `s` for any `s ∈ R`".  For the sets `R` that arise this is the
+  paper's condition: the responses recorded about one argument along a single
+  path form a chain, since each legal query extends the response before it, so
+  `⊔R` is the last element of `R`.
+
+  Note that it is *not* enough to require that `q` is not a syntactic prefix of
+  any `s ∈ R`.  If `s` answers the node `q` probes with a *different* response
+  than `q` records, `q` is not a prefix of `s`, yet `q[?/⊥]` — whose final
+  branching function `⟨r',⊥⟩` is the empty branching function — is still
+  strictly below `s`, and the query does re-probe an answered node. -/
+  | extend {σ : Ty} {R : Set (Resp σ)} {r : Resp σ} {i : Fin σ.arity}
+      {p : Query (σ.arg i)} {r' : Resp (σ.arg i)} :
+      r ∈ R → r.lastNode = some ⟨i, p⟩ → LegalResp p r' →
+      (¬ ∃ s, s ∈ R ∧ Tree.Le (r.extendHole ⟨i, r'⟩).toTree s.toTree ∧
+        (r.extendHole ⟨i, r'⟩).toTree ≠ s.toTree) →
+      LegalQuery R (r.extendHole ⟨i, r'⟩)
+/-- `ℛ_σ(q)`: the **legal responses** to the query `q`.
+
+"`ℛ_σ(q) = {r ∈ R_σ | r = q[?/a] for a ∈ ℕ or r = q[?/⟨i,p,⊥⟩]}`", where the
+intermediate answer `⟨i,p,⊥⟩` must itself be able to "appear at the point
+specified by `q` in the selected argument tree", i.e. `p` must be a legal query
+in the tree context `q̂` determined by `q`. -/
+inductive LegalResp : {σ : Ty} → Query σ → Resp σ → Prop where
+  /-- `r = q[?/a]` for a final answer `a ∈ ℕ`. -/
+  | num {σ : Ty} (q : Query σ) (n : Nat) : LegalResp q (q.substAns (.num n))
+  /-- `r = q[?/⟨i,p,⊥⟩]` for an intermediate answer. -/
+  | node {σ : Ty} (q : Query σ) (i : Fin σ.arity) (p : Query (σ.arg i)) :
+      LegalQuery (q.ctxAt i) p → LegalResp q (q.substAns (.node i p))
+end
 
 /-! ## Definition 4.2: the finitary bases `D_σ(γ)` -/
 
