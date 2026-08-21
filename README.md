@@ -96,6 +96,9 @@ statement is adjusted and the adjustment is noted in the docstring.
 
 ### Proved outright
 
+`#print axioms` reports only `propext`, `Classical.choice` and `Quot.sound` for
+each of these.
+
 | Result | Lean name |
 | --- | --- |
 | Theorem 4.4 (1a): directed subsets of the ideal completion have lubs | `theorem_4_4_directed_lub` |
@@ -105,24 +108,32 @@ statement is adjusted and the adjustment is noted in the docstring.
 | Theorem 4.4 (3): algebraicity | `theorem_4_4_algebraic` |
 | Theorem 4.4: ω-algebraicity (given a countable basis) | `theorem_4_4_countably_many_finite` |
 | Theorem 4.4, packaged as a `ScottDomain` instance | `idealScottDomain` |
-| Lemma 4.3, the partial-order half | `lemma_4_3_partial_order` |
+| **Lemma 4.3**: `⊑` is a partial order on `D_σ` | `lemma_4_3_partial_order` |
 | **Lemma 4.3**: every finite bounded subset of `D_σ` has a lub | `dsub_lub_of_finite_bounded` |
 | — the join of two bounded trees is their lub | `Tree.join_spec` |
 | — the join of two legal subtrees is legal | `TreeOk_join` |
 | **Lemma 4.3**: `D_σ` is a finitary basis | `lemma_4_3` |
 | the finite approximations of a tree are directed | `finiteApprox_directed` |
-| the ground domain `T_o` is flat | `T_base_flat` |
-| Lemma 4.7 | `lemma_4_7` |
-| `apply (sub1, ⌜0⌝) = ⊥` (Definition 4.19) | `apply0_sub1_zero` |
+| legal subtrees are finitary | `Finitary_of_TreeOk` |
+| **Lemma 4.7** | `lemma_4_7` |
+| **Claim 4.8** | `claim_4_8` |
 | `apply₀` is monotone in each argument | `apply0_mono_left`, `apply0_mono_right` |
 | comparable trees answer a query compatibly | `at'_mono` |
+| a tree containing a path answers that path's query | `at'_resp`, `apply0_first` |
+| **Definition 4.9**: `apply₀` lands in `D_τ(γ')` | `apply0_ok` |
+| **Lemma 4.14** | `lemma_4_14` |
+| — its `k`-ary form | `applyArgs_at_query` |
+| **Corollary 4.15** | `corollary_4_15`, `corollary_4_15_path` |
+| the ground domain `T_o` is flat | `T_base_flat` |
+| `apply (sub1, ⌜0⌝) = ⊥` (Definition 4.19) | `apply0_sub1_zero` |
+| `Comb.tyOf` computes the type of a well-typed combinatory term | `Comb.tyOf_of_hasTy` |
+| Figure 1's `λ*` and `[·]_CL` preserve typing | `Comb.lamStar_hasTy`, `Term.toComb_hasTy` |
 | the `K` and `I` approximants form chains | `Kn_mono`, `In_mono` |
+| **Claim A.2** (both halves) | `claim_A_2`, `claim_A_2_le`, `claim_A_2_ge` |
+| the `I` analogue of Claim A.2 | `claim_I_le`, `claim_I_ge` |
 | order-extensionality implies extensionality (proof of Thm. 4.11) | `Model.extensional_of_orderExtensional` |
 | a hole that propagates both errors is a sequentiality index | `SemDef.seqIndex_of_propagates` |
 | **Theorem 6.5**: error-sensitivity implies sequentiality | `SemDef.theorem_6_5` |
-
-Each of these is complete in the strong sense: `#print axioms` reports only
-`propext`, `Classical.choice` and `Quot.sound`.
 
 Note that `Countable` is *not* a field of `FinitaryBasis` here.  It plays no
 part in the construction of the ideal completion or in parts (1)–(3) of
@@ -142,11 +153,17 @@ derivation is the content.
 | --- | --- | --- |
 | Theorem 4.11 (`T` is extensional and order-extensional) | `theorem_4_11` | `orderExtensional_T` |
 | Corollary 4.18 (`T_{σ→τ} ≅ F_{σ→τ}`) | `corollary_4_18` | `orderExtensional_T` |
+| **Lemma A.1** (the `K` equation) | `lemma_A_1` | Claim A.2 + `Kn_legal_cofinal` |
+| Theorem 4.22, the `(I)` equation | `theorem_4_22_I` | the `I` analogue of Claim A.2 + `In_legal_cofinal` |
+| Lemma A.6 (the `S` equation) | `lemma_A_6` | `claim_A_5` |
 | Theorem 4.22 | `theorem_4_22` | `lemma_A_6`, `lemma_A_1`, `theorem_4_22_I` |
-| Lemma A.6 | `lemma_A_6` | `claim_A_5` |
 | Theorem 4.4: ω-algebraicity of `T_σ` | `lemma_4_3_omega_algebraic` | `dsub_countable` |
 | `T[[errorᵢ]] = errorᵢ` | `meaning_errTerm` | holds by `rfl`; mentions `SPCFSem` |
 | `T[[Ω]] = ⊥`, the `Ω` field of Definition 6.1 | `meaning_omegaTerm` | `apply0_sub1_zero` + monotonicity of `apply₀` |
+| the meaning of `(M E₁ … Eₖ)` | `meaning_apps` | the typing lemmas above |
+| `apply` is determined by its finite arguments | `applyT_eq_of_principal` | — |
+| iterated extensionality | `eq_of_principal_applyIdeals` | Theorem 4.11 |
+| separation by finite arguments | `separation` | the two above |
 | **Theorem 5.1** (full abstraction), separating form | `theorem_5_1_separating` | `separation`, `lemma_5_2`, `meaning_apps` |
 | **Theorem 5.1** | `theorem_5_1`, `theorem_5_1_fullyAbstract` | the above + `soundness` |
 | **Theorem 6.2** (SPCF is sequential) | `theorem_6_2` | Theorem 6.4 via Theorem 6.5 |
@@ -155,36 +172,47 @@ derivation is the content.
 
 ### Outstanding
 
-Stated faithfully; proof still `sorry`.
+Eighteen declarations, stated faithfully, whose own proof is still `sorry`.
 
 | Result | Lean name | Note |
 | --- | --- | --- |
 | Lemma 4.3: `D_σ` is countable | `dsub_countable` | the only remaining half of Lemma 4.3; needed for ω-algebraicity alone |
-| Definition 4.9: `apply₀` lands in `D_τ(γ')` | `apply0_ok` | the paper: "easy to show" |
-| Claim 4.8 | `claim_4_8` | |
-| Lemma 4.14 | `lemma_4_14` | |
-| Corollary 4.15 | `corollary_4_15` | |
-| Lemma 4.16 | `lemma_4_16` | |
+| **Lemma 4.16** | `lemma_4_16` | the extensionality lemma; needs the legality machinery in earnest — see below |
 | order-extensionality of `T` | `orderExtensional_T` | the limit form of Lemma 4.16 |
-| Claim A.5 (well-definedness of `S`) | `claim_A_5` | Definition 4.21 + Figure 5 + Appendix A.2 |
-| Lemma A.1, Claim A.2 (the `K` equation) | `lemma_A_1`, `claim_A_2` | Appendix A.1 |
-| Lemma A.7 | `lemma_A_7` | |
-| Theorem 4.22, the `(I)` equation | `theorem_4_22_I` | |
-| Corollary 4.23 (β, η) | `corollary_4_23` | |
-| Corollary 4.24 (the `Y` operator) | `corollary_4_24` | |
+| **Claim A.5** (well-definedness of `S`) | `claim_A_5` | Definition 4.21 + Figure 5 + Appendix A.2 |
+| finite legal approximants of `K` / `I` are cofinal | `Kn_legal_cofinal`, `In_legal_cofinal` | the one step of Appendix A.1 left over — see below |
+| **Lemma A.7** | `lemma_A_7` | |
+| **Corollary 4.23** (β, η) | `corollary_4_23` | reduces to Theorem 4.22 by the usual combinatory-logic induction |
+| **Corollary 4.24** (the `Y` operator) | `corollary_4_24` | |
 | `T[[Y_σ]]` is well defined | `Y_chain_directed` | §4.3 |
-| Lemma B.1 / Lemma 4.26 | `lemma_B_1` | Appendix B; `lemma_4_26` is `lemma_B_1` |
-| Theorem 4.27 (the `error`, `bottom`, `catch`, `return` equations) | `theorem_4_27` | |
+| **Lemma B.1** / **Lemma 4.26** | `lemma_B_1` | Appendix B; `lemma_4_26` is `lemma_B_1` |
+| **Theorem 4.27** (`error`, `bottom`, `catch`, `return`) | `theorem_4_27` | |
 | **Lemma 5.2** (definability of the finite elements) | `lemma_5_2`, `lemma_5_2_subtrees` | the crux of §5 |
-| compositionality of `T` | `soundness` | |
-| separation by finite arguments | `separation` | |
-| meaning of an applicative term | `meaning_apps` | |
+| compositionality of `T` | `soundness` | needs Corollary 4.23 for the `λ` case |
 | monotonicity of `T` in a hole | `Tmeaning_mono` | a field of `SPCFSem` |
 | a `k`-ary procedure probes one argument first | `probe_index` | the tree analysis behind Thms. 6.2 and 6.4 |
 | `catch` reports the sequentiality index | `catch_returns_index` | Theorem 4.27's `(catch)` equation |
 
-Twenty-five declarations still carry a `sorry`; `FullAbstraction/Audit.lean`
-lists them and reports the axiom dependencies of every named result.
+#### Why `lemma_4_16` and `Kn_legal_cofinal` are the hard ones
+
+Both are where the *legality* conditions of Definition 4.2 — so far stated and
+used only to type the constructions — have to do real work.
+
+Lemma 4.16 separates `f` from `g` at a position where their subtrees are
+immediately incomparable (Lemma 4.7) by feeding the argument a tree that
+answers one of the two competing queries with `error₁` and the other with
+`error₂`.  That such a tree exists is exactly Definition 4.2's condition that a
+legal query never re-probes a node the accumulated context has already
+answered; making that available means proving that the responses recorded along
+a legal path about a given argument form a chain, and that a legal query probes
+the perimeter of their join.
+
+`Kn_legal_cofinal` is the mirror image: `Kₙ(?)` branches over the infinitely
+many final answers, so it is a limit point of `T_σ` rather than an element of
+the finitary basis (Definition 4.20 describes `Kₙ` as mapping into
+`D_{σ→τ}(q̂)`, which cannot be literally right for that reason).  `K` is
+therefore the ideal of the finite *legal* trees below the chain, and what is
+missing is that those already compute whatever `Kₙ` computes.
 
 ## Definitions
 
