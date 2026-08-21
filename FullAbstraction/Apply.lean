@@ -144,19 +144,116 @@ noncomputable def applyArgs : ∀ σ : Ty, Tree σ → ((i : Fin σ.arity) → T
 upper bound.  Hence, `apply` is a well-defined, continuous function from pairs
 of trees to trees." -/
 
-/-- Shifting a tree context by one argument: `γ'(i) = γ(i+1)`
-(Definition 4.9). -/
-def Ctx.shift {a τ : Ty} (γ : Ctx (a ⇒ τ)) : Ctx τ :=
-  γ.filterMap fun x =>
-    match x with
-    | ⟨⟨0, _⟩, _⟩ => none
-    | ⟨⟨i + 1, h⟩, r⟩ => some ⟨⟨i, Nat.lt_of_succ_lt_succ h⟩, r⟩
+/-- `γ'` is the **shift** of `γ` (Definition 4.9: `γ'(i) = γ(i+1)`): it records
+about argument `i` exactly what `γ` records about argument `i + 1`. -/
+def Ctx.IsShift {a τ : Ty} (γ : Ctx (a ⇒ τ)) (γ' : Ctx τ) : Prop :=
+  ∀ (i : Fin τ.arity) (h : i.val + 1 < (a ⇒ τ).arity) (r : Resp (τ.arg i)),
+    (⟨i, r⟩ : (j : Fin τ.arity) × Resp (τ.arg j)) ∈ γ' ↔
+    (⟨⟨i.val + 1, h⟩, r⟩ : (j : Fin (a ⇒ τ).arity) × Resp ((a ⇒ τ).arg j)) ∈ γ
 
-/-- `apply₀` maps `D_{σ→τ}(γ) × D_σ` into `D_τ(γ')` (Definition 4.9). -/
-theorem apply0_ok {σ τ : Ty} {γ : Ctx (σ ⇒ τ)} {f : Tree (σ ⇒ τ)} {d : Tree σ}
-    (hf : TreeOk γ f) (hd : TreeOk ([] : Ctx σ) d) :
-    TreeOk γ.shift (apply0 f d) := by
-  sorry
+/-- Comparing indexed pairs before and after the shift. -/
+theorem shiftSigma_eq_iff {a τ : Ty} (i k : Fin τ.arity)
+    (hi : i.val + 1 < (a ⇒ τ).arity) (hk : k.val + 1 < (a ⇒ τ).arity)
+    (r : Resp (τ.arg i)) (s : Resp (τ.arg k)) :
+    ((⟨i, r⟩ : (j : Fin τ.arity) × Resp (τ.arg j)) = ⟨k, s⟩) ↔
+    ((⟨⟨i.val + 1, hi⟩, r⟩ : (j : Fin (a ⇒ τ).arity) × Resp ((a ⇒ τ).arg j))
+      = ⟨⟨k.val + 1, hk⟩, s⟩) := by
+  constructor
+  · intro h
+    have h1 : i = k := congrArg Sigma.fst h
+    subst h1
+    have h2 : r = s := by injection h
+    subst h2
+    rfl
+  · intro h
+    have h1 : (⟨i.val + 1, hi⟩ : Fin (a ⇒ τ).arity) = ⟨k.val + 1, hk⟩ := congrArg Sigma.fst h
+    have h2 : i = k := by
+      apply Fin.ext
+      have hv := congrArg Fin.val h1
+      simpa using hv
+    subst h2
+    have h3 : r = s := by injection h
+    subst h3
+    rfl
+
+/-- The empty context is its own shift. -/
+theorem Ctx.isShift_nil {a τ : Ty} : Ctx.IsShift ([] : Ctx (a ⇒ τ)) ([] : Ctx τ) := by
+  intro i h r
+  constructor <;> intro hm <;> exact absurd hm (by simp)
+
+/-- Extending both contexts at corresponding indices preserves the shift
+relation. -/
+theorem Ctx.isShift_cons {a τ : Ty} {γ : Ctx (a ⇒ τ)} {γ' : Ctx τ}
+    (hs : Ctx.IsShift γ γ') (k : Fin τ.arity) (hk : k.val + 1 < (a ⇒ τ).arity)
+    (s : Resp (τ.arg k)) :
+    Ctx.IsShift (γ.cons ⟨k.val + 1, hk⟩ s) (γ'.cons k s) := by
+  intro i h r
+  simp only [Ctx.cons, List.mem_cons]
+  rw [hs i h r, shiftSigma_eq_iff i k h hk r s]
+
+/-- Recording a response about the *first* argument does not change the shift. -/
+theorem Ctx.isShift_cons_zero {a τ : Ty} {γ : Ctx (a ⇒ τ)} {γ' : Ctx τ}
+    (hs : Ctx.IsShift γ γ') (h0 : 0 < (a ⇒ τ).arity) (s : Resp ((a ⇒ τ).arg ⟨0, h0⟩)) :
+    Ctx.IsShift (γ.cons ⟨0, h0⟩ s) γ' := by
+  intro i h r
+  rw [hs i h r]
+  simp only [Ctx.cons, List.mem_cons]
+  constructor
+  · exact fun hm => Or.inr hm
+  · rintro (heq | hm)
+    · exact absurd (congrArg (fun x => x.1.val) heq) (by simp)
+    · exact hm
+
+/-- Shifted contexts record the same responses. -/
+theorem Ctx.at'_of_isShift {a τ : Ty} {γ : Ctx (a ⇒ τ)} {γ' : Ctx τ}
+    (hs : Ctx.IsShift γ γ') (i : Fin τ.arity) (h : i.val + 1 < (a ⇒ τ).arity) :
+    γ'.at' i = γ.at' ⟨i.val + 1, h⟩ :=
+  Set.ext fun r => hs i h r
+
+/-- **Definition 4.9**: `apply₀` maps `D_{σ→τ}(γ) × D_σ` into `D_τ(γ')`.
+
+"It is easy to show that `apply₀` produces a well-defined output in `D_τ(γ')`."
+Where the paper's side condition `⊔γ(1) ⊑ d` fails, `apply₀` returns `⊥`, which
+is legal in every context, so no hypothesis on `d` is needed. -/
+theorem apply0_ok {σ τ : Ty} : ∀ (f : Tree (σ ⇒ τ)) (γ : Ctx (σ ⇒ τ)) (γ' : Ctx τ)
+    (d : Tree σ), TreeOk γ f → Ctx.IsShift γ γ' → TreeOk γ' (apply0 f d) := by
+  intro f
+  induction f with
+  | leaf v => intro γ γ' d _ _; exact TreeOk.leaf γ' v
+  | node i q g ih =>
+    intro γ γ' d hf hs
+    obtain ⟨hq, hfin, hsub, hnon⟩ := TreeOk_node_inv hf
+    match i with
+    | ⟨0, h0⟩ =>
+      rw [apply0]
+      -- the recursive call is on a branch of `g`; illegal branches are `⊥`
+      have hbranch : ∀ x : RAns σ, TreeOk γ' (apply0 (g (q.substAns x)) d) := by
+        intro x
+        by_cases hlegal : LegalResp q (q.substAns x)
+        · exact ih _ (γ.cons ⟨0, h0⟩ (q.substAns x)) γ' d (hsub _ hlegal)
+            (Ctx.isShift_cons_zero hs h0 _)
+        · rw [hnon _ hlegal]; exact TreeOk.leaf γ' _
+      cases hd : d.at' q with
+      | none => exact TreeOk.leaf γ' _
+      | some e =>
+        cases e with
+        | leaf v => cases v <;> first | exact TreeOk.leaf γ' _ | exact hbranch _
+        | node j p _ => exact hbranch (.node j p)
+    | ⟨k + 1, hk⟩ =>
+      rw [apply0]
+      refine TreeOk.node γ' ⟨k, Nat.lt_of_succ_lt_succ hk⟩ q _ ?_ ?_ ?_ ?_
+      · rw [Ctx.at'_of_isShift hs ⟨k, Nat.lt_of_succ_lt_succ hk⟩ hk]; exact hq
+      · obtain ⟨l, hl⟩ := hfin
+        refine ⟨l, fun r hr => hl r ?_⟩
+        intro hgr
+        have hb : apply0 (g r) d = Tree.bot := by rw [hgr]; rfl
+        exact hr hb
+      · intro r hr
+        exact ih r (γ.cons ⟨k + 1, hk⟩ r) (γ'.cons ⟨k, Nat.lt_of_succ_lt_succ hk⟩ r) d
+          (hsub r hr) (Ctx.isShift_cons hs ⟨k, Nat.lt_of_succ_lt_succ hk⟩ hk r)
+      · intro r hr
+        have hb : apply0 (g r) d = Tree.bot := by rw [hnon r hr]; rfl
+        exact hb
 
 /-- `apply₀` is monotone in its first argument.
 
@@ -236,9 +333,7 @@ theorem apply0_mono_right {σ τ : Ty} :
 
 /-- `apply₀` restricted to the finitary bases. -/
 noncomputable def applyD {σ τ : Ty} (f : D (σ ⇒ τ)) (d : D σ) : D τ :=
-  ⟨apply0 f.1 d.1, by
-    have h := apply0_ok f.2 d.2
-    simpa [Ctx.shift] using h⟩
+  ⟨apply0 f.1 d.1, apply0_ok f.1 [] [] d.1 f.2 Ctx.isShift_nil⟩
 
 /-- **Definition 4.9**, the continuous extension:
 
@@ -622,9 +717,19 @@ theorem corollary_4_15_path (σ : Ty) (q : Query σ) (e : Tree σ)
 /-! ## Lemma 4.16, Theorem 4.11 -/
 
 /-- **Lemma 4.16.**  *Let `f, g` be elements in `D_{σ→τ}`.  If for all finite
-`d ∈ D_σ`, `apply (f, d) ⊑ apply (g, d)`, then `f ⊑ g`.* -/
+`d ∈ D_σ`, `apply (f, d) ⊑ apply (g, d)`, then `f ⊑ g`.*
+
+The hypotheses `TreeOk [] f` and `TreeOk [] g` render "`f, g ∈ D_{σ→τ}`" and are
+*not* removable.  The paper's proof separates `f` from `g` at a position where
+their subtrees are immediately incomparable (Lemma 4.7) by feeding the argument
+a tree that answers one of the two competing queries with `error₁` and the other
+with `error₂`.  That the two queries can be answered independently is exactly
+Definition 4.2's legality condition — a legal query never re-probes a node the
+context has already answered — so without legality no separating argument need
+exist. -/
 theorem lemma_4_16 {σ τ : Ty} (f g : Tree (σ ⇒ τ))
-    (h : ∀ d : Tree σ, apply0 f d ⊑ apply0 g d) : f ⊑ g := by
+    (hf : TreeOk [] f) (hg : TreeOk [] g)
+    (h : ∀ d : Tree σ, TreeOk [] d → apply0 f d ⊑ apply0 g d) : f ⊑ g := by
   sorry
 
 /-- Order-extensionality at the level of the ideal completions `T_σ`, which is
