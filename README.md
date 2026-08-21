@@ -98,10 +98,21 @@ and this is what interprets those constants.
 error expressions at the *same* hole `j`, so that is how it is formalised.
 
 **Well-typedness.** Definition 2.2 ends "and the type constraints of typed
-λ-calculus".  Where a result depends on them — Corollaries 4.23 and 4.24, and
-`meaning_apps` — the corresponding `Comb.HasTy` / `Term.HasTy` hypotheses are
-present; without them the equations are false, since `Model.combMeaning`
-returns `⊥` at a type a term does not have.
+λ-calculus".  Where a result depends on them — Corollaries 4.23 and 4.24,
+`meaning_apps`, `soundness`, Theorem 5.1 — the corresponding `Comb.HasTy` /
+`Term.HasTy` hypotheses are present; without them the equations are false,
+since `Model.combMeaning` returns `⊥` at a type a term does not have.
+
+The same applies to Definition 2.1's monotonicity clause.  `mono` carries two
+`Program` hypotheses and an `OmegaLike` hypothesis on the replacement (`Ω` and
+the phrase replacing it are of the same, ground, type — Definition 6.3's error
+expressions "denote distinct and inconsistent elements of a flat domain for the
+ground type").  Without them the clause is *false*: an ill-typed replacement
+makes the filled context ill-typed, and its meaning need not dominate the
+meaning of the well-typed `Ω`-fill.  Definition 2.9's sequentiality index and
+Definition 6.3's error-sensitivity carry the matching `Program` conditions,
+which the paper leaves implicit in "let `M₁, …, Mₖ` be closed phrases such that
+`C[M₁, …, Mₖ]` is a program".
 
 **Indices.** The paper numbers arguments from 1; Lean's `Fin` numbers from 0.
 Where this matters — notably `catch`, which the paper says returns `j − 1` — the
@@ -132,6 +143,7 @@ each of these.
 | legal subtrees are finitary | `Finitary_of_TreeOk` |
 | **Lemma 4.7** | `lemma_4_7` |
 | **Claim 4.8** | `claim_4_8` |
+| `apply` is monotone in each argument | `applyT_mono_left`, `applyT_mono_right` |
 | `apply₀` is monotone in each argument | `apply0_mono_left`, `apply0_mono_right` |
 | comparable trees answer a query compatibly | `at'_mono` |
 | a tree containing a path answers that path's query | `at'_resp`, `apply0_first` |
@@ -143,6 +155,8 @@ each of these.
 | `apply (sub1, ⌜0⌝) = ⊥` (Definition 4.19) | `apply0_sub1_zero` |
 | `Comb.tyOf` computes the type of a well-typed combinatory term | `Comb.tyOf_of_hasTy` |
 | Figure 1's `λ*` and `[·]_CL` preserve typing | `Comb.lamStar_hasTy`, `Term.toComb_hasTy` |
+| weakening, substitution and uniqueness for typing | `Comb.weaken`, `Comb.subst_hasTy`, `Term.weaken`, `Term.hasTy_unique` |
+| a term's meaning depends only on its free variables | `Model.combMeaning_congr_env` |
 | the `K` and `I` approximants form chains | `Kn_mono`, `In_mono` |
 | **Claim A.2** (both halves) | `claim_A_2`, `claim_A_2_le`, `claim_A_2_ge` |
 | the `I` analogue of Claim A.2 | `claim_I_le`, `claim_I_ge` |
@@ -170,6 +184,7 @@ derivation is the content.
 | Corollary 4.18 (`T_{σ→τ} ≅ F_{σ→τ}`) | `corollary_4_18` | `orderExtensional_T` |
 | **Lemma A.1** (the `K` equation) | `lemma_A_1` | Claim A.2 + `Kn_legal_cofinal` |
 | Theorem 4.22, the `(I)` equation | `theorem_4_22_I` | the `I` analogue of Claim A.2 + `In_legal_cofinal` |
+| **Corollary 4.23** (β, η) | `corollary_4_23` | Theorem 4.22; the abstraction lemma `lamStar_apply` and `beta_law` |
 | Lemma A.6 (the `S` equation) | `lemma_A_6` | `claim_A_5` |
 | Theorem 4.22 | `theorem_4_22` | `lemma_A_6`, `lemma_A_1`, `theorem_4_22_I` |
 | Theorem 4.4: ω-algebraicity of `T_σ` | `lemma_4_3_omega_algebraic` | `dsub_countable` |
@@ -179,6 +194,8 @@ derivation is the content.
 | `apply` is determined by its finite arguments | `applyT_eq_of_principal` | — |
 | iterated extensionality | `eq_of_principal_applyIdeals` | Theorem 4.11 |
 | separation by finite arguments | `separation` | the two above |
+| compositionality of `T` | `soundness`, `soundness_aux` | Corollary 4.23 + extensionality |
+| monotonicity of `T` in a hole (Definition 2.1's `mono`) | `Tmeaning_mono` | `applyT_mono_*`, `lamStar_apply`, order-extensionality |
 | **Theorem 5.1** (full abstraction), separating form | `theorem_5_1_separating` | `separation`, `lemma_5_2`, `meaning_apps` |
 | **Theorem 5.1** | `theorem_5_1`, `theorem_5_1_fullyAbstract` | the above + `soundness` |
 | **Theorem 6.2** (SPCF is sequential) | `theorem_6_2` | Theorem 6.4 via Theorem 6.5 |
@@ -187,7 +204,7 @@ derivation is the content.
 
 ### Outstanding
 
-Eighteen declarations, stated faithfully, whose own proof is still `sorry`.
+Fifteen declarations, stated faithfully, whose own proof is still `sorry`.
 
 | Result | Lean name | Note |
 | --- | --- | --- |
@@ -197,14 +214,11 @@ Eighteen declarations, stated faithfully, whose own proof is still `sorry`.
 | **Claim A.5** (well-definedness of `S`) | `claim_A_5` | Definition 4.21 + Figure 5 + Appendix A.2 |
 | finite legal approximants of `K` / `I` are cofinal | `Kn_legal_cofinal`, `In_legal_cofinal` | the one step of Appendix A.1 left over — see below |
 | **Lemma A.7** | `lemma_A_7` | |
-| **Corollary 4.23** (β, η) | `corollary_4_23` | reduces to Theorem 4.22 by the usual combinatory-logic induction |
 | **Corollary 4.24** (the `Y` operator) | `corollary_4_24` | needs Corollary 4.23 and `Y_chain_directed` |
 | `T[[Y_σ]]` is well defined | `Y_chain_directed` | §4.3 |
 | **Lemma B.1** / **Lemma 4.26** | `lemma_B_1` | Appendix B; `lemma_4_26` is `lemma_B_1` |
 | **Theorem 4.27** (`error`, `bottom`, `catch`, `return`) | `theorem_4_27` | |
-| **Lemma 5.2** (definability of the finite elements) | `lemma_5_2`, `lemma_5_2_subtrees` | the crux of §5 |
-| compositionality of `T` | `soundness` | needs Corollary 4.23 for the `λ` case |
-| monotonicity of `T` in a hole | `Tmeaning_mono` | a field of `SPCFSem` |
+| **Lemma 5.2** (definability of the finite elements) | `lemma_5_2`, `lemma_5_2_subtrees` | the crux of §5; **Theorem 5.1 now rests only on this and the Theorem 4.22 chain** |
 | a `k`-ary procedure probes one argument first | `probe_index` | the tree analysis behind Thms. 6.2 and 6.4 |
 | `catch` reports the sequentiality index | `catch_returns_index` | Theorem 4.27's `(catch)` equation |
 

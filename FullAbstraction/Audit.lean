@@ -49,6 +49,13 @@ section Complete
 #print axioms claim_A_2_ge
 #print axioms claim_I_le
 #print axioms claim_I_ge
+#print axioms Comb.subst_hasTy
+#print axioms Comb.weaken
+#print axioms Term.weaken
+#print axioms Term.hasTy_unique
+#print axioms Model.combMeaning_congr_env
+#print axioms applyT_mono_left
+#print axioms applyT_mono_right
 #print axioms Model.extensional_of_orderExtensional
 #print axioms SemDef.seqIndex_of_propagates
 #print axioms SemDef.theorem_6_5
@@ -72,6 +79,13 @@ section DerivedOrDependent
 #print axioms applyT_eq_of_principal
 #print axioms eq_of_principal_applyIdeals
 #print axioms separation
+#print axioms beta_law
+#print axioms lamStar_apply
+#print axioms corollary_4_23
+#print axioms soundness_aux
+#print axioms soundness
+#print axioms Tmeaning_mono
+#print axioms meaning_mono_aux
 #print axioms theorem_5_1_separating
 #print axioms theorem_5_1
 #print axioms theorem_5_1_fullyAbstract
@@ -89,15 +103,12 @@ section Outstanding
 #print axioms Kn_legal_cofinal
 #print axioms In_legal_cofinal
 #print axioms lemma_A_7
-#print axioms corollary_4_23
 #print axioms corollary_4_24
 #print axioms Y_chain_directed
 #print axioms lemma_B_1
 #print axioms theorem_4_27
 #print axioms lemma_5_2
 #print axioms lemma_5_2_subtrees
-#print axioms soundness
-#print axioms Tmeaning_mono
 #print axioms probe_index
 #print axioms catch_returns_index
 end Outstanding
