@@ -260,18 +260,15 @@ def ErrorSensitive : Prop :=
       ∃ j : Fin k, ∀ (b : Bool) (M' : Fin k → Term L),
         P.meaning (C.fill (repl M' j (E b))) = P.meaning (E b))
 
-/-- **Theorem 6.5.**  *If a semantic definition `P` of a language `L` is
-error-sensitive, then it is sequential.*
-
-The proof is the paper's: error-sensitivity supplies a hole `j` that propagates
-both errors; monotonicity places `P[[C[…,Ω,…]]]` below both `P[[E₁]]` and
-`P[[E₂]]`; and since `E₁` and `E₂` denote distinct proper elements of a flat
-domain, `P[[C[…,Ω,…]]]` must be `⊥ = P[[Ω]]`. -/
-theorem theorem_6_5 (h : P.ErrorSensitive) : P.Sequential := by
-  obtain ⟨E, _hclosed, hne, hdist, hprop⟩ := h
-  intro k C M hprobe
-  obtain ⟨j, hj⟩ := hprop k C M hprobe
-  refine ⟨j, ?_⟩
+/-- The core of Theorem 6.5: a hole that propagates both error expressions is a
+sequentiality index. -/
+theorem seqIndex_of_propagates {E : Bool → Term L}
+    (hne : ∀ b, P.meaning (E b) ≠ P.bot)
+    (hdist : P.meaning (E true) ≠ P.meaning (E false))
+    {k : Nat} {C : MCtx L k} {j : Fin k}
+    (hj : ∀ (b : Bool) (M' : Fin k → Term L),
+      P.meaning (C.fill (repl M' j (E b))) = P.meaning (E b)) :
+    P.SeqIndex C j := by
   intro M'
   have hrepl : ∀ N : Term L, repl (repl M' j P.omega) j N = repl M' j N := by
     intro N; funext i; by_cases hij : i = j <;> simp [repl, hij]
@@ -283,6 +280,19 @@ theorem theorem_6_5 (h : P.ErrorSensitive) : P.Sequential := by
     rw [hrepl (E b), hrepl P.omega, hj b M'] at hm
     exact hm
   exact P.eq_bot_of_le_two (hne true) (hne false) hdist (hmono true) (hmono false)
+
+/-- **Theorem 6.5.**  *If a semantic definition `P` of a language `L` is
+error-sensitive, then it is sequential.*
+
+The proof is the paper's: error-sensitivity supplies a hole `j` that propagates
+both errors; monotonicity places `P[[C[…,Ω,…]]]` below both `P[[E₁]]` and
+`P[[E₂]]`; and since `E₁` and `E₂` denote distinct proper elements of a flat
+domain, `P[[C[…,Ω,…]]]` must be `⊥ = P[[Ω]]`. -/
+theorem theorem_6_5 (h : P.ErrorSensitive) : P.Sequential := by
+  obtain ⟨E, _hclosed, hne, hdist, hprop⟩ := h
+  intro k C M hprobe
+  obtain ⟨j, hj⟩ := hprop k C M hprobe
+  exact ⟨j, seqIndex_of_propagates P hne hdist hj⟩
 
 /-- **Definition 6.6** (*Observable Sequentiality*).
 

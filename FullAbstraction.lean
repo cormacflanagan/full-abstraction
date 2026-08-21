@@ -17,3 +17,8 @@ import FullAbstraction.Syntax
 import FullAbstraction.Semantics
 import FullAbstraction.Trees
 import FullAbstraction.Apply
+import FullAbstraction.Combinators
+import FullAbstraction.SPCFSemantics
+import FullAbstraction.Control
+import FullAbstraction.FullAbs
+import FullAbstraction.Sequentiality

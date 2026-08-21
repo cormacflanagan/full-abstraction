@@ -102,6 +102,9 @@ noncomputable instance {σ : Ty} : DecidableEq (Resp σ) :=
 /-- A single step `⟨i, q, r⟩` of a path. -/
 abbrev PStep (σ : Ty) : Type := (i : Fin σ.arity) × Query (σ.arg i) × Resp (σ.arg i)
 
+noncomputable instance {σ : Ty} : DecidableEq (PStep σ) :=
+  fun a b => Classical.propDecidable (a = b)
+
 /-- A node value `⟨i, q⟩` (Definition 4.6: "We sometimes refer to the value
 `⟨i,q⟩` at a node `⟨i,q,f⟩` as a node"). -/
 abbrev NodeVal (σ : Ty) : Type := (i : Fin σ.arity) × Query (σ.arg i)
@@ -493,6 +496,44 @@ noncomputable instance lemma_4_3 {σ : Ty} {γ : Ctx σ} : FinitaryBasis (DSub �
 completion of `D_σ` is a Scott domain (ω-algebraic bounded-complete cpo). …
 The result is the Scott domain designated `T_σ`."  (§4.1, after Lemma 4.3.) -/
 abbrev T (σ : Ty) : Type := Ideal (D σ)
+
+/-- The finite approximations of a tree are directed.
+
+This is a consequence of Lemma 4.3: two finite trees below `t` form a bounded
+subset of `D_σ`, hence have a least upper bound, which is again below `t`.
+
+It is needed because most of the trees named in Definitions 4.19–4.21 —
+`add1`, `if0`, `catch`, and the approximants to `K`, `I` and `S` — branch over
+*infinitely* many responses and so are *not* elements of the finitary basis
+`D_σ`; they are limit points of `T_σ`. -/
+theorem finiteApprox_directed {σ : Ty} (t : Tree σ) (d₁ d₂ : D σ)
+    (h₁ : d₁.1 ⊑ t) (h₂ : d₂.1 ⊑ t) : ∃ d : D σ, d.1 ⊑ t ∧ d₁ ⊑ d ∧ d₂ ⊑ d := by
+  sorry
+
+/-- The element of `T_σ` determined by a (possibly infinite) tree `t`: the ideal
+of its finite approximations.  For a finite `t` this is the principal ideal
+`I_t` of Theorem 4.4. -/
+noncomputable def idealOf {σ : Ty} (t : Tree σ) : T σ where
+  carrier := fun d => d.1 ⊑ t
+  nonempty' := ⟨DSub.bot, Tree.Le.bot t⟩
+  downward a b hab hb := Po.le_trans (show a.1 ⊑ b.1 from hab) hb
+  directed' a b ha hb := by
+    obtain ⟨d, hd, h1, h2⟩ := finiteApprox_directed t a b ha hb
+    exact ⟨d, hd, h1, h2⟩
+
+/-- The ideal of finite approximations of a chain of trees. -/
+noncomputable def idealOfChain {σ : Ty} (c : Nat → Tree σ)
+    (hmono : ∀ m n : Nat, m ≤ n → c m ⊑ c n) : T σ where
+  carrier := fun d => ∃ n, d.1 ⊑ c n
+  nonempty' := ⟨DSub.bot, 0, Tree.Le.bot _⟩
+  downward a b hab := by
+    rintro ⟨n, hn⟩; exact ⟨n, Po.le_trans (show a.1 ⊑ b.1 from hab) hn⟩
+  directed' a b := by
+    rintro ⟨m, hm⟩ ⟨n, hn⟩
+    have hm' : a.1 ⊑ c (m + n) := Po.le_trans hm (hmono m (m + n) (Nat.le_add_right m n))
+    have hn' : b.1 ⊑ c (m + n) := Po.le_trans hn (hmono n (m + n) (Nat.le_add_left n m))
+    obtain ⟨d, hd, h1, h2⟩ := finiteApprox_directed (c (m + n)) a b hm' hn'
+    exact ⟨d, ⟨m + n, hd⟩, h1, h2⟩
 
 /-- The reflexivity, antisymmetry and transitivity half of Lemma 4.3, which is
 proved outright. -/

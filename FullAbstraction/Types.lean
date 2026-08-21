@@ -64,6 +64,25 @@ theorem eq_of_args : ∀ σ : Ty, σ = σ.args.foldr arrow base
   | base => rfl
   | arrow a b => by simp [args, ← eq_of_args b]
 
+/-- The argument list of the uncurried type built from `l`. -/
+theorem args_foldr (l : List Ty) : (l.foldr arrow base).args = l := by
+  induction l with
+  | nil => rfl
+  | cons a l ih => simp [args, ih]
+
+theorem arity_foldr (l : List Ty) : (l.foldr arrow base).arity = l.length := by
+  simp [arity, args_foldr]
+
 end Ty
+
+/-- The index of `l`'s `j`-th argument, as an index of the uncurried type. -/
+def finOf (l : List Ty) (j : Fin l.length) : Fin (l.foldr Ty.arrow Ty.base).arity :=
+  ⟨j.val, by rw [Ty.arity_foldr]; exact j.isLt⟩
+
+theorem arg_finOf (l : List Ty) (j : Fin l.length) :
+    (l.foldr Ty.arrow Ty.base).arg (finOf l j) = l[j.val] := by
+  simp only [Ty.arg, finOf]
+  congr 1
+  exact Ty.args_foldr l
 
 end FA

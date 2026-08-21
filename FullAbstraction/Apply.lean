@@ -60,12 +60,12 @@ noncomputable def apply0 {σ τ : Ty} : Tree (σ ⇒ τ) → Tree σ → Tree τ
   | .node ⟨i + 1, h⟩ q g, d =>
       .node ⟨i, Nat.lt_of_succ_lt_succ h⟩ q (fun r => apply0 (g r) d)
 
-/-- Iterated application `apply (f, d₁, …, dₖ)`, used from Corollary 4.15 on. -/
-noncomputable def apply0s {τ : Ty} : ∀ (l : List Ty), Tree (l.foldr Ty.arrow τ) →
-    ((i : Fin l.length) → Tree (l[i.val]'i.isLt)) → Tree τ
-  | [], f, _ => f
-  | a :: l, f, ds =>
-      apply0s l (apply0 f (ds ⟨0, Nat.succ_pos _⟩))
+/-- Iterated application `apply (f, d₁, …, dₖ)` on finite trees, indexed by the
+argument types of `σ` itself (§4.2 and Corollary 4.15). -/
+noncomputable def applyArgs : ∀ σ : Ty, Tree σ → ((i : Fin σ.arity) → Tree (σ.arg i)) → Tree 𝕆
+  | .base, t, _ => t
+  | .arrow _ b, t, ds =>
+      applyArgs b (apply0 t (ds ⟨0, Nat.succ_pos _⟩))
         (fun i => ds ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩)
 
 /-! ### Well-definedness obligations of Definition 4.9
@@ -90,15 +90,81 @@ theorem apply0_ok {σ τ : Ty} {γ : Ctx (σ ⇒ τ)} {f : Tree (σ ⇒ τ)} {d 
     TreeOk γ.shift (apply0 f d) := by
   sorry
 
-/-- `apply₀` is monotone in its first argument. -/
-theorem apply0_mono_left {σ τ : Ty} {f f' : Tree (σ ⇒ τ)} (h : f ⊑ f') (d : Tree σ) :
+/-- `apply₀` is monotone in its first argument.
+
+The proof is by induction on the derivation of `f ⊑ f'`: comparable trees have
+the same root, so `apply₀` takes the same branch on both sides and the induction
+hypothesis applies. -/
+theorem apply0_mono_left {σ τ : Ty} {f f' : Tree (σ ⇒ τ)} (h : Tree.Le f f') (d : Tree σ) :
     apply0 f d ⊑ apply0 f' d := by
-  sorry
+  induction h generalizing d with
+  | bot e => exact Tree.Le.bot _
+  | leaf v => exact Tree.Le.refl _
+  | node i q g g' _ ih =>
+    match i with
+    | ⟨0, hi⟩ =>
+      show Tree.Le (apply0 (.node ⟨0, hi⟩ q g) d) (apply0 (.node ⟨0, hi⟩ q g') d)
+      rw [apply0, apply0]
+      cases hd : d.at' q with
+      | none => exact Tree.Le.refl _
+      | some e =>
+        cases e with
+        | leaf v => cases v <;> simp only [] <;> first
+            | exact Tree.Le.refl _
+            | exact ih _ d
+        | node j p _ => exact ih _ d
+    | ⟨n + 1, hi⟩ =>
+      show Tree.Le (apply0 (.node ⟨n + 1, hi⟩ q g) d) (apply0 (.node ⟨n + 1, hi⟩ q g') d)
+      rw [apply0, apply0]
+      exact Tree.Le.node _ _ _ _ fun r => ih r d
+
+/-- Comparable trees answer a query compatibly: if `d ⊑ d'` and `d @ q` is
+defined, then `d' @ q` is defined and `d @ q ⊑ d' @ q`. -/
+theorem at'_mono {σ : Ty} : ∀ (q : Query σ) {d d' : Tree σ}, Tree.Le d d' →
+    d.at' q = none ∨ ∃ e e', d.at' q = some e ∧ d'.at' q = some e' ∧ Tree.Le e e'
+  | .hole, d, d', h => Or.inr ⟨d, d', rfl, rfl, h⟩
+  | .step i p r rest, d, d', h => by
+    cases h with
+    | bot e => exact Or.inl rfl
+    | leaf v => exact Or.inl rfl
+    | node j p' g g' hg =>
+      by_cases hEq : (⟨i, p⟩ : NodeVal σ) = ⟨j, p'⟩
+      · have hstep : ∀ k : Resp (σ.arg j) → Tree σ,
+            (Tree.node j p' k).stepAt i p r
+              = some (k (Tree.castResp (congrArg Sigma.fst hEq) r)) := by
+          intro k; simp only [Tree.stepAt, dif_pos hEq]
+        simp only [Tree.at', hstep, Option.bind]
+        exact at'_mono rest (hg (Tree.castResp (congrArg Sigma.fst hEq) r))
+      · simp only [Tree.at', Tree.stepAt, dif_neg hEq, Option.bind]
+        exact Or.inl trivial
 
 /-- `apply₀` is monotone in its second argument. -/
-theorem apply0_mono_right {σ τ : Ty} (f : Tree (σ ⇒ τ)) {d d' : Tree σ} (h : d ⊑ d') :
-    apply0 f d ⊑ apply0 f d' := by
-  sorry
+theorem apply0_mono_right {σ τ : Ty} :
+    ∀ (f : Tree (σ ⇒ τ)) {d d' : Tree σ}, Tree.Le d d' → apply0 f d ⊑ apply0 f d' := by
+  intro f
+  induction f with
+  | leaf v => intro d d' _; exact Tree.Le.refl _
+  | node i q g ih =>
+    intro d d' h
+    match i with
+    | ⟨0, hi⟩ =>
+      show Tree.Le (apply0 (.node ⟨0, hi⟩ q g) d) (apply0 (.node ⟨0, hi⟩ q g) d')
+      rw [apply0, apply0]
+      rcases at'_mono q h with hnone | ⟨e, e', he, he', hee⟩
+      · rw [hnone]; exact Tree.Le.bot _
+      · cases hee with
+        | bot t => rw [he]; exact Tree.Le.bot _
+        | leaf v =>
+          rw [he, he']
+          cases v
+          · exact Tree.Le.bot _
+          · exact Tree.Le.refl _
+          · exact ih _ h
+        | node j p k k' _ => rw [he, he']; exact ih _ h
+    | ⟨n + 1, hi⟩ =>
+      show Tree.Le (apply0 (.node ⟨n + 1, hi⟩ q g) d) (apply0 (.node ⟨n + 1, hi⟩ q g) d')
+      rw [apply0, apply0]
+      exact Tree.Le.node _ _ _ _ fun r => ih r h
 
 /-- `apply₀` restricted to the finitary bases. -/
 noncomputable def applyD {σ τ : Ty} (f : D (σ ⇒ τ)) (d : D σ) : D τ :=
