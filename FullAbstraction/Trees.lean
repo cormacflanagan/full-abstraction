@@ -118,6 +118,27 @@ inductive RAns (σ : Ty) : Type where
   | num (n : Nat) : RAns σ
   | node (i : Fin σ.arity) (p : Query (σ.arg i)) : RAns σ
 
+/-- A **response context**: the literal reading of Definition 4.2's "relation
+associating argument indices with responses".
+
+This is the bookkeeping form of a tree context — the list of responses recorded
+along a path.  The form used for legality (Definition 4.2, *Subtrees*) is the
+equivalent one in which each argument carries the *approximation tree* those
+responses determine; see `Ctx` below. -/
+abbrev RespCtx (σ : Ty) : Type := List ((i : Fin σ.arity) × Resp (σ.arg i))
+
+namespace RespCtx
+variable {σ : Ty}
+
+/-- `γ(i) ≝ {s | ⟨i,s⟩ ∈ γ}` (Definition 4.2, *Contexts*). -/
+def at' (γ : RespCtx σ) (i : Fin σ.arity) : Set (Resp (σ.arg i)) := fun r => ⟨i, r⟩ ∈ γ
+
+/-- `γ ∪ {⟨i,r⟩}`. -/
+def cons (γ : RespCtx σ) (i : Fin σ.arity) (r : Resp (σ.arg i)) : RespCtx σ :=
+  ⟨i, r⟩ :: γ
+
+end RespCtx
+
 namespace Query
 variable {σ : Ty}
 
@@ -130,9 +151,9 @@ def substAns : Query σ → RAns σ → Resp σ
 
 /-- `q̂`, the **tree context determined by the query `q`**
 (Definition 4.12): `R(?, γ) = γ` and `R(⟨i,p,⟨r,q'⟩⟩, γ) = R(q', γ ∪ {⟨i,r⟩})`. -/
-def ctx : Query σ → List ((i : Fin σ.arity) × Resp (σ.arg i))
+def ctxList : Query σ → RespCtx σ
   | .hole => []
-  | .step i _ r rest => ⟨i, r⟩ :: rest.ctx
+  | .step i _ r rest => ⟨i, r⟩ :: rest.ctxList
 
 /-- The length of a query, i.e. the number of nodes it visits. -/
 def length : Query σ → Nat
@@ -141,26 +162,6 @@ def length : Query σ → Nat
 
 end Query
 
-/-- A **tree context** `γ ∈ C_σ`: "a relation associating argument indices with
-responses; we will use it as a set-valued function from indices to sets of
-responses" (Definition 4.2, *Contexts*). -/
-abbrev Ctx (σ : Ty) : Type := List ((i : Fin σ.arity) × Resp (σ.arg i))
-
-namespace Ctx
-variable {σ : Ty}
-
-/-- `γ(i) ≝ {s | ⟨i,s⟩ ∈ γ}` (Definition 4.2, *Contexts*). -/
-def at' (γ : Ctx σ) (i : Fin σ.arity) : Set (Resp (σ.arg i)) := fun r => ⟨i, r⟩ ∈ γ
-
-/-- `γ ∪ {⟨i,r⟩}`. -/
-def cons (γ : Ctx σ) (i : Fin σ.arity) (r : Resp (σ.arg i)) : Ctx σ := ⟨i, r⟩ :: γ
-
-end Ctx
-
-/-- `q̂(i)`, the set of responses about argument `i` recorded in the tree context
-determined by `q`. -/
-def Query.ctxAt {σ : Ty} (q : Query σ) (i : Fin σ.arity) : Set (Resp (σ.arg i)) :=
-  Ctx.at' q.ctx i
 
 namespace Resp
 variable {σ : Ty}
@@ -495,55 +496,127 @@ noncomputable def Resp.toTree {σ : Ty} : Resp σ → Tree σ
   | .node i p => .node i p (fun _ => Tree.bot)
   | .step i q r rest => .node i q (fun s => if s = r then rest.toTree else Tree.bot)
 
+/-! ## Tree contexts (Definition 4.2, *Contexts*) -/
+
+/-- A **tree context** `γ ∈ C_σ`.
+
+Definition 4.2 introduces a context as "a relation associating argument indices
+with responses", used "as a set-valued function from indices to sets of
+responses".  But every use a context is put to in that definition is through the
+*approximation tree* `⊔γ(i)` those responses determine: the query `q` of a node
+`⟨i,q,f⟩` must "extend the approximation tree `⊔γ(i)` for argument `i` by exactly
+one node" (§4.1, p. 19).  We therefore record the approximation trees directly —
+`γ i` is the tree of type `σᵢ` built from everything the context knows about
+argument `i`.
+
+This does not presuppose that `⊔γ(i)` exists, and it makes the two facts the
+development needs immediate rather than derived: a legal query addresses a
+position that is present in `γ i` but unexplored, and recording a response fills
+exactly that position.  (The literal, bookkeeping reading of a context is
+`RespCtx` above; it is what the *statement* of Lemma 4.14 uses.) -/
+abbrev Ctx (σ : Ty) : Type := (i : Fin σ.arity) → Tree (σ.arg i)
+
+namespace Ctx
+variable {σ : Ty}
+
+/-- `∅ ∈ C_σ`: nothing is known about any argument. -/
+def empty : Ctx σ := fun _ => Tree.bot
+
+/-- `γ ∪ {⟨i,r⟩} ∈ C_σ`: record the response `r` about argument `i`, i.e. extend
+that argument's approximation tree by the path `r` describes. -/
+noncomputable def cons (γ : Ctx σ) (i : Fin σ.arity) (r : Resp (σ.arg i)) : Ctx σ :=
+  fun j => if h : i = j then Tree.join (γ j) (Tree.castResp h r).toTree else γ j
+
+@[simp] theorem empty_apply (i : Fin σ.arity) : (Ctx.empty : Ctx σ) i = Tree.bot := rfl
+
+@[simp] theorem cons_self (γ : Ctx σ) (i : Fin σ.arity) (r : Resp (σ.arg i)) :
+    γ.cons i r i = Tree.join (γ i) r.toTree := by
+  show (dite _ _ _) = _
+  rw [dif_pos (rfl : i = i)]
+  exact rfl
+
+theorem cons_other (γ : Ctx σ) {i j : Fin σ.arity} (r : Resp (σ.arg i)) (h : ¬ i = j) :
+    γ.cons i r j = γ j := by
+  show (dite _ _ _) = _
+  rw [dif_neg h]
+
+end Ctx
+
+namespace Query
+variable {σ : Ty}
+
+/-- `R(q, γ)` (Definition 4.12): `R(?, γ) = γ` and
+`R(⟨i,p,⟨r,q'⟩⟩, γ) = R(q', γ ∪ {⟨i,r⟩})`. -/
+noncomputable def ctxFrom : Query σ → Ctx σ → Ctx σ
+  | .hole, γ => γ
+  | .step i _ r rest, γ => rest.ctxFrom (γ.cons i r)
+
+/-- `q̂`, the **tree context determined by the query `q`** (Definition 4.12):
+`q̂ = R(q, ∅)`. -/
+noncomputable def ctx (q : Query σ) : Ctx σ := q.ctxFrom Ctx.empty
+
+end Query
+
 /-! ## Legal queries and legal responses (Definition 4.2) -/
 
-mutual
-/-- `𝒬_σ(R)`: the **legal queries** extending a set `R` of previous responses.
+/-- `𝒬_σ(γ(i))`: `q` is a **legal query** about an argument whose approximation
+tree is `t`.
 
 "`𝒬_σ(R) = {?}` if `R = ∅`, and otherwise
 `{q ∈ Q_σ | ¬∃r[q ⊏ r ⊑ ⊔R], ∃r ∈ R (q = r : ⟨r',?⟩)}`."
 
 Operationally (§4.1, p. 19): "a query `q` on argument `i` must extend the
-approximation tree `⊔γ(i)` for argument `i` by exactly one node".  -/
-inductive LegalQuery : {σ : Ty} → Set (Resp σ) → Query σ → Prop where
-  /-- `𝒬_σ(∅) = {?}`. -/
-  | root {σ : Ty} {R : Set (Resp σ)} :
-      ¬ Set.Nonempty R → LegalQuery R .hole
-  /-- `q = r : ⟨r', ?⟩` for some `r ∈ R`, together with the side condition
-  `¬∃r[q ⊏ r ⊑ ⊔R]`: the query must *probe the perimeter* of what is already
-  known (Definition 4.5), i.e. `q[?/⊥]` must not be strictly below anything
-  `R` has already answered.
+approximation tree `⊔γ(i)` for argument `i` by exactly one node".  That is
+exactly what is written here.  `t @ q = ⊥` says both that `q` follows only nodes
+`t` already contains — so `q` extends `t` and, by the last clause of the
+definition, `q = r : ⟨r',?⟩` for the response `r` recorded along it — and that
+the node `q` probes is still unanswered, which is the side condition
+`¬∃r[q ⊏ r ⊑ ⊔R]`, the *probes the perimeter* condition of Definition 4.5.
 
-  The condition is rendered without a least upper bound as "`q[?/⊥]` is not
-  strictly below `s` for any `s ∈ R`".  For the sets `R` that arise this is the
-  paper's condition: the responses recorded about one argument along a single
-  path form a chain, since each legal query extends the response before it, so
-  `⊔R` is the last element of `R`.
+Two remarks on the paper's phrasing.  First, `¬∃r[q ⊏ r ⊑ ⊔R]` is genuinely
+stronger than "`q` is not a prefix of any `s ∈ R`": if `s` answers the node `q`
+probes with a *different* response than `q` records, `q` is not a prefix of `s`,
+yet `q[?/⊥]` is still strictly below `s` and the query does re-probe an answered
+node.  Stating legality against the approximation tree gets this right
+automatically.  Second, `⊔R` need not be assumed to exist. -/
+def LegalQuery {σ : Ty} (t : Tree σ) (q : Query σ) : Prop := t.at' q = some Tree.bot
 
-  Note that it is *not* enough to require that `q` is not a syntactic prefix of
-  any `s ∈ R`.  If `s` answers the node `q` probes with a *different* response
-  than `q` records, `q` is not a prefix of `s`, yet `q[?/⊥]` — whose final
-  branching function `⟨r',⊥⟩` is the empty branching function — is still
-  strictly below `s`, and the query does re-probe an answered node. -/
-  | extend {σ : Ty} {R : Set (Resp σ)} {r : Resp σ} {i : Fin σ.arity}
-      {p : Query (σ.arg i)} {r' : Resp (σ.arg i)} :
-      r ∈ R → r.lastNode = some ⟨i, p⟩ → LegalResp p r' →
-      (¬ ∃ s, s ∈ R ∧ Tree.Le (r.extendHole ⟨i, r'⟩).toTree s.toTree ∧
-        (r.extendHole ⟨i, r'⟩).toTree ≠ s.toTree) →
-      LegalQuery R (r.extendHole ⟨i, r'⟩)
+/-- `? ∈ 𝒬_σ(∅)`. -/
+theorem LegalQuery.root {σ : Ty} : LegalQuery (Tree.bot : Tree σ) .hole := rfl
+
+/-- `𝒬_σ(∅) = {?}`: in the empty context no query but `?` is legal. -/
+theorem LegalQuery.eq_hole_of_bot {σ : Ty} : ∀ {q : Query σ},
+    LegalQuery (Tree.bot : Tree σ) q → q = .hole
+  | .hole, _ => rfl
+  | .step _ _ _ _, h =>
+      absurd h (by simp [LegalQuery, Tree.at', Tree.stepAt, Tree.bot])
+
+/-- The side condition on the answer `x` of a legal response `q[?/x]`
+(Definition 4.2, *Legal Responses*).
+
+A final answer `a ∈ ℕ` is always legal.  An intermediate answer `⟨i,p,⊥⟩` is
+legal exactly when `p` can "appear at the point specified by `q` in the selected
+argument tree", i.e. when `p` is a legal query about argument `i` in the tree
+context `q̂` determined by `q`.  As the paper puts it, "this test reduces to
+confirming that the response `q[?/x]` is a well-formed tree (path)". -/
+def RAns.Ok {σ : Ty} (q : Query σ) : RAns σ → Prop
+  | .num _ => True
+  | .node i p => LegalQuery (q.ctx i) p
+
 /-- `ℛ_σ(q)`: the **legal responses** to the query `q`.
 
-"`ℛ_σ(q) = {r ∈ R_σ | r = q[?/a] for a ∈ ℕ or r = q[?/⟨i,p,⊥⟩]}`", where the
-intermediate answer `⟨i,p,⊥⟩` must itself be able to "appear at the point
-specified by `q` in the selected argument tree", i.e. `p` must be a legal query
-in the tree context `q̂` determined by `q`. -/
-inductive LegalResp : {σ : Ty} → Query σ → Resp σ → Prop where
-  /-- `r = q[?/a]` for a final answer `a ∈ ℕ`. -/
-  | num {σ : Ty} (q : Query σ) (n : Nat) : LegalResp q (q.substAns (.num n))
-  /-- `r = q[?/⟨i,p,⊥⟩]` for an intermediate answer. -/
-  | node {σ : Ty} (q : Query σ) (i : Fin σ.arity) (p : Query (σ.arg i)) :
-      LegalQuery (q.ctxAt i) p → LegalResp q (q.substAns (.node i p))
-end
+"`ℛ_σ(q) = {r ∈ R_σ | r = q[?/a] for a ∈ ℕ or r = q[?/⟨i,p,⊥⟩]}`." -/
+def LegalResp {σ : Ty} (q : Query σ) (r : Resp σ) : Prop :=
+  ∃ x : RAns σ, r = q.substAns x ∧ RAns.Ok q x
+
+/-- `r = q[?/a]` for a final answer `a ∈ ℕ`. -/
+theorem LegalResp.num {σ : Ty} (q : Query σ) (n : Nat) :
+    LegalResp q (q.substAns (.num n)) := ⟨.num n, rfl, trivial⟩
+
+/-- `r = q[?/⟨i,p,⊥⟩]` for an intermediate answer. -/
+theorem LegalResp.node {σ : Ty} (q : Query σ) (i : Fin σ.arity) (p : Query (σ.arg i))
+    (h : LegalQuery (q.ctx i) p) : LegalResp q (q.substAns (.node i p)) :=
+  ⟨.node i p, rfl, h⟩
 
 /-! ## Definition 4.2: the finitary bases `D_σ(γ)` -/
 
@@ -562,7 +635,7 @@ inductive TreeOk : {σ : Ty} → Ctx σ → Tree σ → Prop where
   /-- `⟨i,q,f⟩ ∈ D_σ(γ)` under the conditions of Definition 4.2. -/
   | node {σ : Ty} (γ : Ctx σ) (i : Fin σ.arity) (q : Query (σ.arg i))
       (f : Resp (σ.arg i) → Tree σ) :
-      LegalQuery (γ.at' i) q →
+      LegalQuery (γ i) q →
       Tree.FiniteProperDomain f →
       (∀ r, LegalResp q r → TreeOk (γ.cons i r) (f r)) →
       (∀ r, ¬ LegalResp q r → f r = Tree.bot) →
@@ -574,42 +647,25 @@ inductive TreeOk : {σ : Ty} → Ctx σ → Tree σ → Prop where
 `{⟨i,r⟩}` … satisfying the closure properties `∅ ∈ C_σ`; and
 `γ ∪ {⟨i,r⟩} ∈ C_σ` if `γ ∈ C_σ` and `r ∈ ℛ_σᵢ(q)` for some `q ∈ 𝒬_σᵢ(γ(i))`." -/
 inductive CtxOk : {σ : Ty} → Ctx σ → Prop where
-  | nil {σ : Ty} : CtxOk ([] : Ctx σ)
+  | empty {σ : Ty} : CtxOk (Ctx.empty : Ctx σ)
   | cons {σ : Ty} {γ : Ctx σ} {i : Fin σ.arity} {q : Query (σ.arg i)}
       {r : Resp (σ.arg i)} :
-      CtxOk γ → LegalQuery (γ.at' i) q → LegalResp q r → CtxOk (γ.cons i r)
+      CtxOk γ → LegalQuery (γ i) q → LegalResp q r → CtxOk (γ.cons i r)
 
 /-- Inversion for `TreeOk` at a node. -/
 theorem TreeOk_node_inv {σ : Ty} {γ : Ctx σ} {i : Fin σ.arity} {q : Query (σ.arg i)}
     {f : Resp (σ.arg i) → Tree σ} (h : TreeOk γ (.node i q f)) :
-    LegalQuery (γ.at' i) q ∧ Tree.FiniteProperDomain f ∧
+    LegalQuery (γ i) q ∧ Tree.FiniteProperDomain f ∧
     (∀ r, LegalResp q r → TreeOk (γ.cons i r) (f r)) ∧
     (∀ r, ¬ LegalResp q r → f r = Tree.bot) := by
   cases h with
   | node _ _ _ _ hq hfin hsub hnon => exact ⟨hq, hfin, hsub, hnon⟩
 
-/-- Two contexts recording the same responses about every argument are
-interchangeable in `TreeOk`. -/
-theorem TreeOk_congr_ctx {σ : Ty} : ∀ (d : Tree σ) (γ γ' : Ctx σ),
-    (∀ i, γ.at' i = γ'.at' i) → TreeOk γ d → TreeOk γ' d := by
-  intro d
-  induction d with
-  | leaf v => intro γ γ' _ _; exact TreeOk.leaf γ' v
-  | node i q f ih =>
-    intro γ γ' hset h
-    obtain ⟨hq, hfin, hsub, hnon⟩ := TreeOk_node_inv h
-    refine TreeOk.node γ' i q f (hset i ▸ hq) hfin (fun r hr => ?_) hnon
-    refine ih r (γ.cons i r) (γ'.cons i r) (fun k => ?_) (hsub r hr)
-    apply Set.ext
-    intro s
-    simp only [Ctx.at', Ctx.cons, Set.mem_def, List.mem_cons]
-    constructor
-    · rintro (heq | hm)
-      · exact Or.inl heq
-      · exact Or.inr ((hset k ▸ hm : s ∈ γ'.at' k))
-    · rintro (heq | hm)
-      · exact Or.inl heq
-      · exact Or.inr ((hset k ▸ hm : s ∈ γ.at' k))
+/-- Two contexts that know the same about every argument are interchangeable in
+`TreeOk`. -/
+theorem TreeOk_congr_ctx {σ : Ty} (d : Tree σ) (γ γ' : Ctx σ)
+    (hset : ∀ i, γ i = γ' i) (h : TreeOk γ d) : TreeOk γ' d :=
+  funext hset ▸ h
 
 /-- The join of two legal subtrees with a common upper bound is legal.  This is
 the second half of the least-upper-bound property of Lemma 4.3. -/
@@ -666,7 +722,7 @@ def DSub (σ : Ty) (γ : Ctx σ) : Type := { d : Tree σ // TreeOk γ d }
 
 /-- "The partial order `D_σ` of finite trees of type `σ` is defined as
 `D_σ(∅)`" (Definition 4.2). -/
-abbrev D (σ : Ty) : Type := DSub σ []
+abbrev D (σ : Ty) : Type := DSub σ Ctx.empty
 
 namespace DSub
 variable {σ : Ty} {γ : Ctx σ}
@@ -752,7 +808,7 @@ It is needed because most of the trees named in Definitions 4.19–4.21 —
 theorem finiteApprox_directed {σ : Ty} (t : Tree σ) (d₁ d₂ : D σ)
     (h₁ : d₁.1 ⊑ t) (h₂ : d₂.1 ⊑ t) : ∃ d : D σ, d.1 ⊑ t ∧ d₁ ⊑ d ∧ d₂ ⊑ d := by
   have hj := Tree.join_spec d₁.1 d₂.1 t h₁ h₂
-  exact ⟨⟨Tree.join d₁.1 d₂.1, TreeOk_join d₁.1 [] d₂.1 t d₁.2 d₂.2 h₁ h₂⟩,
+  exact ⟨⟨Tree.join d₁.1 d₂.1, TreeOk_join d₁.1 Ctx.empty d₂.1 t d₁.2 d₂.2 h₁ h₂⟩,
     hj.2.2 t h₁ h₂, hj.1, hj.2.1⟩
 
 /-- The element of `T_σ` determined by a (possibly infinite) tree `t`: the ideal

@@ -47,7 +47,7 @@ theorem T_eq_bot {σ : Ty} (A : T σ) (h : ∀ a, a ∈ A → a = DSub.bot) :
   · intro ha; rw [h a ha]; exact Po.le_refl (DSub.bot : D σ)
   · intro ha
     obtain ⟨b, hb⟩ := A.nonempty'
-    have hle : a ⊑ (DSub.bot : DSub σ []) := ha
+    have hle : a ⊑ (DSub.bot : DSub σ Ctx.empty) := ha
     have hEq : a = DSub.bot := Po.le_antisymm hle (DSub.bot_le a)
     rw [hEq, ← h b hb]; exact hb
 

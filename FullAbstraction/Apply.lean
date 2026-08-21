@@ -133,9 +133,8 @@ theorem at'_snoc {σ : Ty} : ∀ (q : Query σ) (d : Tree σ) (j : Fin σ.arity)
 /-- Legal responses are responses to the query they answer. -/
 theorem qry_of_legalResp {σ : Ty} {q : Query σ} {r : Resp σ} (h : LegalResp q r) :
     r.qry = q := by
-  cases h with
-  | num q n => exact Query.qry_substAns q (.num n)
-  | node q i p _ => exact Query.qry_substAns q (.node i p)
+  obtain ⟨x, rfl, _⟩ := h
+  exact Query.qry_substAns q x
 
 /-! ## Definition 4.9: `apply` -/
 
@@ -181,42 +180,14 @@ noncomputable def applyArgs : ∀ σ : Ty, Tree σ → ((i : Fin σ.arity) → T
 upper bound.  Hence, `apply` is a well-defined, continuous function from pairs
 of trees to trees." -/
 
-/-- `γ'` is the **shift** of `γ` (Definition 4.9: `γ'(i) = γ(i+1)`): it records
-about argument `i` exactly what `γ` records about argument `i + 1`. -/
+/-- `γ'` is the **shift** of `γ` (Definition 4.9: `γ'(i) = γ(i+1)`): it knows
+about argument `i` exactly what `γ` knows about argument `i + 1`. -/
 def Ctx.IsShift {a τ : Ty} (γ : Ctx (a ⇒ τ)) (γ' : Ctx τ) : Prop :=
-  ∀ (i : Fin τ.arity) (h : i.val + 1 < (a ⇒ τ).arity) (r : Resp (τ.arg i)),
-    (⟨i, r⟩ : (j : Fin τ.arity) × Resp (τ.arg j)) ∈ γ' ↔
-    (⟨⟨i.val + 1, h⟩, r⟩ : (j : Fin (a ⇒ τ).arity) × Resp ((a ⇒ τ).arg j)) ∈ γ
-
-/-- Comparing indexed pairs before and after the shift. -/
-theorem shiftSigma_eq_iff {a τ : Ty} (i k : Fin τ.arity)
-    (hi : i.val + 1 < (a ⇒ τ).arity) (hk : k.val + 1 < (a ⇒ τ).arity)
-    (r : Resp (τ.arg i)) (s : Resp (τ.arg k)) :
-    ((⟨i, r⟩ : (j : Fin τ.arity) × Resp (τ.arg j)) = ⟨k, s⟩) ↔
-    ((⟨⟨i.val + 1, hi⟩, r⟩ : (j : Fin (a ⇒ τ).arity) × Resp ((a ⇒ τ).arg j))
-      = ⟨⟨k.val + 1, hk⟩, s⟩) := by
-  constructor
-  · intro h
-    have h1 : i = k := congrArg Sigma.fst h
-    subst h1
-    have h2 : r = s := by injection h
-    subst h2
-    rfl
-  · intro h
-    have h1 : (⟨i.val + 1, hi⟩ : Fin (a ⇒ τ).arity) = ⟨k.val + 1, hk⟩ := congrArg Sigma.fst h
-    have h2 : i = k := by
-      apply Fin.ext
-      have hv := congrArg Fin.val h1
-      simpa using hv
-    subst h2
-    have h3 : r = s := by injection h
-    subst h3
-    rfl
+  ∀ (i : Fin τ.arity) (h : i.val + 1 < (a ⇒ τ).arity), γ' i = γ ⟨i.val + 1, h⟩
 
 /-- The empty context is its own shift. -/
-theorem Ctx.isShift_nil {a τ : Ty} : Ctx.IsShift ([] : Ctx (a ⇒ τ)) ([] : Ctx τ) := by
-  intro i h r
-  constructor <;> intro hm <;> exact absurd hm (by simp)
+theorem Ctx.isShift_empty {a τ : Ty} :
+    Ctx.IsShift (Ctx.empty : Ctx (a ⇒ τ)) (Ctx.empty : Ctx τ) := fun _ _ => rfl
 
 /-- Extending both contexts at corresponding indices preserves the shift
 relation. -/
@@ -224,28 +195,21 @@ theorem Ctx.isShift_cons {a τ : Ty} {γ : Ctx (a ⇒ τ)} {γ' : Ctx τ}
     (hs : Ctx.IsShift γ γ') (k : Fin τ.arity) (hk : k.val + 1 < (a ⇒ τ).arity)
     (s : Resp (τ.arg k)) :
     Ctx.IsShift (γ.cons ⟨k.val + 1, hk⟩ s) (γ'.cons k s) := by
-  intro i h r
-  simp only [Ctx.cons, List.mem_cons]
-  rw [hs i h r, shiftSigma_eq_iff i k h hk r s]
+  intro i h
+  by_cases hik : k = i
+  · subst hik
+    rw [Ctx.cons_self, Ctx.cons_self, hs k h]
+  · rw [Ctx.cons_other _ _ hik, Ctx.cons_other _ _ (fun he => hik (Fin.ext
+      (Nat.succ_inj.mp (congrArg Fin.val he)))), hs i h]
 
 /-- Recording a response about the *first* argument does not change the shift. -/
 theorem Ctx.isShift_cons_zero {a τ : Ty} {γ : Ctx (a ⇒ τ)} {γ' : Ctx τ}
     (hs : Ctx.IsShift γ γ') (h0 : 0 < (a ⇒ τ).arity) (s : Resp ((a ⇒ τ).arg ⟨0, h0⟩)) :
     Ctx.IsShift (γ.cons ⟨0, h0⟩ s) γ' := by
-  intro i h r
-  rw [hs i h r]
-  simp only [Ctx.cons, List.mem_cons]
-  constructor
-  · exact fun hm => Or.inr hm
-  · rintro (heq | hm)
-    · exact absurd (congrArg (fun x => x.1.val) heq) (by simp)
-    · exact hm
-
-/-- Shifted contexts record the same responses. -/
-theorem Ctx.at'_of_isShift {a τ : Ty} {γ : Ctx (a ⇒ τ)} {γ' : Ctx τ}
-    (hs : Ctx.IsShift γ γ') (i : Fin τ.arity) (h : i.val + 1 < (a ⇒ τ).arity) :
-    γ'.at' i = γ.at' ⟨i.val + 1, h⟩ :=
-  Set.ext fun r => hs i h r
+  intro i h
+  rw [Ctx.cons_other _ _ (fun he : (⟨0, h0⟩ : Fin (a ⇒ τ).arity) = ⟨i.val + 1, h⟩ =>
+    Nat.succ_ne_zero i.val (congrArg Fin.val he).symm)]
+  exact hs i h
 
 /-- **Definition 4.9**: `apply₀` maps `D_{σ→τ}(γ) × D_σ` into `D_τ(γ')`.
 
@@ -279,7 +243,7 @@ theorem apply0_ok {σ τ : Ty} : ∀ (f : Tree (σ ⇒ τ)) (γ : Ctx (σ ⇒ τ
     | ⟨k + 1, hk⟩ =>
       rw [apply0]
       refine TreeOk.node γ' ⟨k, Nat.lt_of_succ_lt_succ hk⟩ q _ ?_ ?_ ?_ ?_
-      · rw [Ctx.at'_of_isShift hs ⟨k, Nat.lt_of_succ_lt_succ hk⟩ hk]; exact hq
+      · rw [hs ⟨k, Nat.lt_of_succ_lt_succ hk⟩ hk]; exact hq
       · obtain ⟨l, hl⟩ := hfin
         refine ⟨l, fun r hr => hl r ?_⟩
         intro hgr
@@ -370,7 +334,7 @@ theorem apply0_mono_right {σ τ : Ty} :
 
 /-- `apply₀` restricted to the finitary bases. -/
 noncomputable def applyD {σ τ : Ty} (f : D (σ ⇒ τ)) (d : D σ) : D τ :=
-  ⟨apply0 f.1 d.1, apply0_ok f.1 [] [] d.1 f.2 Ctx.isShift_nil⟩
+  ⟨apply0 f.1 d.1, apply0_ok f.1 Ctx.empty Ctx.empty d.1 f.2 Ctx.isShift_empty⟩
 
 /-- **Definition 4.9**, the continuous extension:
 
@@ -785,8 +749,14 @@ theorem apply0_first {σ τ : Ty} (hi : 0 < (σ ⇒ τ).arity) (q : Query σ)
 /-- "`d₁ ⊒ ⊔ γ(i)`": `d₁` is an upper bound of the responses that `γ` records
 about argument `i`.  Stating the hypothesis this way avoids presupposing that
 the least upper bound exists. -/
-def Ctx.Above {σ : Ty} (γ : Ctx σ) (i : Fin σ.arity) (d : Tree (σ.arg i)) : Prop :=
+def RespCtx.Above {σ : Ty} (γ : RespCtx σ) (i : Fin σ.arity)
+    (d : Tree (σ.arg i)) : Prop :=
   ∀ r, r ∈ γ.at' i → r.toTree ⊑ d
+
+/-- The same hypothesis for a tree context: `d` extends what `γ` knows about
+argument `i`. -/
+def Ctx.Above {σ : Ty} (γ : Ctx σ) (i : Fin σ.arity) (d : Tree (σ.arg i)) : Prop :=
+  γ i ⊑ d
 
 /-- **Lemma 4.14.**  *Let `d ∈ D_σ`, let `q ∈ Q_σ` be a query that determines the
 context `q̂`, and let `e` be a subtree in `D_σ(q̂)`.  If `d @ q = e` and
@@ -799,7 +769,7 @@ proof is the paper's induction on `q`: at a step probing the first argument,
 exactly that branch and `shift₁` erases the step; at a step probing a later
 argument, `apply₀` reproduces the node with its index shifted down by one. -/
 theorem lemma_4_14 : ∀ {a τ : Ty} (q : Query (a ⇒ τ)) (d e : Tree (a ⇒ τ)) (d₁ : Tree a),
-    q.Coherent → d.at' q = some e → Ctx.Above q.ctx ⟨0, Nat.succ_pos _⟩ d₁ →
+    q.Coherent → d.at' q = some e → RespCtx.Above q.ctxList ⟨0, Nat.succ_pos _⟩ d₁ →
     (apply0 d d₁).at' q.shift1 = some (apply0 e d₁)
   | _, _, .hole, d, e, _, _, hq, _ => by
       have hde : d = e := by injection hq
@@ -808,7 +778,7 @@ theorem lemma_4_14 : ∀ {a τ : Ty} (q : Query (a ⇒ τ)) (d e : Tree (a ⇒ �
   | a, τ, .step i p r rest, d, e, d₁, hco, hq, hab => by
       obtain ⟨f, rfl, hrest⟩ := at'_step_inv hq
       obtain ⟨hcr, hco'⟩ := hco
-      have habTail : Ctx.Above rest.ctx ⟨0, Nat.succ_pos _⟩ d₁ := fun s hs =>
+      have habTail : RespCtx.Above rest.ctxList ⟨0, Nat.succ_pos _⟩ d₁ := fun s hs =>
         hab s (List.mem_cons_of_mem _ hs)
       match i with
       | ⟨0, hi⟩ =>
@@ -849,12 +819,12 @@ theorem shift1_coherent : ∀ {a τ : Ty} (q : Query (a ⇒ τ)), q.Coherent →
 in the context of `q` about argument `i + 1`. -/
 theorem mem_ctx_shift1 : ∀ {a τ : Ty} (q : Query (a ⇒ τ)) (i : Fin τ.arity)
     (hi : i.val + 1 < (a ⇒ τ).arity) (r : Resp (τ.arg i)),
-    (⟨i, r⟩ : (j : Fin τ.arity) × Resp (τ.arg j)) ∈ q.shift1.ctx →
-    (⟨⟨i.val + 1, hi⟩, r⟩ : (j : Fin (a ⇒ τ).arity) × Resp ((a ⇒ τ).arg j)) ∈ q.ctx
+    (⟨i, r⟩ : (j : Fin τ.arity) × Resp (τ.arg j)) ∈ q.shift1.ctxList →
+    (⟨⟨i.val + 1, hi⟩, r⟩ : (j : Fin (a ⇒ τ).arity) × Resp ((a ⇒ τ).arg j)) ∈ q.ctxList
   | _, _, .hole, i, hi, r, hmem => by
       rw [show (Query.hole : Query (_ ⇒ _)).shift1 = Query.hole by
         simp only [Query.shift1]] at hmem
-      exact absurd hmem (by simp [Query.ctx])
+      exact absurd hmem (by simp [Query.ctxList])
   | a, τ, .step j p s rest, i, hi, r, hmem => by
       match j with
       | ⟨0, hj⟩ =>
@@ -879,7 +849,7 @@ same ground answer as applying them to the subtree `d @ q`, provided each
 argument extends what `q̂` records about it. -/
 theorem applyArgs_at_query : ∀ (σ : Ty) (q : Query σ) (d e : Tree σ)
     (ds : (i : Fin σ.arity) → Tree (σ.arg i)),
-    q.Coherent → d.at' q = some e → (∀ i, Ctx.Above q.ctx i (ds i)) →
+    q.Coherent → d.at' q = some e → (∀ i, RespCtx.Above q.ctxList i (ds i)) →
     applyArgs σ d ds = applyArgs σ e ds
   | .base, q, d, e, ds, _, hq, _ => by
       cases q with
@@ -891,7 +861,7 @@ theorem applyArgs_at_query : ∀ (σ : Ty) (q : Query σ) (d e : Tree σ)
   | .arrow a τ, q, d, e, ds, hco, hq, hab => by
       have h14 := lemma_4_14 q d e (ds ⟨0, Nat.succ_pos _⟩) hco hq (hab _)
       have habs : ∀ i : Fin τ.arity,
-          Ctx.Above q.shift1.ctx i (ds ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩) := by
+          RespCtx.Above q.shift1.ctxList i (ds ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩) := by
         intro i r hr
         exact hab ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩ r
           (mem_ctx_shift1 q i (Nat.succ_lt_succ i.isLt) r hr)
@@ -916,7 +886,7 @@ paper actually invokes, needs no hypothesis on `d` at all. -/
 theorem corollary_4_15 (σ : Ty) (q : Query σ) (e d : Tree σ)
     (ds : (i : Fin σ.arity) → Tree (σ.arg i))
     (hco : q.Coherent) (hd : d.at' q = some e)
-    (hab : ∀ i, Ctx.Above q.ctx i (ds i)) :
+    (hab : ∀ i, RespCtx.Above q.ctxList i (ds i)) :
     applyArgs σ d ds = applyArgs σ (q.substTree e) ds ∧
     applyArgs σ (q.substTree e) ds = applyArgs σ e ds := by
   have h₂ : applyArgs σ (q.substTree e) ds = applyArgs σ e ds :=
@@ -927,7 +897,7 @@ theorem corollary_4_15 (σ : Ty) (q : Query σ) (e d : Tree σ)
 marker applies exactly like `e`. -/
 theorem corollary_4_15_path (σ : Ty) (q : Query σ) (e : Tree σ)
     (ds : (i : Fin σ.arity) → Tree (σ.arg i))
-    (hco : q.Coherent) (hab : ∀ i, Ctx.Above q.ctx i (ds i)) :
+    (hco : q.Coherent) (hab : ∀ i, RespCtx.Above q.ctxList i (ds i)) :
     applyArgs σ (q.substTree e) ds = applyArgs σ e ds :=
   applyArgs_at_query σ q (q.substTree e) e ds hco (at'_substTree q e) hab
 
@@ -936,7 +906,7 @@ theorem corollary_4_15_path (σ : Ty) (q : Query σ) (e : Tree σ)
 /-- **Lemma 4.16.**  *Let `f, g` be elements in `D_{σ→τ}`.  If for all finite
 `d ∈ D_σ`, `apply (f, d) ⊑ apply (g, d)`, then `f ⊑ g`.*
 
-The hypotheses `TreeOk [] f` and `TreeOk [] g` render "`f, g ∈ D_{σ→τ}`" and are
+The hypotheses `TreeOk Ctx.empty f` and `TreeOk Ctx.empty g` render "`f, g ∈ D_{σ→τ}`" and are
 *not* removable.  The paper's proof separates `f` from `g` at a position where
 their subtrees are immediately incomparable (Lemma 4.7) by feeding the argument
 a tree that answers one of the two competing queries with `error₁` and the other
@@ -945,8 +915,8 @@ Definition 4.2's legality condition — a legal query never re-probes a node the
 context has already answered — so without legality no separating argument need
 exist. -/
 theorem lemma_4_16 {σ τ : Ty} (f g : Tree (σ ⇒ τ))
-    (hf : TreeOk [] f) (hg : TreeOk [] g)
-    (h : ∀ d : Tree σ, TreeOk [] d → apply0 f d ⊑ apply0 g d) : f ⊑ g := by
+    (hf : TreeOk Ctx.empty f) (hg : TreeOk Ctx.empty g)
+    (h : ∀ d : Tree σ, TreeOk Ctx.empty d → apply0 f d ⊑ apply0 g d) : f ⊑ g := by
   sorry
 
 /-- Order-extensionality at the level of the ideal completions `T_σ`, which is
