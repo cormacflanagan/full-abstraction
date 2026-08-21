@@ -607,6 +607,212 @@ theorem theorem_4_22 :
     (∀ (σ : Ty) (x : T σ), applyT (treeI σ) x = x) :=
   ⟨lemma_A_6, lemma_A_1, theorem_4_22_I⟩
 
+/-- The `β` half of **Corollary 4.23**, in the form used by the induction.
+
+"Both equations can be proved using standard methods"; this is the usual
+combinatory-logic argument, driven by the `(S)`, `(K)` and `(I)` equations of
+Theorem 4.22. -/
+theorem beta_law (E : Tmodel.Env) (Γ : List (Nat × Ty)) (y : Nat) (σ : Ty)
+    (N : Comb SPCF) (hN : Comb.HasTy Γ N σ) :
+    ∀ (M : Comb SPCF) (ρ : Ty), Comb.HasTy ((y, σ) :: Γ) M ρ →
+      Tmodel.combMeaning E (.app (Comb.lamStar y σ M) N) ρ
+        = Tmodel.combMeaning E (Comb.subst y σ N M) ρ := by
+  have hNty : Comb.tyOf N = σ := Comb.tyOf_of_hasTy hN
+  intro M
+  induction M with
+  | var z ν =>
+    intro ρ h
+    cases h with
+    | var hmem =>
+      by_cases hz : z = y ∧ ν = σ
+      · obtain ⟨rfl, rfl⟩ := hz
+        rw [show Comb.lamStar z ν (Comb.var z ν : Comb SPCF) = .I ν by simp [Comb.lamStar],
+          show Comb.subst z ν N (Comb.var z ν : Comb SPCF) = N by simp [Comb.subst]]
+        rw [Model.combMeaning_app, hNty, Model.combMeaning_I]
+        exact theorem_4_22_I ν (Tmodel.combMeaning E N ν)
+      · rw [show Comb.lamStar y σ (Comb.var z ν : Comb SPCF) = .app (.K ν σ) (.var z ν) by
+            simp only [Comb.lamStar, if_neg hz],
+          show Comb.subst y σ N (Comb.var z ν : Comb SPCF) = .var z ν by
+            simp only [Comb.subst, if_neg hz]]
+        rw [Model.combMeaning_app, hNty, Model.combMeaning_app,
+          show Comb.tyOf (Comb.var z ν : Comb SPCF) = ν from rfl,
+          Model.combMeaning_K, Model.combMeaning_var]
+        exact lemma_A_1 ν σ (E z ν) (Tmodel.combMeaning E N σ)
+  | const c =>
+    intro ρ h
+    cases h with
+    | const =>
+      rw [show Comb.lamStar y σ (Comb.const c : Comb SPCF)
+            = .app (.K (SPCF.constTy c) σ) (.const c) from rfl,
+        show Comb.subst y σ N (Comb.const c : Comb SPCF) = .const c from rfl]
+      rw [Model.combMeaning_app, hNty, Model.combMeaning_app,
+        show Comb.tyOf (Comb.const c : Comb SPCF) = SPCF.constTy c from rfl,
+        Model.combMeaning_K, Model.combMeaning_const]
+      exact lemma_A_1 _ σ (Tmodel.interpConst c) (Tmodel.combMeaning E N σ)
+  | S a b c =>
+    intro ρ h
+    cases h with
+    | S =>
+      rw [show Comb.lamStar y σ (Comb.S a b c : Comb SPCF)
+            = .app (.K (Comb.tyOf (Comb.S a b c : Comb SPCF)) σ) (.S a b c) from rfl,
+        show Comb.subst y σ N (Comb.S a b c : Comb SPCF) = .S a b c from rfl]
+      rw [Model.combMeaning_app, hNty, Model.combMeaning_app,
+        show Comb.tyOf (Comb.S a b c : Comb SPCF)
+          = ((a ⇒ b ⇒ c) ⇒ (a ⇒ b) ⇒ a ⇒ c) from rfl,
+        Model.combMeaning_K, Model.combMeaning_S]
+      exact lemma_A_1 _ σ (Tmodel.interpS a b c) (Tmodel.combMeaning E N σ)
+  | K a b =>
+    intro ρ h
+    cases h with
+    | K =>
+      rw [show Comb.lamStar y σ (Comb.K a b : Comb SPCF)
+            = .app (.K (Comb.tyOf (Comb.K a b : Comb SPCF)) σ) (.K a b) from rfl,
+        show Comb.subst y σ N (Comb.K a b : Comb SPCF) = .K a b from rfl]
+      rw [Model.combMeaning_app, hNty, Model.combMeaning_app,
+        show Comb.tyOf (Comb.K a b : Comb SPCF) = (a ⇒ b ⇒ a) from rfl,
+        Model.combMeaning_K, Model.combMeaning_K]
+      exact lemma_A_1 _ σ (Tmodel.interpK a b) (Tmodel.combMeaning E N σ)
+  | I a =>
+    intro ρ h
+    cases h with
+    | I =>
+      rw [show Comb.lamStar y σ (Comb.I a : Comb SPCF)
+            = .app (.K (Comb.tyOf (Comb.I a : Comb SPCF)) σ) (.I a) from rfl,
+        show Comb.subst y σ N (Comb.I a : Comb SPCF) = .I a from rfl]
+      rw [Model.combMeaning_app, hNty, Model.combMeaning_app,
+        show Comb.tyOf (Comb.I a : Comb SPCF) = (a ⇒ a) from rfl,
+        Model.combMeaning_K, Model.combMeaning_I]
+      exact lemma_A_1 _ σ (Tmodel.interpI a) (Tmodel.combMeaning E N σ)
+  | app M₁ M₂ ih₁ ih₂ =>
+    intro ρ h
+    cases h with
+    | app hM₁ hM₂ =>
+      rename_i α
+      have e₂ : Comb.tyOf M₂ = α := Comb.tyOf_of_hasTy hM₂
+      have eρ : Comb.tyOf (Comb.app M₁ M₂ : Comb SPCF) = ρ :=
+        Comb.tyOf_of_hasTy (Comb.HasTy.app hM₁ hM₂)
+      have hl₁ : Comb.tyOf (Comb.lamStar y σ M₁) = (σ ⇒ α ⇒ ρ) :=
+        Comb.tyOf_of_hasTy (Comb.lamStar_hasTy hM₁)
+      have hl₂ : Comb.tyOf (Comb.lamStar y σ M₂) = (σ ⇒ α) :=
+        Comb.tyOf_of_hasTy (Comb.lamStar_hasTy hM₂)
+      have hs₂ : Comb.tyOf (Comb.subst y σ N M₂) = α :=
+        Comb.tyOf_of_hasTy (Comb.subst_hasTy hN hM₂)
+      -- unfold the left-hand side down to the `(S)` equation
+      rw [show Comb.lamStar y σ (Comb.app M₁ M₂)
+            = .app (.app (.S σ (Comb.tyOf M₂) (Comb.tyOf (Comb.app M₁ M₂)))
+                (Comb.lamStar y σ M₁)) (Comb.lamStar y σ M₂) from rfl,
+        e₂, eρ]
+      rw [Model.combMeaning_app, hNty, Model.combMeaning_app, hl₂,
+        Model.combMeaning_app, hl₁, Model.combMeaning_S]
+      -- the right-hand side
+      rw [show Comb.subst y σ N (Comb.app M₁ M₂)
+            = .app (Comb.subst y σ N M₁) (Comb.subst y σ N M₂) from rfl,
+        Model.combMeaning_app, hs₂]
+      -- apply the `(S)` equation and the two induction hypotheses
+      have hS := lemma_A_6 σ α ρ (Tmodel.combMeaning E (Comb.lamStar y σ M₁) (σ ⇒ α ⇒ ρ))
+        (Tmodel.combMeaning E (Comb.lamStar y σ M₂) (σ ⇒ α)) (Tmodel.combMeaning E N σ)
+      have h₁ := ih₁ (α ⇒ ρ) hM₁
+      have h₂ := ih₂ α hM₂
+      rw [Model.combMeaning_app, hNty] at h₁
+      rw [Model.combMeaning_app, hNty] at h₂
+      have h₁' : applyT (Tmodel.combMeaning E (Comb.lamStar y σ M₁) (σ ⇒ α ⇒ ρ))
+          (Tmodel.combMeaning E N σ)
+          = Tmodel.combMeaning E (Comb.subst y σ N M₁) (α ⇒ ρ) := h₁
+      have h₂' : applyT (Tmodel.combMeaning E (Comb.lamStar y σ M₂) (σ ⇒ α))
+          (Tmodel.combMeaning E N σ)
+          = Tmodel.combMeaning E (Comb.subst y σ N M₂) α := h₂
+      show applyT (applyT (applyT (treeS σ α ρ) _) _) _ = _
+      rw [hS, h₁', h₂']
+      rfl
+
+/-- **The abstraction lemma**: `λ*` really does denote abstraction.
+
+`apply (T[[λ*y . P]]_E, x) = T[[P]]_{E[y := x]}`.  It is proved by the same
+combinatory-logic induction as `beta_law`, driven by the `(S)`, `(K)` and `(I)`
+equations of Theorem 4.22, and it is what makes the `η` law and the
+compositionality of `T` work. -/
+theorem lamStar_apply (E : Tmodel.Env) (y : Nat) (σ : Ty) (x : T σ) :
+    ∀ (P : Comb SPCF) (ρ : Ty) (Γ : List (Nat × Ty)), Comb.HasTy ((y, σ) :: Γ) P ρ →
+      applyT (Tmodel.combMeaning E (Comb.lamStar y σ P) (σ ⇒ ρ)) x
+        = Tmodel.combMeaning (Model.envUpdate E y σ x) P ρ := by
+  intro P
+  induction P with
+  | var z ν =>
+    intro ρ Γ h
+    cases h with
+    | var hmem =>
+      by_cases hz : z = y ∧ ν = σ
+      · obtain ⟨rfl, rfl⟩ := hz
+        rw [show Comb.lamStar z ν (Comb.var z ν : Comb SPCF) = .I ν by simp [Comb.lamStar],
+          Model.combMeaning_I, Model.combMeaning_var, Model.envUpdate_self]
+        exact theorem_4_22_I ν x
+      · rw [show Comb.lamStar y σ (Comb.var z ν : Comb SPCF) = .app (.K ν σ) (.var z ν) by
+            simp only [Comb.lamStar, if_neg hz],
+          Model.combMeaning_app, show Comb.tyOf (Comb.var z ν : Comb SPCF) = ν from rfl,
+          Model.combMeaning_K, Model.combMeaning_var, Model.combMeaning_var,
+          Model.envUpdate_other E y σ x z ν hz]
+        exact lemma_A_1 ν σ (E z ν) x
+  | const c =>
+    intro ρ Γ h
+    cases h with
+    | const =>
+      rw [show Comb.lamStar y σ (Comb.const c : Comb SPCF)
+            = .app (.K (SPCF.constTy c) σ) (.const c) from rfl,
+        Model.combMeaning_app, show Comb.tyOf (Comb.const c : Comb SPCF)
+          = SPCF.constTy c from rfl,
+        Model.combMeaning_K, Model.combMeaning_const, Model.combMeaning_const]
+      exact lemma_A_1 _ σ (Tmodel.interpConst c) x
+  | S a b c =>
+    intro ρ Γ h
+    cases h with
+    | S =>
+      rw [show Comb.lamStar y σ (Comb.S a b c : Comb SPCF)
+            = .app (.K (Comb.tyOf (Comb.S a b c : Comb SPCF)) σ) (.S a b c) from rfl,
+        Model.combMeaning_app, show Comb.tyOf (Comb.S a b c : Comb SPCF)
+          = ((a ⇒ b ⇒ c) ⇒ (a ⇒ b) ⇒ a ⇒ c) from rfl,
+        Model.combMeaning_K, Model.combMeaning_S, Model.combMeaning_S]
+      exact lemma_A_1 _ σ (Tmodel.interpS a b c) x
+  | K a b =>
+    intro ρ Γ h
+    cases h with
+    | K =>
+      rw [show Comb.lamStar y σ (Comb.K a b : Comb SPCF)
+            = .app (.K (Comb.tyOf (Comb.K a b : Comb SPCF)) σ) (.K a b) from rfl,
+        Model.combMeaning_app, show Comb.tyOf (Comb.K a b : Comb SPCF) = (a ⇒ b ⇒ a) from rfl,
+        Model.combMeaning_K, Model.combMeaning_K, Model.combMeaning_K]
+      exact lemma_A_1 _ σ (Tmodel.interpK a b) x
+  | I a =>
+    intro ρ Γ h
+    cases h with
+    | I =>
+      rw [show Comb.lamStar y σ (Comb.I a : Comb SPCF)
+            = .app (.K (Comb.tyOf (Comb.I a : Comb SPCF)) σ) (.I a) from rfl,
+        Model.combMeaning_app, show Comb.tyOf (Comb.I a : Comb SPCF) = (a ⇒ a) from rfl,
+        Model.combMeaning_K, Model.combMeaning_I, Model.combMeaning_I]
+      exact lemma_A_1 _ σ (Tmodel.interpI a) x
+  | app P₁ P₂ ih₁ ih₂ =>
+    intro ρ Γ h
+    cases h with
+    | app hP₁ hP₂ =>
+      rename_i α
+      have e₂ : Comb.tyOf P₂ = α := Comb.tyOf_of_hasTy hP₂
+      have eρ : Comb.tyOf (Comb.app P₁ P₂ : Comb SPCF) = ρ :=
+        Comb.tyOf_of_hasTy (Comb.HasTy.app hP₁ hP₂)
+      have hl₁ : Comb.tyOf (Comb.lamStar y σ P₁) = (σ ⇒ α ⇒ ρ) :=
+        Comb.tyOf_of_hasTy (Comb.lamStar_hasTy hP₁)
+      have hl₂ : Comb.tyOf (Comb.lamStar y σ P₂) = (σ ⇒ α) :=
+        Comb.tyOf_of_hasTy (Comb.lamStar_hasTy hP₂)
+      rw [show Comb.lamStar y σ (Comb.app P₁ P₂)
+            = .app (.app (.S σ (Comb.tyOf P₂) (Comb.tyOf (Comb.app P₁ P₂)))
+                (Comb.lamStar y σ P₁)) (Comb.lamStar y σ P₂) from rfl,
+        e₂, eρ, Model.combMeaning_app, hl₂, Model.combMeaning_app, hl₁, Model.combMeaning_S,
+        Model.combMeaning_app, e₂]
+      have hS := lemma_A_6 σ α ρ (Tmodel.combMeaning E (Comb.lamStar y σ P₁) (σ ⇒ α ⇒ ρ))
+        (Tmodel.combMeaning E (Comb.lamStar y σ P₂) (σ ⇒ α)) x
+      show applyT (applyT (applyT (treeS σ α ρ) _) _) _ = _
+      rw [hS, ih₁ (α ⇒ ρ) Γ hP₁, ih₂ α Γ hP₂]
+      rfl
+
 /-- **Corollary 4.23** (`β`, `η`).
 
 The well-typedness hypotheses render Definition 2.2's "and the type constraints
@@ -629,7 +835,24 @@ theorem corollary_4_23 :
       Comb.HasTy Γ M (σ ⇒ τ) → (y, σ) ∉ Comb.FV M →
       Tmodel.combMeaning E (Comb.lamStar y σ (.app M (.var y σ))) (σ ⇒ τ)
         = Tmodel.combMeaning E M (σ ⇒ τ)) := by
-  sorry
+  refine ⟨fun E Γ y σ ρ M N hM hN => beta_law E Γ y σ N hN M ρ hM, ?_⟩
+  intro E Γ y σ τ M hM hy
+  -- by extensionality it suffices to compare the two applications
+  refine theorem_4_11.2 σ τ _ _ fun x => ?_
+  have hty : Comb.HasTy ((y, σ) :: Γ) (Comb.app M (.var y σ)) τ :=
+    Comb.HasTy.app (Comb.weaken_cons (y, σ) hM) (Comb.HasTy.var (List.mem_cons_self ..))
+  rw [lamStar_apply E y σ x _ τ Γ hty, Model.combMeaning_app,
+    show Comb.tyOf (Comb.var y σ : Comb SPCF) = σ from rfl,
+    Model.combMeaning_var, Model.envUpdate_self]
+  -- the update is invisible to `M`, which does not contain `y^σ`
+  have hcongr : Tmodel.combMeaning (Model.envUpdate E y σ x) M (σ ⇒ τ)
+      = Tmodel.combMeaning E M (σ ⇒ τ) := by
+    refine Model.combMeaning_congr_env _ _ M (σ ⇒ τ) fun z ν hz => ?_
+    refine Model.envUpdate_other E y σ x z ν ?_
+    rintro ⟨rfl, rfl⟩
+    exact hy hz
+  rw [hcongr]
+  rfl
 
 /-- **Corollary 4.24** (`Y` operator).  *For all closed combinatory terms `M` of
 type `σ → σ`, `T[[apply (M, apply (Y_σ, M))]] = T[[apply (Y_σ, M)]]`.* -/

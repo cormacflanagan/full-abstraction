@@ -248,6 +248,52 @@ theorem lamStar_hasTy {Γ : List (Nat × Ty)} {x : Nat} {σ : Ty} :
               (lamStar x σ M₂) from rfl, e₂, e₁]
       exact HasTy.app (HasTy.app HasTy.S (ih₁ hM₁)) (ih₂ hM₂)
 
+/-- Typing is preserved by enlarging the context. -/
+theorem weaken {Γ Γ' : List (Nat × Ty)} (hsub : ∀ p, p ∈ Γ → p ∈ Γ') :
+    ∀ {t : Comb L} {ρ : Ty}, HasTy Γ t ρ → HasTy Γ' t ρ := by
+  intro t ρ h
+  induction h with
+  | var hmem => exact HasTy.var (hsub _ hmem)
+  | const => exact HasTy.const
+  | S => exact HasTy.S
+  | K => exact HasTy.K
+  | I => exact HasTy.I
+  | app _ _ ih₁ ih₂ => exact HasTy.app ih₁ ih₂
+
+theorem weaken_cons {Γ : List (Nat × Ty)} (p : Nat × Ty) {t : Comb L} {ρ : Ty}
+    (h : HasTy Γ t ρ) : HasTy (p :: Γ) t ρ :=
+  weaken (fun _ hq => List.mem_cons_of_mem p hq) h
+
+/-- Substitution of a well-typed term for a variable preserves typing. -/
+theorem subst_hasTy {Γ : List (Nat × Ty)} {x : Nat} {σ : Ty} {N : Comb L}
+    (hN : HasTy Γ N σ) :
+    ∀ {t : Comb L} {τ : Ty}, HasTy ((x, σ) :: Γ) t τ → HasTy Γ (subst x σ N t) τ := by
+  intro t
+  induction t with
+  | var y ρ =>
+    intro τ h
+    cases h with
+    | var hmem =>
+      by_cases hx : y = x ∧ ρ = σ
+      · obtain ⟨rfl, rfl⟩ := hx
+        rw [show subst y ρ N (Comb.var y ρ : Comb L) = N by simp [subst]]
+        exact hN
+      · rw [show subst x σ N (Comb.var y ρ : Comb L) = .var y ρ by simp only [subst, if_neg hx]]
+        refine HasTy.var ?_
+        rcases List.mem_cons.mp hmem with heq | hmem'
+        · have h1 : y = x := congrArg Prod.fst heq
+          have h2 : ρ = σ := congrArg Prod.snd heq
+          exact absurd ⟨h1, h2⟩ hx
+        · exact hmem'
+  | const c => intro τ h; cases h with | const => exact HasTy.const
+  | S a b c => intro τ h; cases h with | S => exact HasTy.S
+  | K a b => intro τ h; cases h with | K => exact HasTy.K
+  | I a => intro τ h; cases h with | I => exact HasTy.I
+  | app M₁ M₂ ih₁ ih₂ =>
+    intro τ h
+    cases h with
+    | app hM₁ hM₂ => exact HasTy.app (ih₁ hM₁) (ih₂ hM₂)
+
 end Comb
 
 /-- `[·]_CL` preserves typing. -/

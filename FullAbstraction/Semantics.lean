@@ -141,6 +141,74 @@ def combMeaning (E : M.Env) : (t : Comb L) → (σ : Ty) → M.Dom σ
       let α := Comb.tyOf u
       M.apply (combMeaning E t (α ⇒ σ)) (combMeaning E u α)
 
+/-- `E[x^σ := v]`, the environment `E` updated at one variable. -/
+noncomputable def envUpdate {L : Lang} {M : Model L} (E : M.Env) (x : Nat) (σ : Ty)
+    (v : M.Dom σ) : M.Env :=
+  fun z ν => if h : z = x ∧ ν = σ then h.2.symm ▸ v else E z ν
+
+theorem envUpdate_self {L : Lang} {M : Model L} (E : M.Env) (x : Nat) (σ : Ty)
+    (v : M.Dom σ) : envUpdate E x σ v x σ = v := by
+  show (if h : x = x ∧ σ = σ then h.2.symm ▸ v else E x σ) = v
+  rw [dif_pos (⟨rfl, rfl⟩ : x = x ∧ σ = σ)]
+
+theorem envUpdate_other {L : Lang} {M : Model L} (E : M.Env) (x : Nat) (σ : Ty)
+    (v : M.Dom σ) (z : Nat) (ν : Ty) (h : ¬ (z = x ∧ ν = σ)) :
+    envUpdate E x σ v z ν = E z ν := by
+  show (if h : z = x ∧ ν = σ then h.2.symm ▸ v else E z ν) = E z ν
+  rw [dif_neg h]
+
+@[simp] theorem combMeaning_var (E : M.Env) (x : Nat) (τ : Ty) :
+    M.combMeaning E (.var x τ) τ = E x τ := by
+  show (if h : τ = τ then h ▸ E x τ else (M.dom τ).bot) = _
+  rw [dif_pos rfl]
+
+@[simp] theorem combMeaning_const (E : M.Env) (c : L.Const) :
+    M.combMeaning E (.const c) (L.constTy c) = M.interpConst c := by
+  show (if h : L.constTy c = L.constTy c then h ▸ M.interpConst c else _) = _
+  rw [dif_pos rfl]
+
+@[simp] theorem combMeaning_S (E : M.Env) (a b c : Ty) :
+    M.combMeaning E (.S a b c) ((a ⇒ b ⇒ c) ⇒ (a ⇒ b) ⇒ a ⇒ c) = M.interpS a b c := by
+  show (if h : ((a ⇒ b ⇒ c) ⇒ (a ⇒ b) ⇒ a ⇒ c) = ((a ⇒ b ⇒ c) ⇒ (a ⇒ b) ⇒ a ⇒ c)
+    then h ▸ M.interpS a b c else _) = _
+  rw [dif_pos rfl]
+
+@[simp] theorem combMeaning_K (E : M.Env) (a b : Ty) :
+    M.combMeaning E (.K a b) (a ⇒ b ⇒ a) = M.interpK a b := by
+  show (if h : (a ⇒ b ⇒ a) = (a ⇒ b ⇒ a) then h ▸ M.interpK a b else _) = _
+  rw [dif_pos rfl]
+
+@[simp] theorem combMeaning_I (E : M.Env) (a : Ty) :
+    M.combMeaning E (.I a) (a ⇒ a) = M.interpI a := by
+  show (if h : (a ⇒ a) = (a ⇒ a) then h ▸ M.interpI a else _) = _
+  rw [dif_pos rfl]
+
+@[simp] theorem combMeaning_app (E : M.Env) (t u : Comb L) (ρ : Ty) :
+    M.combMeaning E (.app t u) ρ
+      = M.apply (M.combMeaning E t (Comb.tyOf u ⇒ ρ)) (M.combMeaning E u (Comb.tyOf u)) := rfl
+
+/-- The meaning of a combinatory term depends only on its free variables. -/
+theorem combMeaning_congr_env {L : Lang} {M : Model L} (E E' : M.Env) :
+    ∀ (t : Comb L) (ρ : Ty), (∀ z ν, (z, ν) ∈ Comb.FV t → E z ν = E' z ν) →
+      M.combMeaning E t ρ = M.combMeaning E' t ρ := by
+  intro t
+  induction t with
+  | var z ν =>
+    intro ρ h
+    have hzz : E z ν = E' z ν := h z ν rfl
+    show (if hh : ν = ρ then hh ▸ E z ν else (M.dom ρ).bot)
+      = (if hh : ν = ρ then hh ▸ E' z ν else (M.dom ρ).bot)
+    rw [hzz]
+  | const c => intro ρ _; rfl
+  | S a b c => intro ρ _; rfl
+  | K a b => intro ρ _; rfl
+  | I a => intro ρ _; rfl
+  | app t u iht ihu =>
+    intro ρ h
+    rw [Model.combMeaning_app, Model.combMeaning_app,
+      iht _ (fun z ν hz => h z ν (Or.inl hz)),
+      ihu _ (fun z ν hz => h z ν (Or.inr hz))]
+
 /-- `M[[N]]_E`, the meaning of a λ-term in an environment (Definition 2.5). -/
 def meaning (E : M.Env) (N : Term L) (σ : Ty) : M.Dom σ :=
   M.combMeaning E (Term.toComb N) σ
