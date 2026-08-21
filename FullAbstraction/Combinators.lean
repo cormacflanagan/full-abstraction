@@ -416,15 +416,28 @@ def Omega : Ty → Comb SPCF
   | .base => .app (.const .sub1) (.const (.num 0))
   | .arrow a b => Comb.lamStar 0 a (Omega b)
 
+/-- `apply (f, … apply (f, Ω_σ) …)` with `n` occurrences of the variable `f`. -/
+def Yunfold (σ : Ty) : Nat → Comb SPCF
+  | 0 => Omega σ
+  | n + 1 => .app (.var 0 (σ ⇒ σ)) (Yunfold σ n)
+
 /-- `λ*f . apply (f, … apply (f, Ω_σ) …)` with `n` occurrences of `f` (§4.3). -/
-def Yapprox (σ : Ty) : Nat → Comb SPCF
-  | 0 => Comb.lamStar 0 (σ ⇒ σ) (Omega σ)
-  | n + 1 => Comb.lamStar 0 (σ ⇒ σ) (.app (.var 0 (σ ⇒ σ)) (unfold n))
-where
-  /-- `apply (f, … apply (f, Ω_σ) …)` with `n` occurrences of the variable `f`. -/
-  unfold : Nat → Comb SPCF
-    | 0 => Omega σ
-    | n + 1 => .app (.var 0 (σ ⇒ σ)) (unfold n)
+def Yapprox (σ : Ty) (n : Nat) : Comb SPCF := Comb.lamStar 0 (σ ⇒ σ) (Yunfold σ n)
+
+/-- `Ω_σ` has type `σ`. -/
+theorem hasTy_Omega : ∀ (σ : Ty) (Γ : List (Nat × Ty)), Comb.HasTy Γ (Omega σ) σ
+  | .base, Γ => Comb.HasTy.app Comb.HasTy.const Comb.HasTy.const
+  | .arrow a b, Γ => Comb.lamStar_hasTy (hasTy_Omega b ((0, a) :: Γ))
+
+theorem hasTy_Yunfold (σ : Ty) : ∀ (n : Nat) (Γ : List (Nat × Ty)),
+    Comb.HasTy ((0, σ ⇒ σ) :: Γ) (Yunfold σ n) σ
+  | 0, Γ => hasTy_Omega σ _
+  | n + 1, Γ =>
+      Comb.HasTy.app (Comb.HasTy.var (List.mem_cons_self ..)) (hasTy_Yunfold σ n Γ)
+
+theorem hasTy_Yapprox (σ : Ty) (n : Nat) (Γ : List (Nat × Ty)) :
+    Comb.HasTy Γ (Yapprox σ n) ((σ ⇒ σ) ⇒ σ) :=
+  Comb.lamStar_hasTy (hasTy_Yunfold σ n Γ)
 
 /-! ## Definition 4.1: the tree model `T` for SPCF -/
 
@@ -440,48 +453,25 @@ noncomputable def interpBase : (c : SConst) → T (SConst.ty c)
   | .catchC σ => idealOf (treeCatch σ)
   | .Y _ => ScottDomain.bot
 
+/-- The tree model determined by an interpretation of the SPCF constants.
+
+Every model of Definition 4.1 has the same domains, the same `apply`, and the
+same combinators `S`, `K`, `I` — the trees of Definitions 4.20 and 4.21.  Only
+the interpretation of the constants of `F` varies, and it varies exactly once:
+`T₀` interprets `Y_σ` as `⊥` and is used to give meaning to the `Y`-free
+approximants of §4.3, while `T` interprets it by their least upper bound. -/
+noncomputable def mkTreeModel (ic : (c : SConst) → T (SConst.ty c)) : Model SPCF where
+  Dom := T
+  dom σ := inferInstance
+  interpConst c := ic c
+  interpS σ τ ρ := treeS σ τ ρ
+  interpK σ τ := treeK σ τ
+  interpI σ := treeI σ
+  apply {σ τ} f d := applyT f d
+
 /-- The model `T₀`: `T` with `Y_σ` interpreted as `⊥`.  It is used only to give
 meaning to the `Y`-free approximants `Yapprox σ n`, exactly as in §4.3. -/
-noncomputable def T0 : Model SPCF where
-  Dom := T
-  dom σ := inferInstance
-  interpConst c := interpBase c
-  interpS σ τ ρ := treeS σ τ ρ
-  interpK σ τ := treeK σ τ
-  interpI σ := treeI σ
-  apply {σ τ} f d := applyT f d
-
-/-- `T[[Y_σ]] = ⊔ {T[[λ*f . apply (f, … apply (f, Ω) …)]] | n ∈ ℕ}` (§4.3).
-
-"It is easy to prove that the set … forms a chain by induction on `n` (since
-`T[[apply]]` is monotonic).  Hence, the specified least upper bound exists." -/
-theorem Y_chain_directed (σ : Ty) :
-    DirectedSet (Set.range fun n => T0.combMeaning (fun _ _ => ScottDomain.bot)
-      (Yapprox σ n) ((σ ⇒ σ) ⇒ σ)) := by
-  sorry
-
-/-- `T[[Y_σ]]`. -/
-noncomputable def interpY (σ : Ty) : T ((σ ⇒ σ) ⇒ σ) :=
-  ScottDomain.dsup _ (Y_chain_directed σ)
-
-/-- **Definition 4.1** (*Tree model for SPCF*).
-
-"`T` is the model for SPCF mapping: (1) each type `σ` to the tree domain `T_σ`;
-(2) each constant `c` in `O ∪ F` to the tree defined in Section 4.3; and (3) the
-function symbols `apply_{σ,τ}` to the functions `T[[apply_{σ,τ}]]`." -/
-noncomputable def Tmodel : Model SPCF where
-  Dom := T
-  dom σ := inferInstance
-  interpConst c :=
-    match c with
-    | .Y σ => interpY σ
-    | c' => interpBase c'
-  interpS σ τ ρ := treeS σ τ ρ
-  interpK σ τ := treeK σ τ
-  interpI σ := treeI σ
-  apply {σ τ} f d := applyT f d
-
-@[inherit_doc] scoped notation:max "T⟦" M "⟧" E => Model.meaning Tmodel E M
+noncomputable def T0 : Model SPCF := mkTreeModel interpBase
 
 /-! ## Theorem 4.22 and its corollaries -/
 
@@ -607,6 +597,208 @@ theorem theorem_4_22 :
     (∀ (σ : Ty) (x : T σ), applyT (treeI σ) x = x) :=
   ⟨lemma_A_6, lemma_A_1, theorem_4_22_I⟩
 
+/-- **The abstraction lemma**: `λ*` really does denote abstraction.
+
+`apply (T[[λ*y . P]]_E, x) = T[[P]]_{E[y := x]}`.  It is proved by the same
+combinatory-logic induction as `beta_law`, driven by the `(S)`, `(K)` and `(I)`
+equations of Theorem 4.22, and it is what makes the `η` law and the
+compositionality of `T` work. -/
+theorem lamStar_apply' (ic : (c : SConst) → T (SConst.ty c)) (E : (mkTreeModel ic).Env) (y : Nat) (σ : Ty) (x : T σ) :
+    ∀ (P : Comb SPCF) (ρ : Ty) (Γ : List (Nat × Ty)), Comb.HasTy ((y, σ) :: Γ) P ρ →
+      applyT ((mkTreeModel ic).combMeaning E (Comb.lamStar y σ P) (σ ⇒ ρ)) x
+        = (mkTreeModel ic).combMeaning (Model.envUpdate E y σ x) P ρ := by
+  intro P
+  induction P with
+  | var z ν =>
+    intro ρ Γ h
+    cases h with
+    | var hmem =>
+      by_cases hz : z = y ∧ ν = σ
+      · obtain ⟨rfl, rfl⟩ := hz
+        rw [show Comb.lamStar z ν (Comb.var z ν : Comb SPCF) = .I ν by simp [Comb.lamStar],
+          Model.combMeaning_I, Model.combMeaning_var, Model.envUpdate_self]
+        exact theorem_4_22_I ν x
+      · rw [show Comb.lamStar y σ (Comb.var z ν : Comb SPCF) = .app (.K ν σ) (.var z ν) by
+            simp only [Comb.lamStar, if_neg hz],
+          Model.combMeaning_app, show Comb.tyOf (Comb.var z ν : Comb SPCF) = ν from rfl,
+          Model.combMeaning_K, Model.combMeaning_var, Model.combMeaning_var,
+          Model.envUpdate_other E y σ x z ν hz]
+        exact lemma_A_1 ν σ (E z ν) x
+  | const c =>
+    intro ρ Γ h
+    cases h with
+    | const =>
+      rw [show Comb.lamStar y σ (Comb.const c : Comb SPCF)
+            = .app (.K (SPCF.constTy c) σ) (.const c) from rfl,
+        Model.combMeaning_app, show Comb.tyOf (Comb.const c : Comb SPCF)
+          = SPCF.constTy c from rfl,
+        Model.combMeaning_K, Model.combMeaning_const, Model.combMeaning_const]
+      exact lemma_A_1 _ σ ((mkTreeModel ic).interpConst c) x
+  | S a b c =>
+    intro ρ Γ h
+    cases h with
+    | S =>
+      rw [show Comb.lamStar y σ (Comb.S a b c : Comb SPCF)
+            = .app (.K (Comb.tyOf (Comb.S a b c : Comb SPCF)) σ) (.S a b c) from rfl,
+        Model.combMeaning_app, show Comb.tyOf (Comb.S a b c : Comb SPCF)
+          = ((a ⇒ b ⇒ c) ⇒ (a ⇒ b) ⇒ a ⇒ c) from rfl,
+        Model.combMeaning_K, Model.combMeaning_S, Model.combMeaning_S]
+      exact lemma_A_1 _ σ ((mkTreeModel ic).interpS a b c) x
+  | K a b =>
+    intro ρ Γ h
+    cases h with
+    | K =>
+      rw [show Comb.lamStar y σ (Comb.K a b : Comb SPCF)
+            = .app (.K (Comb.tyOf (Comb.K a b : Comb SPCF)) σ) (.K a b) from rfl,
+        Model.combMeaning_app, show Comb.tyOf (Comb.K a b : Comb SPCF) = (a ⇒ b ⇒ a) from rfl,
+        Model.combMeaning_K, Model.combMeaning_K, Model.combMeaning_K]
+      exact lemma_A_1 _ σ ((mkTreeModel ic).interpK a b) x
+  | I a =>
+    intro ρ Γ h
+    cases h with
+    | I =>
+      rw [show Comb.lamStar y σ (Comb.I a : Comb SPCF)
+            = .app (.K (Comb.tyOf (Comb.I a : Comb SPCF)) σ) (.I a) from rfl,
+        Model.combMeaning_app, show Comb.tyOf (Comb.I a : Comb SPCF) = (a ⇒ a) from rfl,
+        Model.combMeaning_K, Model.combMeaning_I, Model.combMeaning_I]
+      exact lemma_A_1 _ σ ((mkTreeModel ic).interpI a) x
+  | app P₁ P₂ ih₁ ih₂ =>
+    intro ρ Γ h
+    cases h with
+    | app hP₁ hP₂ =>
+      rename_i α
+      have e₂ : Comb.tyOf P₂ = α := Comb.tyOf_of_hasTy hP₂
+      have eρ : Comb.tyOf (Comb.app P₁ P₂ : Comb SPCF) = ρ :=
+        Comb.tyOf_of_hasTy (Comb.HasTy.app hP₁ hP₂)
+      have hl₁ : Comb.tyOf (Comb.lamStar y σ P₁) = (σ ⇒ α ⇒ ρ) :=
+        Comb.tyOf_of_hasTy (Comb.lamStar_hasTy hP₁)
+      have hl₂ : Comb.tyOf (Comb.lamStar y σ P₂) = (σ ⇒ α) :=
+        Comb.tyOf_of_hasTy (Comb.lamStar_hasTy hP₂)
+      rw [show Comb.lamStar y σ (Comb.app P₁ P₂)
+            = .app (.app (.S σ (Comb.tyOf P₂) (Comb.tyOf (Comb.app P₁ P₂)))
+                (Comb.lamStar y σ P₁)) (Comb.lamStar y σ P₂) from rfl,
+        e₂, eρ, Model.combMeaning_app, hl₂, Model.combMeaning_app, hl₁, Model.combMeaning_S,
+        Model.combMeaning_app, e₂]
+      have hS := lemma_A_6 σ α ρ ((mkTreeModel ic).combMeaning E (Comb.lamStar y σ P₁) (σ ⇒ α ⇒ ρ))
+        ((mkTreeModel ic).combMeaning E (Comb.lamStar y σ P₂) (σ ⇒ α)) x
+      show applyT (applyT (applyT (treeS σ α ρ) _) _) _ = _
+      rw [hS, ih₁ (α ⇒ ρ) Γ hP₁, ih₂ α Γ hP₂]
+      rfl
+
+/-- `Ω_σ` denotes `⊥`.
+
+"The expression `Ω_σ` has the same meaning (`⊥_σ`) in `T` as the definition for
+`Ω` given at the beginning of Section 2, but the new definition does not contain
+any occurrences of constants `Y_σ`" (§4.3). -/
+theorem meaning_Omega (ic : (c : SConst) → T (SConst.ty c))
+    (hsub1 : ic .sub1 = interpBase .sub1) (hnum : ic (.num 0) = interpBase (.num 0)) :
+    ∀ (σ : Ty) (E : (mkTreeModel ic).Env),
+      (mkTreeModel ic).combMeaning E (Omega σ) σ = Ideal.principal (DSub.bot : D σ)
+  | .base, E => by
+      have h1 : (mkTreeModel ic).combMeaning E (Comb.const SConst.sub1) (𝕆 ⇒ 𝕆)
+          = idealOf treeSub1 :=
+        (Model.combMeaning_const (M := mkTreeModel ic) E SConst.sub1).trans hsub1
+      have h2 : (mkTreeModel ic).combMeaning E (Comb.const (SConst.num 0)) 𝕆
+          = Ideal.principal ⟨.leaf (.num 0), TreeOk.leaf _ _⟩ :=
+        (Model.combMeaning_const (M := mkTreeModel ic) E (SConst.num 0)).trans hnum
+      show applyT ((mkTreeModel ic).combMeaning E (Comb.const SConst.sub1) (𝕆 ⇒ 𝕆))
+        ((mkTreeModel ic).combMeaning E (Comb.const (SConst.num 0)) 𝕆) = _
+      rw [h1, h2]
+      -- every finite approximation of `apply (sub1, ⌜0⌝)` is below `⊥`
+      refine Po.le_antisymm ?_ (principal_bot_le _)
+      rintro c ⟨f, hf, d, hd, hc⟩
+      have hstep : apply0 f.1 d.1 ⊑ (Tree.bot : Tree 𝕆) := by
+        rw [show (Tree.bot : Tree 𝕆) = apply0 treeSub1 (.leaf (.num 0)) from rfl]
+        exact Po.le_trans (apply0_mono_left (show Tree.Le f.1 treeSub1 from hf) d.1)
+          (apply0_mono_right treeSub1 (show Tree.Le d.1 (.leaf (.num 0)) from hd))
+      exact Po.le_trans (show c.1 ⊑ apply0 f.1 d.1 from hc) hstep
+  | .arrow a b, E => by
+      show (mkTreeModel ic).combMeaning E (Comb.lamStar 0 a (Omega b)) (a ⇒ b) = _
+      rw [← bot_eq_principal (a ⇒ b)]
+      refine theorem_4_11.2 a b _ _ fun x => ?_
+      rw [show applyT ((mkTreeModel ic).combMeaning E (Comb.lamStar 0 a (Omega b)) (a ⇒ b)) x
+          = (mkTreeModel ic).combMeaning (Model.envUpdate E 0 a x) (Omega b) b from
+        lamStar_apply' ic E 0 a x (Omega b) b [] (hasTy_Omega b _),
+        meaning_Omega ic hsub1 hnum b _, applyT_bot a b x]
+
+/-- The approximants to `Y_σ` form a chain: the meaning of `Yunfold` is monotone
+in the number of unfoldings. -/
+theorem Yunfold_mono (ic : (c : SConst) → T (SConst.ty c))
+    (hsub1 : ic .sub1 = interpBase .sub1) (hnum : ic (.num 0) = interpBase (.num 0))
+    (σ : Ty) : ∀ (n : Nat) (E : (mkTreeModel ic).Env),
+      (mkTreeModel ic).combMeaning E (Yunfold σ n) σ
+        ⊑ (mkTreeModel ic).combMeaning E (Yunfold σ (n + 1)) σ := by
+  intro n
+  induction n with
+  | zero =>
+    intro E
+    rw [show Yunfold σ 0 = Omega σ from rfl, meaning_Omega ic hsub1 hnum σ E]
+    exact principal_bot_le _
+  | succ n ih =>
+    intro E
+    have hty : Comb.tyOf (Yunfold σ n) = σ := Comb.tyOf_of_hasTy (hasTy_Yunfold σ n [])
+    have hty' : Comb.tyOf (Yunfold σ (n + 1)) = σ :=
+      Comb.tyOf_of_hasTy (hasTy_Yunfold σ (n + 1) [])
+    show (mkTreeModel ic).combMeaning E (.app (.var 0 (σ ⇒ σ)) (Yunfold σ n)) σ
+      ⊑ (mkTreeModel ic).combMeaning E (.app (.var 0 (σ ⇒ σ)) (Yunfold σ (n + 1))) σ
+    rw [Model.combMeaning_app, hty, Model.combMeaning_app, hty']
+    exact applyT_mono_right _ (ih E)
+
+theorem Yapprox_mono (ic : (c : SConst) → T (SConst.ty c))
+    (hsub1 : ic .sub1 = interpBase .sub1) (hnum : ic (.num 0) = interpBase (.num 0))
+    (σ : Ty) (E : (mkTreeModel ic).Env) : ∀ m n : Nat, m ≤ n →
+      (mkTreeModel ic).combMeaning E (Yapprox σ m) ((σ ⇒ σ) ⇒ σ)
+        ⊑ (mkTreeModel ic).combMeaning E (Yapprox σ n) ((σ ⇒ σ) ⇒ σ) := by
+  have step : ∀ n : Nat,
+      (mkTreeModel ic).combMeaning E (Yapprox σ n) ((σ ⇒ σ) ⇒ σ)
+        ⊑ (mkTreeModel ic).combMeaning E (Yapprox σ (n + 1)) ((σ ⇒ σ) ⇒ σ) := by
+    intro n
+    refine orderExtensional_T _ _ fun x => ?_
+    rw [show applyT ((mkTreeModel ic).combMeaning E (Yapprox σ n) ((σ ⇒ σ) ⇒ σ)) x
+        = (mkTreeModel ic).combMeaning (Model.envUpdate E 0 (σ ⇒ σ) x) (Yunfold σ n) σ from
+      lamStar_apply' ic E 0 (σ ⇒ σ) x (Yunfold σ n) σ [] (hasTy_Yunfold σ n []),
+      show applyT ((mkTreeModel ic).combMeaning E (Yapprox σ (n + 1)) ((σ ⇒ σ) ⇒ σ)) x
+        = (mkTreeModel ic).combMeaning (Model.envUpdate E 0 (σ ⇒ σ) x) (Yunfold σ (n + 1)) σ from
+      lamStar_apply' ic E 0 (σ ⇒ σ) x (Yunfold σ (n + 1)) σ [] (hasTy_Yunfold σ (n + 1) [])]
+    exact Yunfold_mono ic hsub1 hnum σ n _
+  intro m n h
+  induction h with
+  | refl => exact Po.le_refl _
+  | step _ ih => exact Po.le_trans ih (step _)
+
+/-- `T[[Y_σ]] = ⊔ {T[[λ*f . apply (f, … apply (f, Ω) …)]] | n ∈ ℕ}` (§4.3).
+
+"It is easy to prove that the set … forms a chain by induction on `n` (since
+`T[[apply]]` is monotonic).  Hence, the specified least upper bound exists." -/
+theorem Y_chain_directed (σ : Ty) :
+    DirectedSet (Set.range fun n => T0.combMeaning (fun _ _ => ScottDomain.bot)
+      (Yapprox σ n) ((σ ⇒ σ) ⇒ σ)) :=
+  chain_directed _ (Yapprox_mono interpBase rfl rfl σ (fun _ _ => ScottDomain.bot))
+
+/-- `T[[Y_σ]]`. -/
+noncomputable def interpY (σ : Ty) : T ((σ ⇒ σ) ⇒ σ) :=
+  ScottDomain.dsup _ (Y_chain_directed σ)
+
+/-- **Definition 4.1** (*Tree model for SPCF*).
+
+"`T` is the model for SPCF mapping: (1) each type `σ` to the tree domain `T_σ`;
+(2) each constant `c` in `O ∪ F` to the tree defined in Section 4.3; and (3) the
+function symbols `apply_{σ,τ}` to the functions `T[[apply_{σ,τ}]]`." -/
+noncomputable def Tmodel : Model SPCF :=
+  mkTreeModel fun c =>
+    match c with
+    | .Y σ => interpY σ
+    | c' => interpBase c'
+
+@[inherit_doc] scoped notation:max "T⟦" M "⟧" E => Model.meaning Tmodel E M
+
+/-- The abstraction lemma for the tree model `T` itself. -/
+theorem lamStar_apply (E : Tmodel.Env) (y : Nat) (σ : Ty) (x : T σ) :
+    ∀ (P : Comb SPCF) (ρ : Ty) (Γ : List (Nat × Ty)), Comb.HasTy ((y, σ) :: Γ) P ρ →
+      applyT (Tmodel.combMeaning E (Comb.lamStar y σ P) (σ ⇒ ρ)) x
+        = Tmodel.combMeaning (Model.envUpdate E y σ x) P ρ :=
+  lamStar_apply' _ E y σ x
+
 /-- The `β` half of **Corollary 4.23**, in the form used by the induction.
 
 "Both equations can be proved using standard methods"; this is the usual
@@ -723,94 +915,6 @@ theorem beta_law (E : Tmodel.Env) (Γ : List (Nat × Ty)) (y : Nat) (σ : Ty)
           = Tmodel.combMeaning E (Comb.subst y σ N M₂) α := h₂
       show applyT (applyT (applyT (treeS σ α ρ) _) _) _ = _
       rw [hS, h₁', h₂']
-      rfl
-
-/-- **The abstraction lemma**: `λ*` really does denote abstraction.
-
-`apply (T[[λ*y . P]]_E, x) = T[[P]]_{E[y := x]}`.  It is proved by the same
-combinatory-logic induction as `beta_law`, driven by the `(S)`, `(K)` and `(I)`
-equations of Theorem 4.22, and it is what makes the `η` law and the
-compositionality of `T` work. -/
-theorem lamStar_apply (E : Tmodel.Env) (y : Nat) (σ : Ty) (x : T σ) :
-    ∀ (P : Comb SPCF) (ρ : Ty) (Γ : List (Nat × Ty)), Comb.HasTy ((y, σ) :: Γ) P ρ →
-      applyT (Tmodel.combMeaning E (Comb.lamStar y σ P) (σ ⇒ ρ)) x
-        = Tmodel.combMeaning (Model.envUpdate E y σ x) P ρ := by
-  intro P
-  induction P with
-  | var z ν =>
-    intro ρ Γ h
-    cases h with
-    | var hmem =>
-      by_cases hz : z = y ∧ ν = σ
-      · obtain ⟨rfl, rfl⟩ := hz
-        rw [show Comb.lamStar z ν (Comb.var z ν : Comb SPCF) = .I ν by simp [Comb.lamStar],
-          Model.combMeaning_I, Model.combMeaning_var, Model.envUpdate_self]
-        exact theorem_4_22_I ν x
-      · rw [show Comb.lamStar y σ (Comb.var z ν : Comb SPCF) = .app (.K ν σ) (.var z ν) by
-            simp only [Comb.lamStar, if_neg hz],
-          Model.combMeaning_app, show Comb.tyOf (Comb.var z ν : Comb SPCF) = ν from rfl,
-          Model.combMeaning_K, Model.combMeaning_var, Model.combMeaning_var,
-          Model.envUpdate_other E y σ x z ν hz]
-        exact lemma_A_1 ν σ (E z ν) x
-  | const c =>
-    intro ρ Γ h
-    cases h with
-    | const =>
-      rw [show Comb.lamStar y σ (Comb.const c : Comb SPCF)
-            = .app (.K (SPCF.constTy c) σ) (.const c) from rfl,
-        Model.combMeaning_app, show Comb.tyOf (Comb.const c : Comb SPCF)
-          = SPCF.constTy c from rfl,
-        Model.combMeaning_K, Model.combMeaning_const, Model.combMeaning_const]
-      exact lemma_A_1 _ σ (Tmodel.interpConst c) x
-  | S a b c =>
-    intro ρ Γ h
-    cases h with
-    | S =>
-      rw [show Comb.lamStar y σ (Comb.S a b c : Comb SPCF)
-            = .app (.K (Comb.tyOf (Comb.S a b c : Comb SPCF)) σ) (.S a b c) from rfl,
-        Model.combMeaning_app, show Comb.tyOf (Comb.S a b c : Comb SPCF)
-          = ((a ⇒ b ⇒ c) ⇒ (a ⇒ b) ⇒ a ⇒ c) from rfl,
-        Model.combMeaning_K, Model.combMeaning_S, Model.combMeaning_S]
-      exact lemma_A_1 _ σ (Tmodel.interpS a b c) x
-  | K a b =>
-    intro ρ Γ h
-    cases h with
-    | K =>
-      rw [show Comb.lamStar y σ (Comb.K a b : Comb SPCF)
-            = .app (.K (Comb.tyOf (Comb.K a b : Comb SPCF)) σ) (.K a b) from rfl,
-        Model.combMeaning_app, show Comb.tyOf (Comb.K a b : Comb SPCF) = (a ⇒ b ⇒ a) from rfl,
-        Model.combMeaning_K, Model.combMeaning_K, Model.combMeaning_K]
-      exact lemma_A_1 _ σ (Tmodel.interpK a b) x
-  | I a =>
-    intro ρ Γ h
-    cases h with
-    | I =>
-      rw [show Comb.lamStar y σ (Comb.I a : Comb SPCF)
-            = .app (.K (Comb.tyOf (Comb.I a : Comb SPCF)) σ) (.I a) from rfl,
-        Model.combMeaning_app, show Comb.tyOf (Comb.I a : Comb SPCF) = (a ⇒ a) from rfl,
-        Model.combMeaning_K, Model.combMeaning_I, Model.combMeaning_I]
-      exact lemma_A_1 _ σ (Tmodel.interpI a) x
-  | app P₁ P₂ ih₁ ih₂ =>
-    intro ρ Γ h
-    cases h with
-    | app hP₁ hP₂ =>
-      rename_i α
-      have e₂ : Comb.tyOf P₂ = α := Comb.tyOf_of_hasTy hP₂
-      have eρ : Comb.tyOf (Comb.app P₁ P₂ : Comb SPCF) = ρ :=
-        Comb.tyOf_of_hasTy (Comb.HasTy.app hP₁ hP₂)
-      have hl₁ : Comb.tyOf (Comb.lamStar y σ P₁) = (σ ⇒ α ⇒ ρ) :=
-        Comb.tyOf_of_hasTy (Comb.lamStar_hasTy hP₁)
-      have hl₂ : Comb.tyOf (Comb.lamStar y σ P₂) = (σ ⇒ α) :=
-        Comb.tyOf_of_hasTy (Comb.lamStar_hasTy hP₂)
-      rw [show Comb.lamStar y σ (Comb.app P₁ P₂)
-            = .app (.app (.S σ (Comb.tyOf P₂) (Comb.tyOf (Comb.app P₁ P₂)))
-                (Comb.lamStar y σ P₁)) (Comb.lamStar y σ P₂) from rfl,
-        e₂, eρ, Model.combMeaning_app, hl₂, Model.combMeaning_app, hl₁, Model.combMeaning_S,
-        Model.combMeaning_app, e₂]
-      have hS := lemma_A_6 σ α ρ (Tmodel.combMeaning E (Comb.lamStar y σ P₁) (σ ⇒ α ⇒ ρ))
-        (Tmodel.combMeaning E (Comb.lamStar y σ P₂) (σ ⇒ α)) x
-      show applyT (applyT (applyT (treeS σ α ρ) _) _) _ = _
-      rw [hS, ih₁ (α ⇒ ρ) Γ hP₁, ih₂ α Γ hP₂]
       rfl
 
 /-- **Corollary 4.23** (`β`, `η`).

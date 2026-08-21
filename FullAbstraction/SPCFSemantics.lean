@@ -115,22 +115,6 @@ theorem meaning_omegaTerm (E : Tmodel.Env) :
 environment; closed phrases do not consult it. -/
 noncomputable def botEnv : Tmodel.Env := fun _ σ => ScottDomain.bot (α := T σ)
 
-theorem principal_bot_le {σ : Ty} (I : T σ) : Ideal.principal (DSub.bot : D σ) ⊑ I := by
-  intro a ha
-  obtain ⟨b, hb⟩ := I.nonempty'
-  have hle : a ⊑ (DSub.bot : D σ) := ha
-  exact I.downward a b (Po.le_trans hle (DSub.bot_le b)) hb
-
-/-- `apply (⊥, x) = ⊥`. -/
-theorem applyT_bot (σ τ : Ty) (x : T σ) :
-    applyT (ScottDomain.bot : T (σ ⇒ τ)) x ⊑ Ideal.principal (DSub.bot : D τ) := by
-  rintro c ⟨f, hf, d, _, hc⟩
-  have hfb : f ⊑ (DSub.bot : D (σ ⇒ τ)) :=
-    Po.le_trans (show f ⊑ FinitaryBasis.bot from hf) (FinitaryBasis.bot_le DSub.bot)
-  have hfeq : f = DSub.bot := Po.le_antisymm hfb (DSub.bot_le f)
-  subst hfeq
-  exact hc
-
 theorem hasTy_omegaTerm : Term.HasTy [] omegaTerm 𝕆 :=
   Term.HasTy.app Term.HasTy.const Term.HasTy.const
 
@@ -240,7 +224,9 @@ theorem Tmeaning_mono {k : Nat} (C : MCtx SPCF k) (M : Fin k → Term SPCF) (j :
             = ScottDomain.bot from by
               show (if h : (𝕆 ⇒ 𝕆) = (𝕆 ⇒ ν) then _ else ScottDomain.bot) = _
               rw [dif_neg (fun h => hν (by injection h with _ h2; exact h2.symm))]]
-        exact Po.le_trans (applyT_bot 𝕆 ν _) (principal_bot_le _)
+        exact Po.le_trans (show Tmodel.apply (ScottDomain.bot : T (𝕆 ⇒ ν)) _
+            ⊑ Ideal.principal (DSub.bot : D ν) from
+          (applyT_bot 𝕆 ν _).symm ▸ Po.le_refl _) (principal_bot_le _)
     · simp only [repl, if_neg hij]
       exact Po.le_refl _
 

@@ -342,6 +342,14 @@ theorem theorem_4_4_countably_many_finite [FinitaryBasis α] (hcount : Countable
   simp only at h
   rw [hI, hJ, h]
 
+/-- An ascending chain is a directed set. -/
+theorem chain_directed [Po α] (c : Nat → α) (hmono : ∀ m n : Nat, m ≤ n → c m ⊑ c n) :
+    DirectedSet (Set.range c) := by
+  refine ⟨⟨c 0, 0, rfl⟩, ?_⟩
+  rintro a b ⟨m, rfl⟩ ⟨n, rfl⟩
+  exact ⟨c (max m n), ⟨max m n, rfl⟩, hmono m _ (Nat.le_max_left m n),
+    hmono n _ (Nat.le_max_right m n)⟩
+
 /-! ## Scott domains
 
 "A Scott domain is the ideal completion of a finitary basis [7, 20]. … By this

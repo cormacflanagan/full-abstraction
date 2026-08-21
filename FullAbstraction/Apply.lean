@@ -399,6 +399,28 @@ noncomputable def applyT {σ τ : Ty} (F : T (σ ⇒ τ)) (G : T σ) : T τ wher
       show apply0 f₂.1 d₂.1 ⊑ apply0 f.1 d.1
       exact Po.le_trans (apply0_mono_left hf2 d₂.1) (apply0_mono_right f.1 hd2)
 
+/-- `⊥` is the principal ideal of `⊥`. -/
+theorem principal_bot_le {σ : Ty} (I : T σ) : Ideal.principal (DSub.bot : D σ) ⊑ I := by
+  intro a ha
+  obtain ⟨b, hb⟩ := I.nonempty'
+  have hle : a ⊑ (DSub.bot : D σ) := ha
+  exact I.downward a b (Po.le_trans hle (DSub.bot_le b)) hb
+
+theorem bot_eq_principal (σ : Ty) :
+    (ScottDomain.bot : T σ) = Ideal.principal (DSub.bot : D σ) :=
+  Po.le_antisymm (ScottDomain.bot_le _) (principal_bot_le _)
+
+/-- `apply (⊥, x) = ⊥`. -/
+theorem applyT_bot (σ τ : Ty) (x : T σ) :
+    applyT (ScottDomain.bot : T (σ ⇒ τ)) x = Ideal.principal (DSub.bot : D τ) := by
+  refine Po.le_antisymm ?_ (principal_bot_le _)
+  rintro c ⟨f, hf, d, _, hc⟩
+  have hfb : f ⊑ (DSub.bot : D (σ ⇒ τ)) :=
+    Po.le_trans (show f ⊑ FinitaryBasis.bot from hf) (FinitaryBasis.bot_le DSub.bot)
+  have hfeq : f = DSub.bot := Po.le_antisymm hfb (DSub.bot_le f)
+  subst hfeq
+  exact hc
+
 /-- `apply` is monotone in its first argument. -/
 theorem applyT_mono_left {σ τ : Ty} {F G : T (σ ⇒ τ)} (h : F ⊑ G) (E : T σ) :
     applyT F E ⊑ applyT G E := by
