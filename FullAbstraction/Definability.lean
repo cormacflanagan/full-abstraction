@@ -795,6 +795,231 @@ theorem root_shape_of_runs (xs : List (Nat × Ty)) (Λ : T (foldX xs))
     subst hjj
     exact Or.inr ⟨f, rfl⟩
 
+/-! ## Padding a tree with an extra leading ground argument
+
+The §5 construction interprets the tree `q̂(h)` "as a tree of type `σ'ₕ`" with
+extra ground arguments.  Here the extra arguments are added at the *front*:
+a padded tree never probes the new argument `0`, so applying it to anything
+recovers the original tree (`apply0_pad`).  Grafting the probes of §5 into a
+padded tree is what makes the argument expressions `Bₕ` report back to the
+body of `M'`. -/
+
+/-- Argument `i` of `σ`, as argument `i+1` of `𝕆 ⇒ σ`. -/
+def Fin.padI {σ : Ty} (i : Fin σ.arity) : Fin (𝕆 ⇒ σ).arity :=
+  ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩
+
+theorem Fin.padI_inj {σ : Ty} {i j : Fin σ.arity} (h : Fin.padI i = Fin.padI j) :
+    i = j := by
+  have hv := congrArg Fin.val h
+  exact Fin.ext (by simp only [Fin.padI] at hv; omega)
+
+theorem Fin.padI_ne_zero {σ : Ty} (i : Fin σ.arity)
+    (h0 : 0 < (𝕆 ⇒ σ).arity) : Fin.padI i ≠ ⟨0, h0⟩ := by
+  intro h
+  have hv := congrArg Fin.val h
+  simp only [Fin.padI] at hv
+  exact Nat.succ_ne_zero _ hv
+
+/-- Reinterpret a tree at `σ` as a tree at `𝕆 ⇒ σ` that ignores argument 0. -/
+noncomputable def Tree.pad {σ : Ty} : Tree σ → Tree (𝕆 ⇒ σ)
+  | .leaf v => .leaf v
+  | .node i q f => .node (Fin.padI i) q (fun r => Tree.pad (f r))
+
+/-- Reinterpret a position in `t` as a position in `Tree.pad t`. -/
+def Query.padQ {σ : Ty} : Query σ → Query (𝕆 ⇒ σ)
+  | .hole => .hole
+  | .step i q r rest => .step (Fin.padI i) q r (Query.padQ rest)
+
+/-- The padded context: nothing is known about the new argument. -/
+noncomputable def Ctx.padC {σ : Ty} (γ : Ctx σ) : Ctx (𝕆 ⇒ σ) := fun j =>
+  match j with
+  | ⟨0, _⟩ => Tree.bot
+  | ⟨i + 1, h⟩ => γ ⟨i, Nat.lt_of_succ_lt_succ h⟩
+
+theorem Ctx.padC_padI {σ : Ty} (γ : Ctx σ) (i : Fin σ.arity) :
+    (Ctx.padC γ) (Fin.padI i) = γ i := rfl
+
+theorem Ctx.padC_empty {σ : Ty} :
+    Ctx.padC (Ctx.empty : Ctx σ) = (Ctx.empty : Ctx (𝕆 ⇒ σ)) := by
+  funext j
+  obtain ⟨jv, hj⟩ := j
+  cases jv <;> rfl
+
+theorem Ctx.padC_cons {σ : Ty} (γ : Ctx σ) (i : Fin σ.arity)
+    (r : Resp (σ.arg i)) :
+    (Ctx.padC γ).cons (Fin.padI i) r = Ctx.padC (γ.cons i r) := by
+  funext j
+  obtain ⟨jv, hj⟩ := j
+  cases jv with
+  | zero =>
+    rw [Ctx.cons_other _ _ (Fin.padI_ne_zero i hj)]
+    rfl
+  | succ k =>
+    have hk : k < σ.arity := Nat.lt_of_succ_lt_succ hj
+    have hjk : (⟨k + 1, hj⟩ : Fin (𝕆 ⇒ σ).arity) = Fin.padI ⟨k, hk⟩ := rfl
+    rw [hjk]
+    by_cases hik : i = (⟨k, hk⟩ : Fin σ.arity)
+    · cases hik
+      rw [Ctx.cons_self, Ctx.padC_padI, Ctx.padC_padI, Ctx.cons_self]
+    · rw [Ctx.cons_other _ _ (fun he => hik (Fin.padI_inj he)),
+        Ctx.padC_padI, Ctx.padC_padI, Ctx.cons_other γ r hik]
+
+/-- A padded tree is `⊥` exactly when the original is. -/
+theorem Tree.pad_eq_bot_iff {σ : Ty} (t : Tree σ) :
+    Tree.pad t = Tree.bot ↔ t = Tree.bot := by
+  cases t with
+  | leaf v =>
+    show (Tree.leaf v : Tree (𝕆 ⇒ σ)) = Tree.leaf Val.bot ↔ _
+    exact Iff.intro (fun h => by injection h with hv; rw [hv]; rfl)
+      (fun h => by injection h with hv; rw [hv])
+  | node i q f =>
+    constructor
+    · intro h
+      rw [Tree.pad] at h
+      exact Tree.noConfusion h
+    · intro h
+      exact Tree.noConfusion h
+
+/-- Applying a padded tree consumes the new argument and gives the original
+tree back. -/
+theorem apply0_pad {σ : Ty} : ∀ (t : Tree σ) (d : Tree 𝕆),
+    apply0 (Tree.pad t) d = t
+  | .leaf v, d => by rw [Tree.pad, apply0]
+  | .node i q f, d => by
+      rw [Tree.pad]
+      simp only [Fin.padI]
+      rw [apply0]
+      show (Tree.node i q fun r => apply0 (Tree.pad (f r)) d) = _
+      exact congrArg (fun g => (Tree.node i q g : Tree σ))
+        (funext fun r => apply0_pad (f r) d)
+
+/-- The equality of padded node values reduces to that of the originals. -/
+theorem padNodeVal_eq_iff {σ : Ty} (i j : Fin σ.arity) (q : Query (σ.arg i))
+    (p : Query (σ.arg j)) :
+    ((⟨Fin.padI i, q⟩ : NodeVal (𝕆 ⇒ σ)) = ⟨Fin.padI j, p⟩)
+      ↔ ((⟨i, q⟩ : NodeVal σ) = ⟨j, p⟩) := by
+  constructor
+  · intro h
+    injection h with h1 h2
+    cases Fin.padI_inj h1
+    cases (eq_of_heq h2 : q = p)
+    rfl
+  · intro h
+    injection h with h1 h2
+    cases h1
+    cases (eq_of_heq h2 : q = p)
+    rfl
+
+/-- Navigation commutes with padding. -/
+theorem at'_pad {σ : Ty} : ∀ (P : Query σ) (t : Tree σ),
+    (Tree.pad t).at' (Query.padQ P) = Option.map Tree.pad (t.at' P)
+  | .hole, t => rfl
+  | .step i q r rest, t => by
+      cases t with
+      | leaf v => rfl
+      | node j p f =>
+        by_cases h : (⟨i, q⟩ : NodeVal σ) = ⟨j, p⟩
+        · injection h with h1 h2
+          cases h1
+          cases (eq_of_heq h2 : q = p)
+          show ((Tree.pad (Tree.node i q f)).stepAt (Fin.padI i) q r).bind
+              (fun d' => d'.at' (Query.padQ rest))
+            = Option.map Tree.pad
+              (((Tree.node i q f).stepAt i q r).bind (fun d' => d'.at' rest))
+          rw [Tree.pad, Tree.stepAt_self, Tree.stepAt_self]
+          show ((Tree.pad (f r)).at' (Query.padQ rest))
+            = Option.map Tree.pad ((f r).at' rest)
+          exact at'_pad rest (f r)
+        · have hne : ¬ ((⟨Fin.padI i, q⟩ : NodeVal (𝕆 ⇒ σ))
+              = ⟨Fin.padI j, p⟩) :=
+            fun he => h ((padNodeVal_eq_iff i j q p).mp he)
+          show ((Tree.pad (Tree.node j p f)).stepAt (Fin.padI i) q r).bind
+              (fun d' => d'.at' (Query.padQ rest))
+            = Option.map Tree.pad
+              (((Tree.node j p f).stepAt i q r).bind (fun d' => d'.at' rest))
+          rw [Tree.pad]
+          rw [show ((Tree.node (Fin.padI j) p (fun r' => Tree.pad (f r'))).stepAt
+              (Fin.padI i) q r : Option (Tree (𝕆 ⇒ σ))) = none from by
+            show (dite _ _ _) = _
+            rw [dif_neg hne]]
+          rw [show ((Tree.node j p f).stepAt i q r : Option (Tree σ))
+              = none from by
+            show (dite _ _ _) = _
+            rw [dif_neg h]]
+          rfl
+
+/-- Planting commutes with padding. -/
+theorem plant_pad {σ : Ty} : ∀ (P : Query σ) (t e : Tree σ),
+    plant (Query.padQ P) (Tree.pad t) (Tree.pad e) = Tree.pad (plant P t e)
+  | .hole, t, e => rfl
+  | .step i q r rest, t, e => by
+      cases t with
+      | leaf v => rfl
+      | node j p f =>
+        by_cases h : (⟨i, q⟩ : NodeVal σ) = ⟨j, p⟩
+        · injection h with h1 h2
+          cases h1
+          cases (eq_of_heq h2 : q = p)
+          show plant (.step (Fin.padI i) q r (Query.padQ rest))
+              (Tree.pad (Tree.node i q f)) (Tree.pad e) = _
+          rw [Tree.pad, plant_step_self]
+          show _ = Tree.pad (plant (.step i q r rest) (.node i q f) e)
+          rw [plant_step_self, Tree.pad]
+          refine congrArg (fun g => (Tree.node (Fin.padI i) q g
+            : Tree (𝕆 ⇒ σ))) (funext fun sr => ?_)
+          by_cases hs : sr = r
+          · rw [if_pos hs, if_pos hs, plant_pad rest (f sr) e]
+          · rw [if_neg hs, if_neg hs]
+        · have hne : ¬ ((⟨Fin.padI i, q⟩ : NodeVal (𝕆 ⇒ σ))
+              = ⟨Fin.padI j, p⟩) :=
+            fun he => h ((padNodeVal_eq_iff i j q p).mp he)
+          show plant (.step (Fin.padI i) q r (Query.padQ rest))
+              (Tree.pad (Tree.node j p f)) (Tree.pad e) = _
+          rw [Tree.pad]
+          show (dite _ _ _ : Tree (𝕆 ⇒ σ)) = _
+          rw [dif_neg hne]
+          show _ = Tree.pad (plant (.step i q r rest) (.node j p f) e)
+          show _ = Tree.pad (dite _ _ _ : Tree σ)
+          rw [dif_neg h, Tree.pad]
+
+/-- Query well-formedness survives padding: padding touches only the top-level
+argument indices, not the recorded responses. -/
+theorem QueryOk_padQ {σ : Ty} : ∀ (P : Query σ), QueryOk σ P →
+    QueryOk (𝕆 ⇒ σ) (Query.padQ P)
+  | .hole, _ => QueryOk_hole
+  | .step i q r rest, h => by
+      obtain ⟨hs, hrest⟩ := (QueryOk_step i q r rest).mp h
+      show QueryOk (𝕆 ⇒ σ) (.step (Fin.padI i) q r (Query.padQ rest))
+      exact (QueryOk_step (Fin.padI i) q r (Query.padQ rest)).mpr
+        ⟨hs, QueryOk_padQ rest hrest⟩
+
+/-- The context of a padded query is the padded context. -/
+theorem ctxFrom_padQ {σ : Ty} : ∀ (P : Query σ) (γ : Ctx σ),
+    (Query.padQ P).ctxFrom (Ctx.padC γ) = Ctx.padC (P.ctxFrom γ)
+  | .hole, γ => rfl
+  | .step i q r rest, γ => by
+      show (Query.padQ rest).ctxFrom ((Ctx.padC γ).cons (Fin.padI i) r) = _
+      rw [Ctx.padC_cons γ i r]
+      exact ctxFrom_padQ rest (γ.cons i r)
+
+/-- Legality survives padding. -/
+theorem TreeOk_pad {σ : Ty} {γ : Ctx σ} {t : Tree σ} (h : TreeOk γ t) :
+    TreeOk (Ctx.padC γ) (Tree.pad t) := by
+  induction h with
+  | leaf γ v => exact TreeOk.leaf _ _
+  | node γ i q f hq hfin hsub hnon ihsub =>
+    rw [Tree.pad]
+    refine TreeOk.node (Ctx.padC γ) (Fin.padI i) q _ ?_ ?_
+      (fun r hr => ?_) (fun r hr => ?_)
+    · rw [Ctx.padC_padI]; exact hq
+    · obtain ⟨l, hl⟩ := hfin
+      exact ⟨l, fun r hr =>
+        hl r (fun hb => hr ((Tree.pad_eq_bot_iff (f r)).mpr hb))⟩
+    · rw [Ctx.padC_cons γ i r]
+      exact ihsub r hr
+    · rw [hnon r hr]
+      rfl
+
 /-! ## The flat ground domain, as ideals -/
 
 /-- Every ideal at ground type is the principal ideal of a leaf: `T_o` is the
