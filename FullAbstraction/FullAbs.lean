@@ -204,6 +204,456 @@ theorem representable_leaf (σ : Ty) (γ : Ctx σ) (v : Val) :
       (fun Env' => ?_)
     exact meaning_omegaTerm Env'
 
+/-! ## Computation lemmas for the primitive constants -/
+
+/-- Every ground tree is a leaf. -/
+theorem ground_leaf : ∀ t : Tree 𝕆, ∃ v : Val, t = .leaf v
+  | .leaf v => ⟨v, rfl⟩
+  | .node i _ _ => absurd i.isLt (by simp [Ty.arity])
+
+/-- `sub1` on a positive numeral, on trees. -/
+theorem apply0_sub1_succ (n : Nat) :
+    apply0 treeSub1 (.leaf (.num (n + 1))) = .leaf (.num n) := rfl
+
+/-- `sub1` on a positive numeral. -/
+theorem applyT_sub1_succ (n : Nat) :
+    applyT (idealOf treeSub1) (natAns (n + 1)) = natAns n := by
+  apply Ideal.ext
+  intro c
+  constructor
+  · rintro ⟨g, hg, d, hd, hc⟩
+    show Tree.Le c.1 (.leaf (.num n))
+    refine Tree.Le.trans (hc : Tree.Le c.1 (apply0 g.1 d.1)) ?_
+    refine Tree.Le.trans
+      (apply0_mono_left (hg : Tree.Le g.1 treeSub1) d.1) ?_
+    refine Tree.Le.trans (apply0_mono_right treeSub1
+      (hd : Tree.Le d.1 (.leaf (.num (n + 1))))) ?_
+    rw [apply0_sub1_succ]
+    exact Tree.Le.refl _
+  · intro hc
+    have hlegal : LegalResp (Query.hole : Query 𝕆) (Resp.ans (n + 1)) :=
+      LegalResp.num Query.hole (n + 1)
+    have gok : TreeOk Ctx.empty
+        ((Tree.node ⟨0, Nat.succ_pos _⟩ (Query.hole : Query 𝕆)
+          fun r => if r = Resp.ans (n + 1)
+            then Tree.leaf (.num n) else Tree.bot) : Tree (𝕆 ⇒ 𝕆)) := by
+      refine TreeOk.node _ _ _ _ LegalQuery.root
+        ⟨[Resp.ans (n + 1)], fun r hr => ?_⟩ (fun r _ => ?_) (fun r hr => ?_)
+      · by_cases hr2 : r = Resp.ans (n + 1)
+        · rw [hr2]; exact List.mem_cons_self ..
+        · exact absurd (if_neg hr2) hr
+      · by_cases hr2 : r = Resp.ans (n + 1)
+        · rw [if_pos hr2]; exact TreeOk.leaf _ _
+        · rw [if_neg hr2]; exact TreeOk.leaf _ _
+      · by_cases hr2 : r = Resp.ans (n + 1)
+        · exact absurd (hr2 ▸ hlegal) hr
+        · exact if_neg hr2
+    refine ⟨⟨_, gok⟩, ?_, ⟨.leaf (.num (n + 1)), TreeOk.leaf _ _⟩,
+      Tree.Le.refl _, ?_⟩
+    · rw [treeSub1]
+      refine Tree.Le.node _ _ _ _ fun r => ?_
+      by_cases hr : r = Resp.ans (n + 1)
+      · subst hr
+        rw [if_pos rfl]
+        exact Tree.Le.refl _
+      · rw [if_neg hr]
+        exact Tree.Le.bot _
+    · show Tree.Le c.1 (apply0 _ (Tree.leaf (.num (n + 1)) : Tree 𝕆))
+      rw [show apply0 (Tree.node ⟨0, Nat.succ_pos _⟩ (Query.hole : Query 𝕆)
+          fun r => if r = Resp.ans (n + 1)
+            then Tree.leaf (.num n) else Tree.bot)
+          (Tree.leaf (.num (n + 1)) : Tree 𝕆) = Tree.leaf (.num n) from by
+        rw [apply0]
+        simp only [Tree.at'_hole]
+        show apply0 (if Query.hole.substAns (RAns.num (n + 1)) = Resp.ans (n + 1)
+          then Tree.leaf (Val.num n) else Tree.bot) _ = _
+        rw [show (Query.hole.substAns (RAns.num (n + 1)) : Resp 𝕆)
+            = Resp.ans (n + 1) from rfl, if_pos rfl]
+        rfl]
+      exact (hc : Tree.Le c.1 (.leaf (.num n)))
+
+/-- `sub1` on `⌜0⌝` diverges. -/
+theorem applyT_sub1_zero' :
+    applyT (idealOf treeSub1) (natAns 0) = leafT 𝕆 .bot := by
+  apply Ideal.ext
+  intro c
+  constructor
+  · rintro ⟨g, hg, d, hd, hc⟩
+    show Tree.Le c.1 (.leaf .bot)
+    refine Tree.Le.trans (hc : Tree.Le c.1 (apply0 g.1 d.1)) ?_
+    refine Tree.Le.trans
+      (apply0_mono_left (hg : Tree.Le g.1 treeSub1) d.1) ?_
+    refine Tree.Le.trans (apply0_mono_right treeSub1
+      (hd : Tree.Le d.1 (.leaf (.num 0)))) ?_
+    rw [apply0_sub1_zero]
+    exact Tree.Le.refl _
+  · intro hc
+    refine ⟨DSub.bot, Tree.Le.bot _, ⟨.leaf (.num 0), TreeOk.leaf _ _⟩,
+      Tree.Le.refl _, ?_⟩
+    show Tree.Le c.1 (apply0 (Tree.bot : Tree (𝕆 ⇒ 𝕆)) (Tree.leaf (.num 0)))
+    exact mem_leafT.mp hc
+
+/-- `sub1` propagates an error. -/
+theorem applyT_sub1_err (b : Bool) :
+    applyT (idealOf treeSub1) (leafT 𝕆 (.err b)) = leafT 𝕆 (.err b) := by
+  rw [treeSub1]
+  exact applyT_rootProbe_err (Nat.succ_pos _) _ b
+
+/-- `sub1` on `⊥` diverges. -/
+theorem applyT_sub1_bot :
+    applyT (idealOf treeSub1) (leafT 𝕆 .bot) = leafT 𝕆 .bot := by
+  rw [treeSub1]
+  exact applyT_rootProbe_bot (Nat.succ_pos _) _
+
+/-- The three-argument `if0` computation, on trees. -/
+theorem apply0_if0 (v : Nat) (at' bt : Tree 𝕆) :
+    apply0 (apply0 (apply0 treeIf0 (.leaf (.num v))) at') bt
+      = if v = 0 then at' else bt := by
+  obtain ⟨va, rfl⟩ := ground_leaf at'
+  obtain ⟨vb, rfl⟩ := ground_leaf bt
+  cases v with
+  | zero =>
+    rw [if_pos rfl]
+    cases va <;> rfl
+  | succ v =>
+    rw [if_neg (by omega)]
+    cases vb <;> rfl
+
+/-- `⊥` belongs to every ideal. -/
+theorem bot_mem {σ : Ty} (I : T σ) : DSub.bot ∈ I := by
+  obtain ⟨d, hd⟩ := I.nonempty'
+  exact I.downward DSub.bot d (Tree.Le.bot _) hd
+
+/-- The `if0` computation on a numeral scrutinee and finite ground arms. -/
+theorem applyT_if0_chain (v : Nat) (a b : D 𝕆) :
+    applyT (applyT (applyT (idealOf treeIf0) (natAns v)) (Ideal.principal a))
+      (Ideal.principal b)
+      = Ideal.principal (if v = 0 then a else b) := by
+  apply Ideal.ext
+  intro c
+  constructor
+  · rintro ⟨g₂, ⟨g₁, ⟨g₀, hg₀, cv, hcv, hle₁⟩, a', ha', hle₂⟩, b', hb', hle₃⟩
+    show Tree.Le c.1 (if v = 0 then a else b).1
+    have s1 : Tree.Le (apply0 g₀.1 cv.1)
+        (apply0 treeIf0 (.leaf (.num v))) :=
+      Tree.Le.trans (apply0_mono_left (hg₀ : Tree.Le g₀.1 treeIf0) cv.1)
+        (apply0_mono_right treeIf0 (hcv : Tree.Le cv.1 (.leaf (.num v))))
+    have s2 : Tree.Le (apply0 g₁.1 a'.1)
+        (apply0 (apply0 treeIf0 (.leaf (.num v))) a.1) :=
+      Tree.Le.trans (apply0_mono_left
+          (Tree.Le.trans (hle₁ : Tree.Le g₁.1 (apply0 g₀.1 cv.1)) s1) a'.1)
+        (apply0_mono_right _ (ha' : Tree.Le a'.1 a.1))
+    have s3 : Tree.Le (apply0 g₂.1 b'.1)
+        (apply0 (apply0 (apply0 treeIf0 (.leaf (.num v))) a.1) b.1) :=
+      Tree.Le.trans (apply0_mono_left
+          (Tree.Le.trans (hle₂ : Tree.Le g₂.1 (apply0 g₁.1 a'.1)) s2) b'.1)
+        (apply0_mono_right _ (hb' : Tree.Le b'.1 b.1))
+    refine Tree.Le.trans (hle₃ : Tree.Le c.1 (apply0 g₂.1 b'.1))
+      (Tree.Le.trans s3 ?_)
+    rw [apply0_if0]
+    by_cases hv : v = 0
+    · rw [if_pos hv, if_pos hv]
+      exact Tree.Le.refl _
+    · rw [if_neg hv, if_neg hv]
+      exact Tree.Le.refl _
+  · intro hc
+    have hcle : Tree.Le c.1 (if v = 0 then a else b).1 := hc
+    -- it suffices to exhibit one finite legal pruning of `if0` computing the arm
+    suffices h : ∃ P : D (𝕆 ⇒ 𝕆 ⇒ 𝕆 ⇒ 𝕆), Tree.Le P.1 treeIf0 ∧
+        Tree.Le c.1 (apply0 (apply0 (apply0 P.1 (.leaf (.num v))) a.1) b.1) by
+      obtain ⟨P, hPle, hPval⟩ := h
+      exact ⟨applyD (applyD P ⟨.leaf (.num v), TreeOk.leaf _ _⟩) a,
+        ⟨applyD P ⟨.leaf (.num v), TreeOk.leaf _ _⟩,
+          ⟨P, hPle, ⟨.leaf (.num v), TreeOk.leaf _ _⟩, Tree.Le.refl _,
+            Po.le_refl _⟩,
+          a, Ideal.mem_principal.mpr (Po.le_refl a), Po.le_refl _⟩,
+        b, Ideal.mem_principal.mpr (Po.le_refl b), hPval⟩
+    by_cases hv : v = 0
+    · subst hv
+      rw [if_pos rfl] at hcle
+      obtain ⟨w, hw⟩ := ground_leaf a.1
+      rw [hw] at hcle
+      cases w with
+      | bot =>
+        have hcb : c.1 = Tree.bot := Tree.eq_bot_of_le_bot hcle
+        refine ⟨DSub.bot, Tree.Le.bot _, ?_⟩
+        rw [hcb]
+        exact Tree.Le.bot _
+      | err e =>
+        refine ⟨⟨Tree.node ⟨0, Nat.succ_pos _⟩ (Query.hole : Query 𝕆)
+          (fun r => if r = Resp.ans 0 then
+            Tree.node ⟨1, by decide⟩ (Query.hole : Query 𝕆) (fun _ => Tree.bot)
+            else Tree.bot), ?_⟩, ?_, ?_⟩
+        · refine TreeOk.node _ _ _ _ LegalQuery.root
+            ⟨[Resp.ans 0], fun r hr => ?_⟩ (fun r _ => ?_) (fun r hr => ?_)
+          · by_cases hr2 : r = Resp.ans 0
+            · rw [hr2]; exact List.mem_cons_self ..
+            · exact absurd (if_neg hr2) hr
+          · by_cases hr2 : r = Resp.ans 0
+            · rw [if_pos hr2]
+              exact TreeOk.node _ _ _ _ LegalQuery.root
+                ⟨[], fun r' hr' => absurd rfl hr'⟩
+                (fun r' _ => TreeOk.leaf _ _) (fun r' _ => rfl)
+            · rw [if_neg hr2]; exact TreeOk.leaf _ _
+          · by_cases hr2 : r = Resp.ans 0
+            · exact absurd (hr2 ▸ LegalResp.num Query.hole 0) hr
+            · exact if_neg hr2
+        · rw [treeIf0]
+          refine Tree.Le.node _ _ _ _ fun r => ?_
+          by_cases hr : r = Resp.ans 0
+          · subst hr
+            rw [if_pos rfl]
+            show Tree.Le _ (groundBranch _ (Resp.ans 0))
+            exact Tree.Le.node _ _ _ _ fun r' => Tree.Le.bot _
+          · rw [if_neg hr]
+            exact Tree.Le.bot _
+        · have h1 : apply0 ((Tree.node ⟨0, Nat.succ_pos _⟩ (Query.hole : Query 𝕆)
+              (fun r => if r = Resp.ans 0 then
+                Tree.node ⟨1, by decide⟩ Query.hole (fun _ => Tree.bot)
+                else Tree.bot)) : Tree (𝕆 ⇒ 𝕆 ⇒ 𝕆 ⇒ 𝕆)) (.leaf (.num 0))
+              = apply0 ((Tree.node ⟨1, by decide⟩ Query.hole
+                  (fun _ => Tree.bot)) : Tree (𝕆 ⇒ 𝕆 ⇒ 𝕆 ⇒ 𝕆)) (.leaf (.num 0)) := by
+            rw [apply0]
+            simp only [Tree.at'_hole]
+            show apply0 (if Query.hole.substAns (RAns.num 0) = Resp.ans 0
+              then _ else _) _ = _
+            rw [show (Query.hole.substAns (RAns.num 0) : Resp 𝕆) = Resp.ans 0
+              from rfl, if_pos rfl]
+          have h2 : apply0 ((Tree.node ⟨1, by decide⟩ Query.hole
+              (fun _ => Tree.bot)) : Tree (𝕆 ⇒ 𝕆 ⇒ 𝕆 ⇒ 𝕆)) (.leaf (.num 0))
+              = (Tree.node ⟨0, by decide⟩ Query.hole
+                  (fun _ => Tree.bot) : Tree (𝕆 ⇒ 𝕆 ⇒ 𝕆)) := by
+            rw [apply0]
+            rfl
+          have h3 : apply0 ((Tree.node ⟨0, by decide⟩ Query.hole
+              (fun _ => Tree.bot)) : Tree (𝕆 ⇒ 𝕆 ⇒ 𝕆)) a.1
+              = Tree.leaf (Val.err e) := by
+            rw [hw, apply0]
+            rfl
+          rw [h1, h2, h3]
+          show Tree.Le c.1 (apply0 (Tree.leaf (Val.err e) : Tree (𝕆 ⇒ 𝕆)) b.1)
+          exact hcle
+      | num u =>
+        refine ⟨⟨Tree.node ⟨0, Nat.succ_pos _⟩ (Query.hole : Query 𝕆)
+          (fun r => if r = Resp.ans 0 then
+            Tree.node ⟨1, by decide⟩ (Query.hole : Query 𝕆)
+              (fun r' => if r' = Resp.ans u then .leaf (.num u) else Tree.bot)
+            else Tree.bot), ?_⟩, ?_, ?_⟩
+        · refine TreeOk.node _ _ _ _ LegalQuery.root
+            ⟨[Resp.ans 0], fun r hr => ?_⟩ (fun r _ => ?_) (fun r hr => ?_)
+          · by_cases hr2 : r = Resp.ans 0
+            · rw [hr2]; exact List.mem_cons_self ..
+            · exact absurd (if_neg hr2) hr
+          · by_cases hr2 : r = Resp.ans 0
+            · rw [if_pos hr2]
+              refine TreeOk.node _ _ _ _ LegalQuery.root
+                ⟨[Resp.ans u], fun r' hr' => ?_⟩ (fun r' _ => ?_) (fun r' hr' => ?_)
+              · by_cases hr3 : r' = Resp.ans u
+                · rw [hr3]; exact List.mem_cons_self ..
+                · exact absurd (if_neg hr3) hr'
+              · by_cases hr3 : r' = Resp.ans u
+                · rw [if_pos hr3]; exact TreeOk.leaf _ _
+                · rw [if_neg hr3]; exact TreeOk.leaf _ _
+              · by_cases hr3 : r' = Resp.ans u
+                · exact absurd (hr3 ▸ LegalResp.num Query.hole u) hr'
+                · exact if_neg hr3
+            · rw [if_neg hr2]; exact TreeOk.leaf _ _
+          · by_cases hr2 : r = Resp.ans 0
+            · exact absurd (hr2 ▸ LegalResp.num Query.hole 0) hr
+            · exact if_neg hr2
+        · rw [treeIf0]
+          refine Tree.Le.node _ _ _ _ fun r => ?_
+          by_cases hr : r = Resp.ans 0
+          · subst hr
+            rw [if_pos rfl]
+            show Tree.Le _ (groundBranch _ (Resp.ans 0))
+            refine Tree.Le.node _ _ _ _ fun r' => ?_
+            by_cases hr3 : r' = Resp.ans u
+            · subst hr3
+              rw [if_pos rfl]
+              show Tree.Le _ (groundBranch _ (Resp.ans u))
+              exact Tree.Le.refl _
+            · rw [if_neg hr3]
+              exact Tree.Le.bot _
+          · rw [if_neg hr]
+            exact Tree.Le.bot _
+        · have h1 : apply0 ((Tree.node ⟨0, Nat.succ_pos _⟩ (Query.hole : Query 𝕆)
+              (fun r => if r = Resp.ans 0 then
+                Tree.node ⟨1, by decide⟩ Query.hole
+                  (fun r' => if r' = Resp.ans u then .leaf (.num u) else Tree.bot)
+                else Tree.bot)) : Tree (𝕆 ⇒ 𝕆 ⇒ 𝕆 ⇒ 𝕆)) (.leaf (.num 0))
+              = (Tree.node ⟨0, by decide⟩ (Query.hole : Query 𝕆)
+                  (fun r' => apply0 (if r' = Resp.ans u
+                    then (.leaf (.num u) : Tree (𝕆 ⇒ 𝕆 ⇒ 𝕆 ⇒ 𝕆)) else Tree.bot)
+                    (.leaf (.num 0))) : Tree (𝕆 ⇒ 𝕆 ⇒ 𝕆)) := by
+            rw [apply0]
+            simp only [Tree.at'_hole]
+            show apply0 (if Query.hole.substAns (RAns.num 0) = Resp.ans 0
+              then _ else _) _ = _
+            rw [show (Query.hole.substAns (RAns.num 0) : Resp 𝕆) = Resp.ans 0
+              from rfl, if_pos rfl, apply0]
+          have h2 : apply0 ((Tree.node ⟨0, by decide⟩ (Query.hole : Query 𝕆)
+              (fun r' => apply0 (if r' = Resp.ans u
+                then (.leaf (.num u) : Tree (𝕆 ⇒ 𝕆 ⇒ 𝕆 ⇒ 𝕆)) else Tree.bot)
+                (.leaf (.num 0))) : Tree (𝕆 ⇒ 𝕆 ⇒ 𝕆))) a.1
+              = Tree.leaf (.num u) := by
+            rw [hw, apply0]
+            simp only [Tree.at'_hole]
+            show apply0 (apply0 (if Query.hole.substAns (RAns.num u) = Resp.ans u
+              then _ else _) _) _ = _
+            rw [show (Query.hole.substAns (RAns.num u) : Resp 𝕆) = Resp.ans u
+              from rfl, if_pos rfl]
+            rfl
+          rw [h1, h2]
+          show Tree.Le c.1 (apply0 (Tree.leaf (Val.num u) : Tree (𝕆 ⇒ 𝕆)) b.1)
+          exact hcle
+    · rw [if_neg hv] at hcle
+      obtain ⟨s', rfl⟩ : ∃ s', v = s' + 1 := ⟨v - 1, by omega⟩
+      obtain ⟨w, hw⟩ := ground_leaf b.1
+      rw [hw] at hcle
+      cases w with
+      | bot =>
+        have hcb : c.1 = Tree.bot := Tree.eq_bot_of_le_bot hcle
+        refine ⟨DSub.bot, Tree.Le.bot _, ?_⟩
+        rw [hcb]
+        exact Tree.Le.bot _
+      | err e =>
+        refine ⟨⟨Tree.node ⟨0, Nat.succ_pos _⟩ (Query.hole : Query 𝕆)
+          (fun r => if r = Resp.ans (s' + 1) then
+            Tree.node ⟨2, by decide⟩ (Query.hole : Query 𝕆) (fun _ => Tree.bot)
+            else Tree.bot), ?_⟩, ?_, ?_⟩
+        · refine TreeOk.node _ _ _ _ LegalQuery.root
+            ⟨[Resp.ans (s' + 1)], fun r hr => ?_⟩ (fun r _ => ?_) (fun r hr => ?_)
+          · by_cases hr2 : r = Resp.ans (s' + 1)
+            · rw [hr2]; exact List.mem_cons_self ..
+            · exact absurd (if_neg hr2) hr
+          · by_cases hr2 : r = Resp.ans (s' + 1)
+            · rw [if_pos hr2]
+              exact TreeOk.node _ _ _ _ LegalQuery.root
+                ⟨[], fun r' hr' => absurd rfl hr'⟩
+                (fun r' _ => TreeOk.leaf _ _) (fun r' _ => rfl)
+            · rw [if_neg hr2]; exact TreeOk.leaf _ _
+          · by_cases hr2 : r = Resp.ans (s' + 1)
+            · exact absurd (hr2 ▸ LegalResp.num Query.hole (s' + 1)) hr
+            · exact if_neg hr2
+        · rw [treeIf0]
+          refine Tree.Le.node _ _ _ _ fun r => ?_
+          by_cases hr : r = Resp.ans (s' + 1)
+          · subst hr
+            rw [if_pos rfl]
+            show Tree.Le _ (groundBranch _ (Resp.ans (s' + 1)))
+            exact Tree.Le.node _ _ _ _ fun r' => Tree.Le.bot _
+          · rw [if_neg hr]
+            exact Tree.Le.bot _
+        · have h1 : apply0 ((Tree.node ⟨0, Nat.succ_pos _⟩ (Query.hole : Query 𝕆)
+              (fun r => if r = Resp.ans (s' + 1) then
+                Tree.node ⟨2, by decide⟩ Query.hole (fun _ => Tree.bot)
+                else Tree.bot)) : Tree (𝕆 ⇒ 𝕆 ⇒ 𝕆 ⇒ 𝕆)) (.leaf (.num (s' + 1)))
+              = (Tree.node ⟨1, by decide⟩ (Query.hole : Query 𝕆)
+                  (fun _ => Tree.bot) : Tree (𝕆 ⇒ 𝕆 ⇒ 𝕆)) := by
+            rw [apply0]
+            simp only [Tree.at'_hole]
+            show apply0 (if Query.hole.substAns (RAns.num (s' + 1))
+              = Resp.ans (s' + 1) then _ else _) _ = _
+            rw [show (Query.hole.substAns (RAns.num (s' + 1)) : Resp 𝕆)
+              = Resp.ans (s' + 1) from rfl, if_pos rfl, apply0]
+            rfl
+          have h2 : apply0 ((Tree.node ⟨1, by decide⟩ (Query.hole : Query 𝕆)
+              (fun _ => Tree.bot)) : Tree (𝕆 ⇒ 𝕆 ⇒ 𝕆)) a.1
+              = (Tree.node ⟨0, by decide⟩ (Query.hole : Query 𝕆)
+                  (fun _ => Tree.bot) : Tree (𝕆 ⇒ 𝕆)) := by
+            rw [apply0]
+            rfl
+          have h3 : apply0 ((Tree.node ⟨0, by decide⟩ (Query.hole : Query 𝕆)
+              (fun _ => Tree.bot)) : Tree (𝕆 ⇒ 𝕆)) b.1
+              = Tree.leaf (Val.err e) := by
+            rw [hw, apply0]
+            rfl
+          rw [h1, h2, h3]
+          exact hcle
+      | num u =>
+        refine ⟨⟨Tree.node ⟨0, Nat.succ_pos _⟩ (Query.hole : Query 𝕆)
+          (fun r => if r = Resp.ans (s' + 1) then
+            Tree.node ⟨2, by decide⟩ (Query.hole : Query 𝕆)
+              (fun r' => if r' = Resp.ans u then .leaf (.num u) else Tree.bot)
+            else Tree.bot), ?_⟩, ?_, ?_⟩
+        · refine TreeOk.node _ _ _ _ LegalQuery.root
+            ⟨[Resp.ans (s' + 1)], fun r hr => ?_⟩ (fun r _ => ?_) (fun r hr => ?_)
+          · by_cases hr2 : r = Resp.ans (s' + 1)
+            · rw [hr2]; exact List.mem_cons_self ..
+            · exact absurd (if_neg hr2) hr
+          · by_cases hr2 : r = Resp.ans (s' + 1)
+            · rw [if_pos hr2]
+              refine TreeOk.node _ _ _ _ LegalQuery.root
+                ⟨[Resp.ans u], fun r' hr' => ?_⟩ (fun r' _ => ?_) (fun r' hr' => ?_)
+              · by_cases hr3 : r' = Resp.ans u
+                · rw [hr3]; exact List.mem_cons_self ..
+                · exact absurd (if_neg hr3) hr'
+              · by_cases hr3 : r' = Resp.ans u
+                · rw [if_pos hr3]; exact TreeOk.leaf _ _
+                · rw [if_neg hr3]; exact TreeOk.leaf _ _
+              · by_cases hr3 : r' = Resp.ans u
+                · exact absurd (hr3 ▸ LegalResp.num Query.hole u) hr'
+                · exact if_neg hr3
+            · rw [if_neg hr2]; exact TreeOk.leaf _ _
+          · by_cases hr2 : r = Resp.ans (s' + 1)
+            · exact absurd (hr2 ▸ LegalResp.num Query.hole (s' + 1)) hr
+            · exact if_neg hr2
+        · rw [treeIf0]
+          refine Tree.Le.node _ _ _ _ fun r => ?_
+          by_cases hr : r = Resp.ans (s' + 1)
+          · subst hr
+            rw [if_pos rfl]
+            show Tree.Le _ (groundBranch _ (Resp.ans (s' + 1)))
+            refine Tree.Le.node _ _ _ _ fun r' => ?_
+            by_cases hr3 : r' = Resp.ans u
+            · subst hr3
+              rw [if_pos rfl]
+              show Tree.Le _ (groundBranch _ (Resp.ans u))
+              exact Tree.Le.refl _
+            · rw [if_neg hr3]
+              exact Tree.Le.bot _
+          · rw [if_neg hr]
+            exact Tree.Le.bot _
+        · have h1 : apply0 ((Tree.node ⟨0, Nat.succ_pos _⟩ (Query.hole : Query 𝕆)
+              (fun r => if r = Resp.ans (s' + 1) then
+                Tree.node ⟨2, by decide⟩ Query.hole
+                  (fun r' => if r' = Resp.ans u then .leaf (.num u) else Tree.bot)
+                else Tree.bot)) : Tree (𝕆 ⇒ 𝕆 ⇒ 𝕆 ⇒ 𝕆)) (.leaf (.num (s' + 1)))
+              = (Tree.node ⟨1, by decide⟩ (Query.hole : Query 𝕆)
+                  (fun r' => apply0 (if r' = Resp.ans u
+                    then (.leaf (.num u) : Tree (𝕆 ⇒ 𝕆 ⇒ 𝕆 ⇒ 𝕆)) else Tree.bot)
+                    (.leaf (.num (s' + 1)))) : Tree (𝕆 ⇒ 𝕆 ⇒ 𝕆)) := by
+            rw [apply0]
+            simp only [Tree.at'_hole]
+            show apply0 (if Query.hole.substAns (RAns.num (s' + 1))
+              = Resp.ans (s' + 1) then _ else _) _ = _
+            rw [show (Query.hole.substAns (RAns.num (s' + 1)) : Resp 𝕆)
+              = Resp.ans (s' + 1) from rfl, if_pos rfl, apply0]
+          have h2 : apply0 ((Tree.node ⟨1, by decide⟩ (Query.hole : Query 𝕆)
+              (fun r' => apply0 (if r' = Resp.ans u
+                then (.leaf (.num u) : Tree (𝕆 ⇒ 𝕆 ⇒ 𝕆 ⇒ 𝕆)) else Tree.bot)
+                (.leaf (.num (s' + 1))))) : Tree (𝕆 ⇒ 𝕆 ⇒ 𝕆)) a.1
+              = (Tree.node ⟨0, by decide⟩ (Query.hole : Query 𝕆)
+                  (fun r' => apply0 (apply0 (if r' = Resp.ans u
+                    then (.leaf (.num u) : Tree (𝕆 ⇒ 𝕆 ⇒ 𝕆 ⇒ 𝕆)) else Tree.bot)
+                    (.leaf (.num (s' + 1)))) a.1) : Tree (𝕆 ⇒ 𝕆)) := by
+            rw [apply0]
+          have h3 : apply0 ((Tree.node ⟨0, by decide⟩ (Query.hole : Query 𝕆)
+              (fun r' => apply0 (apply0 (if r' = Resp.ans u
+                then (.leaf (.num u) : Tree (𝕆 ⇒ 𝕆 ⇒ 𝕆 ⇒ 𝕆)) else Tree.bot)
+                (.leaf (.num (s' + 1)))) a.1)) : Tree (𝕆 ⇒ 𝕆)) b.1
+              = Tree.leaf (.num u) := by
+            rw [hw, apply0]
+            simp only [Tree.at'_hole]
+            show apply0 (apply0 (apply0 (if Query.hole.substAns (RAns.num u)
+              = Resp.ans u then _ else _) _) _) _ = _
+            rw [show (Query.hole.substAns (RAns.num u) : Resp 𝕆) = Resp.ans u
+              from rfl, if_pos rfl]
+            rfl
+          rw [h1, h2, h3]
+          exact hcle
+
 /-- The node case of the induction of Lemma 5.2: the `catch`-based
 construction of §5. -/
 theorem representable_node (n : Nat)
