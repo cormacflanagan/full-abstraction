@@ -1355,6 +1355,63 @@ theorem encode_spec (d₃ : Tree σ) :
           · rw [Tree.castResp_rfl]
             simp only [ZConsistent]
             exact h5
+
+/-- **Legality of the encoded query.**  Each step of `encode d₂ p` records a
+legal response: the `z`-steps replay answers `d₃` gives, which are roots of
+subtrees of the legal tree `e₃ ⊒ d₃`, and the `τ`-steps replay the answers
+recorded along `p`, which are legal because `p` is. -/
+theorem encode_queryOk (e₃ : Tree σ) (he₃ : TreeOk Ctx.empty e₃) (d₃ : Tree σ)
+    (hd₃ : Tree.Le d₃ e₃) :
+    ∀ (d₂ : Tree (σ ⇒ τ)) (p : Query τ), Accum d₃ d₂ → QueryOk τ p →
+    QueryOk (σ ⇒ τ) (encode d₂ p)
+  | .leaf v, p, _, _ => by
+      rw [encode]
+      exact QueryOk_hole
+  | .node ⟨0, h0⟩ qz f, p, hacc, hp => by
+      cases hacc with
+      | node0 _ _ x t hans hroot hone hprop hsub =>
+        have hex : ∃ s, f s ≠ Tree.bot := ⟨qz.substAns x, hprop⟩
+        have hpb : properBranch f = qz.substAns x := by
+          rw [properBranch, dif_pos hex]
+          exact hone _ (Classical.choose_spec hex)
+        rw [encode, hpb]
+        refine (QueryOk_step _ _ _ _).mpr
+          ⟨?_, encode_queryOk e₃ he₃ d₃ hd₃ _ p (hsub _) hp⟩
+        cases x with
+        | num a => exact LegalResp.num qz a
+        | node jz pz =>
+          obtain ⟨f₃, ht⟩ := root_node_inv (t := t) (j := jz) (p := pz) (by
+            rw [hroot]; rfl)
+          subst ht
+          rcases at'_mono qz hd₃ with hn | ⟨u, u', hu, hu', huu⟩
+          · rw [hans] at hn; exact Option.noConfusion hn
+          · have htu : Tree.node jz pz f₃ = u := by
+              rw [hans] at hu; exact Option.some.inj hu
+            obtain ⟨g₃, hg₃⟩ := Tree.eq_node_of_le (htu ▸ huu)
+            subst hg₃
+            have hok := TreeOk_at' qz Ctx.empty e₃ _ he₃ hu'
+            obtain ⟨hlq, _, _, _⟩ := TreeOk_node_inv hok
+            exact LegalResp.node qz jz pz hlq
+  | .node ⟨j + 1, hj⟩ qt f, .hole, hacc, hp => by
+      rw [encode]
+      exact QueryOk_hole
+  | .node ⟨j + 1, hj⟩ qt f, .step i p' r rest, hacc, hp => by
+      cases hacc with
+      | nodeS _ _ hsub =>
+        by_cases h : (⟨i, p'⟩ : NodeVal τ) = ⟨⟨j, Nat.lt_of_succ_lt_succ hj⟩, qt⟩
+        · have h1 : i = ⟨j, Nat.lt_of_succ_lt_succ hj⟩ := congrArg Sigma.fst h
+          subst h1
+          have h2 : p' = qt := by injection h
+          subst h2
+          obtain ⟨hr, hrest⟩ := (QueryOk_step _ _ _ _).mp hp
+          rw [encode, dif_pos rfl]
+          refine (QueryOk_step _ _ _ _).mpr ⟨?_, ?_⟩
+          · rw [Tree.castResp_rfl]
+            exact hr
+          · rw [Tree.castResp_rfl]
+            exact encode_queryOk e₃ he₃ d₃ hd₃ _ rest (hsub _) hrest
+        · rw [encode, dif_neg h]
+          exact QueryOk_hole
 end SCombinator
 
 

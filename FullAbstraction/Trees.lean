@@ -354,6 +354,14 @@ theorem join_node_self (i : Fin σ.arity) (q : Query (σ.arg i))
 
 theorem join_bot_bot : join (bot : Tree σ) bot = bot := rfl
 
+/-- Two nodes with distinct node values join to the left node. -/
+theorem join_node_ne {i j : Fin σ.arity} {q : Query (σ.arg i)} {p : Query (σ.arg j)}
+    (f : Resp (σ.arg i) → Tree σ) (g : Resp (σ.arg j) → Tree σ)
+    (hEq : ¬ (⟨i, q⟩ : NodeVal σ) = ⟨j, p⟩) :
+    join (.node i q f) (.node j p g) = .node i q f := by
+  show (dite _ _ _) = _
+  rw [dif_neg hEq]
+
 /-- **Lemma 4.3**, the least-upper-bound property: two trees with a common upper
 bound `t` have `join` as their least upper bound. -/
 theorem join_spec : ∀ (d e t : Tree σ), Le d t → Le e t →
@@ -391,6 +399,20 @@ theorem join_spec : ∀ (d e t : Tree σ), Le d t → Le e t →
           | node _ _ _ gu' hgeu =>
             exact Le.node _ _ _ _ fun r =>
               (ih r (ge r) (ft r) (hft r) (hge r)).2.2 (gu r) (hfu r) (hgeu r)
+
+/-- `join` is monotone in its second argument below a common upper bound. -/
+theorem join_le_join_right {t d u v : Tree σ} (hd : Le d t) (hu : Le u t)
+    (hv : Le v t) (huv : Le u v) : Le (join d u) (join d v) :=
+  (join_spec d u t hd hu).2.2 (join d v) (join_spec d v t hd hv).1
+    (Le.trans huv (join_spec d v t hd hv).2.1)
+
+/-- **Absorption**: a tree between `d` and `join d u` joins with `u` to
+`join d u` itself. -/
+theorem join_eq_of_between {t d g u : Tree σ} (hdt : Le d t) (hgt : Le g t)
+    (hut : Le u t) (hdg : Le d g) (hgu : Le g (join d u)) : join g u = join d u := by
+  have hs1 := join_spec g u t hgt hut
+  have hs2 := join_spec d u t hdt hut
+  exact Le.antisymm (hs1.2.2 _ hgu hs2.2.1) (hs2.2.2 _ (Le.trans hdg hs1.1) hs1.2.1)
 
 /-! ### Definition 4.5: the `@` operator -/
 
@@ -548,6 +570,89 @@ noncomputable def Resp.toTree {σ : Ty} : Resp σ → Tree σ
   | .ans n => .leaf (.num n)
   | .node i p => .node i p (fun _ => Tree.bot)
   | .step i q r rest => .node i q (fun s => if s = r then rest.toTree else Tree.bot)
+
+/-! ### Error-free trees
+
+The knowledge trees the `S` combinator accumulates about its arguments are
+built exclusively from responses, which contain no `errorᵢ` leaves. -/
+
+/-- No leaf of the tree is an `errorᵢ`. -/
+def Tree.ErrFree {σ : Ty} : Tree σ → Prop
+  | .leaf v => ∀ b, v ≠ Val.err b
+  | .node _ _ f => ∀ r, Tree.ErrFree (f r)
+
+theorem Tree.ErrFree_bot {σ : Ty} : (Tree.bot : Tree σ).ErrFree := by
+  simp only [Tree.bot, Tree.ErrFree]
+  intro b h
+  exact Val.noConfusion h
+
+theorem Tree.ErrFree_leaf_num {σ : Ty} (n : Nat) :
+    (Tree.leaf (.num n) : Tree σ).ErrFree := by
+  simp only [Tree.ErrFree]
+  intro b h
+  exact Val.noConfusion h
+
+theorem Tree.ErrFree.not_err {σ : Ty} {b : Bool}
+    (h : (Tree.leaf (Val.err b) : Tree σ).ErrFree) : False := by
+  simp only [Tree.ErrFree] at h
+  exact h b rfl
+
+/-- The join of two error-free trees is error-free. -/
+theorem Tree.ErrFree_join {σ : Ty} : ∀ (d e : Tree σ),
+    d.ErrFree → e.ErrFree → (Tree.join d e).ErrFree := by
+  intro d
+  induction d with
+  | leaf v =>
+    intro e hd he
+    cases v with
+    | bot => exact he
+    | err b => exact absurd hd (fun h => Tree.ErrFree.not_err h)
+    | num n => exact hd
+  | node i q f ih =>
+    intro e hd he
+    cases e with
+    | leaf v => rw [Tree.join_node_leaf]; exact hd
+    | node j p g =>
+      by_cases hEq : (⟨i, q⟩ : NodeVal σ) = ⟨j, p⟩
+      · have h1 : i = j := congrArg Sigma.fst hEq
+        subst h1
+        have h2 : q = p := by injection hEq
+        subst h2
+        rw [Tree.join_node_self]
+        simp only [Tree.ErrFree] at hd he ⊢
+        exact fun r => ih r (g r) (hd r) (he r)
+      · rw [Tree.join_node_ne f g hEq]
+        exact hd
+
+/-- Response trees are error-free. -/
+theorem Resp.toTree_errFree {σ : Ty} : ∀ r : Resp σ, r.toTree.ErrFree
+  | .ans n => by
+      simp only [Resp.toTree]
+      exact Tree.ErrFree_leaf_num n
+  | .node i p => by
+      simp only [Resp.toTree, Tree.ErrFree]
+      exact fun _ => Tree.ErrFree_bot
+  | .step i q r rest => by
+      simp only [Resp.toTree, Tree.ErrFree]
+      intro s
+      by_cases hs : s = r
+      · rw [if_pos hs]; exact Resp.toTree_errFree rest
+      · rw [if_neg hs]; exact Tree.ErrFree_bot
+
+/-- The path-with-`⊥`-tip tree of a query lies below the tree of any of its
+answers. -/
+theorem Query.toTree_le_substAns {σ : Ty} : ∀ (q : Query σ) (x : RAns σ),
+    Tree.Le q.toTree (q.substAns x).toTree
+  | .hole, .num n => Tree.Le.bot _
+  | .hole, .node i p => Tree.Le.bot _
+  | .step i p r rest, x => by
+      simp only [Query.toTree, Query.substTree, Query.substAns, Resp.toTree]
+      refine Tree.Le.node _ _ _ _ fun s => ?_
+      by_cases hs : s = r
+      · rw [if_pos hs, if_pos hs]
+        exact Query.toTree_le_substAns rest x
+      · rw [if_neg hs, if_neg hs]
+        exact Tree.Le.bot _
 
 /-! ## Tree contexts (Definition 4.2, *Contexts*) -/
 

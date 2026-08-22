@@ -932,6 +932,92 @@ theorem Query.ctx_snoc {σ : Ty} (q : Query σ) (j : Fin σ.arity)
     (q.snoc j p r').ctx = q.ctx.cons j r' :=
   Query.ctxFrom_snoc q Ctx.empty j p r'
 
+/-- Subtrees of an error-free tree are error-free. -/
+theorem Tree.ErrFree_at' {σ : Ty} : ∀ (q : Query σ) {d t : Tree σ}, d.ErrFree →
+    d.at' q = some t → t.ErrFree
+  | .hole, d, t, hd, hq => by
+      have hdt : d = t := by
+        rw [Tree.at'_hole] at hq
+        exact Option.some.inj hq
+      exact hdt ▸ hd
+  | .step i p r rest, d, t, hd, hq => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv hq
+      simp only [Tree.ErrFree] at hd
+      exact Tree.ErrFree_at' rest (hd r) hrest
+
+/-- The answer tree of a query lies below the tree of the query extended by a
+further step at the announced node. -/
+theorem Query.substAns_node_toTree_le_snoc {σ : Ty} : ∀ (q : Query σ) (j : Fin σ.arity)
+    (p : Query (σ.arg j)) (s : Resp (σ.arg j)),
+    Tree.Le (q.substAns (.node j p)).toTree ((q.snoc j p s).toTree)
+  | .hole, j, p, s => by
+      simp only [Query.substAns, Resp.toTree, Query.snoc, Query.toTree, Query.substTree]
+      exact Tree.Le.node _ _ _ _ fun r => Tree.Le.bot _
+  | .step i a b rest, j, p, s => by
+      simp only [Query.substAns, Resp.toTree, Query.snoc, Query.toTree, Query.substTree]
+      refine Tree.Le.node _ _ _ _ fun r => ?_
+      by_cases hr : r = b
+      · rw [if_pos hr, if_pos hr]
+        exact Query.substAns_node_toTree_le_snoc rest j p s
+      · rw [if_neg hr, if_neg hr]
+        exact Tree.Le.bot _
+
+/-- The path tree of a query lies below the path tree of any extension. -/
+theorem Query.toTree_le_snoc {σ : Ty} : ∀ (q : Query σ) (j : Fin σ.arity)
+    (p : Query (σ.arg j)) (s : Resp (σ.arg j)),
+    Tree.Le q.toTree ((q.snoc j p s).toTree)
+  | .hole, j, p, s => Tree.Le.bot _
+  | .step i a b rest, j, p, s => by
+      simp only [Query.snoc, Query.toTree, Query.substTree]
+      refine Tree.Le.node _ _ _ _ fun r => ?_
+      by_cases hr : r = b
+      · rw [if_pos hr, if_pos hr]
+        exact Query.toTree_le_snoc rest j p s
+      · rw [if_neg hr, if_neg hr]
+        exact Tree.Le.bot _
+
+/-- The context determined by `shift₁(q)` records about argument `i` exactly
+what `q` records about argument `i + 1`. -/
+theorem Query.ctxFrom_shift1 {a τ : Ty} : ∀ (q : Query (a ⇒ τ)) (γ : Ctx (a ⇒ τ))
+    (δ : Ctx τ),
+    (∀ k : Fin τ.arity, δ k = γ ⟨k.val + 1, Nat.succ_lt_succ k.isLt⟩) →
+    ∀ i : Fin τ.arity,
+      (q.shift1.ctxFrom δ) i = (q.ctxFrom γ) ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩
+  | .hole, γ, δ, hδ, i => by
+      simp only [Query.shift1, Query.ctxFrom]
+      exact hδ i
+  | .step ⟨0, h0⟩ p r rest, γ, δ, hδ, i => by
+      simp only [Query.shift1, Query.ctxFrom]
+      refine Query.ctxFrom_shift1 rest (γ.cons ⟨0, h0⟩ r) δ (fun k => ?_) i
+      rw [Ctx.cons_other _ _ (fun he => by
+        have hv := congrArg Fin.val he
+        simp only at hv
+        omega)]
+      exact hδ k
+  | .step ⟨m + 1, hm⟩ p r rest, γ, δ, hδ, i => by
+      simp only [Query.shift1, Query.ctxFrom]
+      refine Query.ctxFrom_shift1 rest (γ.cons ⟨m + 1, hm⟩ r)
+        (δ.cons ⟨m, Nat.lt_of_succ_lt_succ hm⟩ r) (fun k => ?_) i
+      by_cases hk : (⟨m, Nat.lt_of_succ_lt_succ hm⟩ : Fin τ.arity) = k
+      · subst hk
+        rw [Ctx.cons_self]
+        show Tree.join (δ ⟨m, Nat.lt_of_succ_lt_succ hm⟩) r.toTree
+            = γ.cons ⟨m + 1, hm⟩ r ⟨m + 1, hm⟩
+        rw [Ctx.cons_self]
+        exact congrArg (fun t => Tree.join t r.toTree)
+          (hδ ⟨m, Nat.lt_of_succ_lt_succ hm⟩)
+      · rw [Ctx.cons_other _ _ hk,
+          Ctx.cons_other _ _ (fun he => hk (Fin.ext (by
+            have hv : m + 1 = k.val + 1 := congrArg Fin.val he
+            show m = k.val
+            omega)))]
+        exact hδ k
+
+/-- `shift₁(q)^ (i) = q̂ (i + 1)`. -/
+theorem Query.ctx_shift1 {a τ : Ty} (q : Query (a ⇒ τ)) (i : Fin τ.arity) :
+    q.shift1.ctx i = q.ctx ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩ :=
+  Query.ctxFrom_shift1 q Ctx.empty Ctx.empty (fun _ => rfl) i
+
 /-- **Definition 4.2 travels down `@`.**  If `d ∈ D_σ(γ)` and `d @ q = e` then
 `e ∈ D_σ(R(q, γ))`: the subtree reached along `q` is legal in the context `q`
 determines.
