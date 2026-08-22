@@ -231,10 +231,9 @@ basis `D_σ`, and hence `T_σ`, be built without any outstanding assumption.
 ### Proved from stated ingredients
 
 These have real proofs, but their statement or their ingredients still mention
-a `sorry`, so `#print axioms` reports `sorryAx` for them.  In particular
-anything mentioning `Tmodel` inherits it from `Y_chain_directed` and
-`claim_A_5`, and anything mentioning `SPCFSem` from `Tmeaning_mono`.  The
-derivation is the content.
+a `sorry` — since the Theorem 4.22 chain closed, that now means only the
+Theorem 5.1 forms, which inherit `sorryAx` from `lemma_5_2`.  The derivation
+is the content.
 
 | Result | Lean name | Derived from |
 | --- | --- | --- |
@@ -242,8 +241,7 @@ derivation is the content.
 | **Corollary 4.24** (the `Y` operator) | `corollary_4_24` | `applyT_interpY_fix`: `apply (Y, m) = ⊔ₙ mⁿ(⊥)` |
 | `Ω_σ` denotes `⊥` | `meaning_Omega` | extensionality |
 | `T[[Y_σ]]` is well defined | `Y_chain_directed` | `Yapprox_mono`, `chain_directed` |
-| Lemma A.6 (the `S` equation) | `lemma_A_6` | `claim_A_5` |
-| Theorem 4.22 | `theorem_4_22` | `lemma_A_6` (`lemma_A_1` and `theorem_4_22_I` are proved outright) |
+| Theorem 4.22 | `theorem_4_22` | `lemma_A_6`, `lemma_A_1` and `theorem_4_22_I`, all proved outright |
 | `T[[errorᵢ]] = errorᵢ` | `meaning_errTerm` | holds by `rfl`; mentions `SPCFSem` |
 | `T[[Ω]] = ⊥`, the `Ω` field of Definition 6.1 | `meaning_omegaTerm` | `apply0_sub1_zero` + monotonicity of `apply₀` |
 | the meaning of `(M E₁ … Eₖ)` | `meaning_apps` | the typing lemmas above |
@@ -262,17 +260,29 @@ derivation is the content.
 | **Theorem 6.4** (SPCF is error-sensitive) | `theorem_6_4` | `probe_index`, `meaning_errTerm` |
 | **Theorem 6.7** (SPCF is observably sequential) | `theorem_6_7` | Theorem 6.2, `probe_index`, `catch_returns_index` |
 
+### The `S` combinator (Definitions 4.21/A.3, Claim A.5, Lemmas A.6/A.7)
+
+All proved outright.  The construction is Figure 8 in state-passing form
+(`Sfun`/`Tfun`/`encode`): the paper's path argument `p_S` is replaced by the
+data actually consulted — the current query on argument 1 and the accumulated
+knowledge trees `d₂, d₃` about arguments 2 and 3.  The `(S)` equation
+(`lemma_A_6`) is the ideal-completion argument over two halves: `Sfun_apply_le`
+(every approximant computes at most `apply (apply (e₁,e₃), apply (e₂,e₃))`, by
+induction on the fuel) and the fused `Sfun_apply_ge`/`Tfun_apply_ge` (every
+legal finitary approximation of the right-hand side is computed by a finite
+*legal* tree below some approximant — the induction builds the pruned witness
+of Claim A.5 case by case).  `lemma_A_7` is the equality of the two sides on
+legal finite inputs.
+
 ### Outstanding
 
-Six declarations, stated faithfully, whose own proof is still `sorry`.
+Four declarations, stated faithfully, whose own proof is still `sorry`.
 
 | Result | Lean name | Note |
 | --- | --- | --- |
-| **Claim A.5** (well-definedness of `S`) | `claim_A_5` | Definition 4.21 + Figure 5 + Appendix A.2 |
-| **Lemma A.7** | `lemma_A_7` | |
 | **Lemma B.1** / **Lemma 4.26** | `lemma_B_1` | Appendix B; `lemma_4_26` is `lemma_B_1` |
 | **Theorem 4.27** (`error`, `bottom`, `catch`, `return`) | `theorem_4_27` | |
-| **Lemma 5.2** (definability of the finite elements) | `lemma_5_2`, `lemma_5_2_subtrees` | the crux of §5; **Theorem 5.1 now rests only on this and the Theorem 4.22 chain** |
+| **Lemma 5.2** (definability of the finite elements) | `lemma_5_2`, `lemma_5_2_subtrees` | the crux of §5; **Theorem 5.1 now rests only on this** |
 
 #### How Theorem 4.11 gets its uniformity
 

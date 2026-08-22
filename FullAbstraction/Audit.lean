@@ -100,15 +100,21 @@ section Complete
 #print axioms encFin_inj
 #print axioms dsub_countable
 #print axioms lemma_4_3_omega_algebraic
+-- The S combinator: Definitions 4.21/A.3, Claim A.5, Lemmas A.6 and A.7,
+-- and with them the full Theorem 4.22.
+#print axioms Sfun_apply_le
+#print axioms Sfun_apply_ge
+#print axioms Tfun_apply_ge
+#print axioms claim_A_5
+#print axioms lemma_A_6
+#print axioms lemma_A_7
+#print axioms theorem_4_22
 end Complete
 
 section DerivedOrDependent
--- Results with real proofs whose statement or ingredients still mention a
--- `sorry`; `#print axioms` therefore reports `sorryAx`.  Anything mentioning
--- `Tmodel` inherits it from `Y_chain_directed` and `claim_A_5`, and anything
--- mentioning `SPCFSem` from `Tmeaning_mono`.
-#print axioms theorem_4_22
-#print axioms lemma_A_6
+-- Results with real proofs.  Since the Theorem 4.22 chain closed, everything
+-- here is axiom-clean except the Theorem 5.1 forms, which inherit `sorryAx`
+-- from `lemma_5_2`.
 #print axioms meaning_omegaTerm
 #print axioms meaning_errTerm
 #print axioms meaning_apps
@@ -143,8 +149,6 @@ end DerivedOrDependent
 
 section Outstanding
 -- Results still resting on `sorryAx` because their own proof is `sorry`.
-#print axioms claim_A_5
-#print axioms lemma_A_7
 #print axioms lemma_B_1
 #print axioms theorem_4_27
 #print axioms lemma_5_2
