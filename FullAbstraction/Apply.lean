@@ -962,6 +962,21 @@ theorem Query.substAns_node_toTree_le_snoc {σ : Ty} : ∀ (q : Query σ) (j : F
       · rw [if_neg hr, if_neg hr]
         exact Tree.Le.bot _
 
+/-- A query with an answer in `d` describes a path `d` contains. -/
+theorem Query.toTree_le_of_at' {σ : Ty} : ∀ (q : Query σ) {d t : Tree σ},
+    d.at' q = some t → Tree.Le q.toTree d
+  | .hole, d, t, _ => Tree.Le.bot d
+  | .step i p r rest, d, t, hq => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv hq
+      simp only [Query.toTree, Query.substTree]
+      refine Tree.Le.node _ _ _ _ fun s => ?_
+      by_cases hs : s = r
+      · rw [if_pos hs]
+        subst hs
+        exact Query.toTree_le_of_at' rest hrest
+      · rw [if_neg hs]
+        exact Tree.Le.bot _
+
 /-- The path tree of a query lies below the path tree of any extension. -/
 theorem Query.toTree_le_snoc {σ : Ty} : ∀ (q : Query σ) (j : Fin σ.arity)
     (p : Query (σ.arg j)) (s : Resp (σ.arg j)),
