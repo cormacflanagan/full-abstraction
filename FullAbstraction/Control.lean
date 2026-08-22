@@ -466,12 +466,228 @@ theorem mem_varsOf (l : List Ty) (j : Fin l.length) :
   simp only [varsOf, List.mem_map]
   exact ⟨j, finRange_mem _ j, rfl⟩
 
+/-! ## Name-indexed application chains
+
+The analysis of `T[[λ* x₁ … xₙ . E[xⱼ]]]` applies the abstraction to one
+argument per abstracted variable.  The chains are indexed by the variable
+list itself. -/
+
+/-- `(varsOf l).length = l.length`. -/
+theorem varsOf_length (l : List Ty) : (varsOf l).length = l.length := by
+  simp [varsOf]
+
+/-- The `i`-th entry of `varsOf l`. -/
+theorem varsOf_getElem (l : List Ty) (i : Nat) (h : i < (varsOf l).length) :
+    (varsOf l)[i] = (i, l[i]'(by rw [varsOf_length] at h; exact h)) := by
+  simp only [varsOf, List.getElem_map, List.getElem_finRange]
+  rfl
+
+/-- The uncurried type of a variable list, versus its type list. -/
+theorem foldr_pair (xs : List (Nat × Ty)) :
+    xs.foldr (fun p τ => p.2 ⇒ τ) 𝕆 = (xs.map Prod.snd).foldr Ty.arrow 𝕆 := by
+  induction xs with
+  | nil => rfl
+  | cons p xs ih => simp [List.foldr_cons, ih]
+
+/-- The types listed by `varsOf l` are `l`. -/
+theorem varsOf_snd (l : List Ty) : (varsOf l).map Prod.snd = l := by
+  have h : ∀ (n : Nat) (l' : List Ty) (hn : n = l'.length),
+      (List.finRange n).map (fun i => l'[i.val]'(hn ▸ i.isLt)) = l' := by
+    intro n
+    induction n with
+    | zero =>
+      intro l' hn
+      cases l' with
+      | nil => rfl
+      | cons a l' => exact absurd hn (by simp)
+    | succ n ih =>
+      intro l' hn
+      cases l' with
+      | nil => exact absurd hn (by simp)
+      | cons a l' =>
+        rw [List.finRange_succ, List.map_cons, List.map_map]
+        exact congrArg (a :: ·) (ih l' (by simpa using hn))
+  simp only [varsOf, List.map_map]
+  exact h l.length l rfl
+
+/-- `foldr` over `varsOf l` is `foldr` over `l`. -/
+theorem varsOf_foldr (l : List Ty) :
+    (varsOf l).foldr (fun p τ => p.2 ⇒ τ) 𝕆 = l.foldr Ty.arrow 𝕆 := by
+  rw [foldr_pair, varsOf_snd]
+
+/-- The uncurried type of a variable list. -/
+abbrev foldX (xs : List (Nat × Ty)) : Ty := xs.foldr (fun p τ => p.2 ⇒ τ) 𝕆
+
+/-- The arity of the uncurried type of a variable list. -/
+theorem arity_foldrX : ∀ xs : List (Nat × Ty), (foldX xs).arity = xs.length
+  | [] => rfl
+  | p :: xs => by
+      show (foldX xs).arity + 1 = xs.length + 1
+      rw [arity_foldrX xs]
+
+/-- `apply (t, d₁, …, dₙ)` on finite trees, indexed by a variable list. -/
+noncomputable def apply0ChainF : ∀ (xs : List (Nat × Ty)),
+    Tree (foldX xs) →
+    ((i : Fin xs.length) → Tree ((xs[i.1]'i.isLt).2)) → Tree 𝕆
+  | [], t, _ => t
+  | _ :: xs, t, ds =>
+      apply0ChainF xs (apply0 t (ds ⟨0, Nat.succ_pos _⟩)) (fun i => ds i.succ)
+
+/-- `apply (Λ, D₁, …, Dₙ)` on ideals, with name-indexed argument families. -/
+noncomputable def applyTChainX : ∀ (xs : List (Nat × Ty)),
+    T (foldX xs) → (∀ p : Nat × Ty, T p.2) → T 𝕆
+  | [], t, _ => t
+  | p :: xs, t, vs => applyTChainX xs (applyT t (vs p)) vs
+
+/-- A leaf passes through the chain unchanged. -/
+theorem apply0ChainF_leaf : ∀ (xs : List (Nat × Ty)) (v : Val)
+    (ds : (i : Fin xs.length) → Tree ((xs[i]).2)),
+    apply0ChainF xs (.leaf v) ds = .leaf v
+  | [], _, _ => rfl
+  | p :: xs, v, ds => by
+      show apply0ChainF xs (apply0 (.leaf v) (ds ⟨0, Nat.succ_pos _⟩)) _ = _
+      exact apply0ChainF_leaf xs v _
+
+/-- The chain is monotone in the tree. -/
+theorem apply0ChainF_mono : ∀ (xs : List (Nat × Ty))
+    {t t' : Tree (foldX xs)}, Tree.Le t t' →
+    ∀ (ds : (i : Fin xs.length) → Tree ((xs[i]).2)),
+    Tree.Le (apply0ChainF xs t ds) (apply0ChainF xs t' ds)
+  | [], t, t', h, _ => h
+  | p :: xs, t, t', h, ds =>
+      apply0ChainF_mono xs (apply0_mono_left h _) (fun i => ds i.succ)
+
+/-- A root probe of an argument that is `⊥` collapses the chain to `⊥`. -/
+theorem apply0ChainF_bot : ∀ (xs : List (Nat × Ty)) (n : Nat)
+    (hn : n < xs.length)
+    (hn' : n < (foldX xs).arity)
+    (f : Resp ((foldX xs).arg ⟨n, hn'⟩) → Tree (foldX xs))
+    (ds : (i : Fin xs.length) → Tree ((xs[i]).2)),
+    ds ⟨n, hn⟩ = Tree.bot →
+    apply0ChainF xs (Tree.node ⟨n, hn'⟩ .hole f) ds = Tree.bot
+  | [], n, hn, _, _, _, _ => absurd hn (Nat.not_lt_zero _)
+  | p :: xs, 0, hn, hn', f, ds, hds => by
+      show apply0ChainF xs
+        (apply0 (Tree.node ⟨0, hn'⟩ .hole f) (ds ⟨0, Nat.succ_pos _⟩)) _ = _
+      rw [hds, apply0_rootProbe_bot hn' f]
+      exact apply0ChainF_leaf xs .bot _
+  | p :: xs, n + 1, hn, hn', f, ds, hds => by
+      show apply0ChainF xs
+        (apply0 (Tree.node ⟨n + 1, hn'⟩ .hole f) (ds ⟨0, Nat.succ_pos _⟩)) _ = _
+      rw [show apply0 (Tree.node ⟨n + 1, hn'⟩ .hole f) (ds ⟨0, Nat.succ_pos _⟩)
+          = Tree.node ⟨n, Nat.lt_of_succ_lt_succ hn'⟩ .hole
+              (fun r => apply0 (f r) (ds ⟨0, Nat.succ_pos _⟩)) from by
+        rw [apply0]]
+      exact apply0ChainF_bot xs n (Nat.lt_of_succ_lt_succ hn) _ _
+        (fun i => ds i.succ) hds
+
+/-- Extraction of a chain member: it is bounded by one finite computation. -/
+theorem applyTChainX_mem : ∀ (xs : List (Nat × Ty))
+    (Λ : T (foldX xs)) (vs : ∀ p : Nat × Ty, T p.2)
+    (c : D 𝕆), c ∈ applyTChainX xs Λ vs →
+    ∃ s : D (foldX xs), s ∈ Λ ∧
+      ∃ ds : (i : Fin xs.length) → D ((xs[i.1]'i.isLt).2),
+        (∀ i, ds i ∈ vs (xs[i.1]'i.isLt)) ∧
+        Tree.Le c.1 (apply0ChainF xs s.1 (fun i => (ds i).1))
+  | [], Λ, vs, c, hc => ⟨c, hc, fun i => absurd i.isLt (Nat.not_lt_zero _),
+      fun i => absurd i.isLt (Nat.not_lt_zero _), Tree.Le.refl _⟩
+  | p :: xs, Λ, vs, c, hc => by
+      obtain ⟨s', hs', ds', hds', hle'⟩ := applyTChainX_mem xs _ vs c hc
+      obtain ⟨s, hs, d0, hd0, hsd⟩ := hs'
+      refine ⟨s, hs, Fin.cases d0 ds', fun i => ?_, ?_⟩
+      · refine Fin.cases ?_ (fun i' => ?_) i
+        · exact hd0
+        · exact hds' i'
+      · show Tree.Le c.1 (apply0ChainF xs (apply0 s.1 d0.1) _)
+        refine Tree.Le.trans hle' (apply0ChainF_mono xs ?_ _)
+        exact (hsd : Tree.Le s'.1 (apply0 s.1 d0.1))
+
+/-- Introduction of a chain member from one finite computation. -/
+theorem applyTChainX_intro : ∀ (xs : List (Nat × Ty))
+    (Λ : T (foldX xs)) (vs : ∀ p : Nat × Ty, T p.2)
+    (s : D (foldX xs)), s ∈ Λ →
+    ∀ ds : (i : Fin xs.length) → D ((xs[i.1]'i.isLt).2), (∀ i, ds i ∈ vs (xs[i.1]'i.isLt)) →
+    ∀ c : D 𝕆, Tree.Le c.1 (apply0ChainF xs s.1 (fun i => (ds i).1)) →
+    c ∈ applyTChainX xs Λ vs
+  | [], Λ, vs, s, hs, ds, hds, c, hc => Λ.downward c s hc hs
+  | p :: xs, Λ, vs, s, hs, ds, hds, c, hc => by
+      refine applyTChainX_intro xs (applyT Λ (vs p)) vs (applyD s (ds ⟨0, Nat.succ_pos _⟩))
+        ⟨s, hs, ds ⟨0, Nat.succ_pos _⟩, hds ⟨0, Nat.succ_pos _⟩, Po.le_refl _⟩
+        (fun i => ds i.succ) (fun i => hds i.succ) c hc
+
+/-- Iterated environment update along a variable list. -/
+noncomputable def updEnvX : List (Nat × Ty) → Tmodel.Env → (∀ p : Nat × Ty, T p.2)
+    → Tmodel.Env
+  | [], Env, _ => Env
+  | p :: xs, Env, vs => updEnvX xs (Model.envUpdate Env p.1 p.2 (vs p)) vs
+
+/-- The updated environment agrees with the original off the listed keys. -/
+theorem updEnvX_other : ∀ (xs : List (Nat × Ty)) (Env : Tmodel.Env)
+    (vs : ∀ p : Nat × Ty, T p.2) (x : Nat) (ν : Ty),
+    (∀ q ∈ xs, ¬ (x = q.1 ∧ ν = q.2)) → updEnvX xs Env vs x ν = Env x ν
+  | [], _, _, _, _, _ => rfl
+  | q :: xs, Env, vs, x, ν, h => by
+      show updEnvX xs (Model.envUpdate Env q.1 q.2 (vs q)) vs x ν = _
+      rw [updEnvX_other xs _ vs x ν (fun r hr => h r (List.mem_cons_of_mem _ hr)),
+        Model.envUpdate_other _ _ _ _ _ _ (h q (List.mem_cons_self ..))]
+
+/-- The updated environment assigns each listed variable its value. -/
+theorem updEnvX_lookup : ∀ (xs : List (Nat × Ty)) (Env : Tmodel.Env)
+    (vs : ∀ p : Nat × Ty, T p.2) (p : Nat × Ty), p ∈ xs →
+    updEnvX xs Env vs p.1 p.2 = vs p
+  | [], _, _, p, hp => absurd hp (by simp)
+  | q :: xs, Env, vs, p, hp => by
+      show updEnvX xs (Model.envUpdate Env q.1 q.2 (vs q)) vs p.1 p.2 = _
+      by_cases hpx : p ∈ xs
+      · exact updEnvX_lookup xs _ vs p hpx
+      · have hpq : p = q := by
+          rcases List.mem_cons.mp hp with h | h
+          · exact h
+          · exact absurd h hpx
+        subst hpq
+        rw [updEnvX_other xs _ vs p.1 p.2 (fun r hr hcon => ?_),
+          Model.envUpdate_self]
+        exact hpx (show p ∈ xs from by
+          have : p = r := Prod.ext hcon.1 hcon.2
+          rw [this]; exact hr)
+
+/-- Peeling the abstraction: applying `λ* xs . P` to one argument per
+variable computes `P` in the updated environment. -/
+theorem lamStars_peel : ∀ (xs : List (Nat × Ty)) (Env : Tmodel.Env)
+    (P : Comb SPCF) (Γ : List (Nat × Ty)), Comb.HasTy (xs ++ Γ) P 𝕆 →
+    ∀ vs : (∀ p : Nat × Ty, T p.2),
+    applyTChainX xs (Tmodel.combMeaning Env (Comb.lamStars xs P)
+      (foldX xs)) vs
+      = Tmodel.combMeaning (updEnvX xs Env vs) P 𝕆
+  | [], Env, P, Γ, hty, vs => rfl
+  | (x, σ) :: xs, Env, P, Γ, hty, vs => by
+      have htyIn : Comb.HasTy (xs ++ (x, σ) :: Γ) P 𝕆 := by
+        refine Comb.weaken (fun p hp => ?_) hty
+        simp only [List.mem_append, List.mem_cons] at hp ⊢
+        rcases hp with (hp | hp) | hp
+        · exact Or.inr (Or.inl hp)
+        · exact Or.inl hp
+        · exact Or.inr (Or.inr hp)
+      show applyTChainX xs (applyT (Tmodel.combMeaning Env
+        (Comb.lamStar x σ (Comb.lamStars xs P)) _) (vs (x, σ))) vs = _
+      rw [lamStar_apply Env x σ (vs (x, σ)) (Comb.lamStars xs P) _ Γ
+        (Comb.lamStars_hasTy xs ((x, σ) :: Γ) P 𝕆 htyIn)]
+      exact lamStars_peel xs (Model.envUpdate Env x σ (vs (x, σ))) P
+        ((x, σ) :: Γ) htyIn vs
+
+/-- The all-`⊥` argument family. -/
+noncomputable def vsBot : ∀ p : Nat × Ty, T p.2 := fun p => leafT p.2 .bot
+
+/-- The argument family that is `error₁` at one variable and `⊥` elsewhere. -/
+noncomputable def vsErr (x : Nat) (ν : Ty) : ∀ p : Nat × Ty, T p.2 := fun p =>
+  if p = (x, ν) then leafT p.2 (.err true) else leafT p.2 .bot
+
 /-- The abstraction `T[[λ* x₁ … xₙ . E[xⱼ]]]`, as an ideal. -/
 noncomputable def ctxAbs (l : List Ty) (E : EvalCtx) (j : Fin l.length)
-    (Env : Tmodel.Env) : T (l.foldr Ty.arrow 𝕆) :=
+    (Env : Tmodel.Env) : T (foldX (varsOf l)) :=
   Tmodel.combMeaning Env
     (Comb.lamStars (varsOf l) (E.fill (.var j.val (l[j.val]'j.isLt))))
-    (l.foldr Ty.arrow 𝕆)
+    (foldX (varsOf l))
 
 /-- **Lemma B.1.**  *For all variables `x₁, …, xₙ`, for all evaluation contexts
 `E`, and for all `1 ≤ j ≤ n`,*
@@ -487,21 +703,134 @@ theorem lemma_B_1 (l : List Ty) (E : EvalCtx) (j : Fin l.length)
     (Env : Tmodel.Env)
     (hty : Comb.HasTy (varsOf l) (E.fill (.var j.val (l[j.val]'j.isLt))) 𝕆)
     (hfresh : ¬ E.Binds (j.val, l[j.val]'j.isLt)) :
-    (∃ s : D (l.foldr Ty.arrow 𝕆), s ∈ ctxAbs l E j Env ∧
-      ∃ f, s.1 = Tree.node (finOf l j) Query.hole f) ∧
-    (∀ s : D (l.foldr Ty.arrow 𝕆), s ∈ ctxAbs l E j Env →
-      s.1 = Tree.bot ∨ ∃ f, s.1 = Tree.node (finOf l j) Query.hole f) := by
-  sorry
+    (∃ s : D (foldX (varsOf l)), s ∈ ctxAbs l E j Env ∧
+      ∃ f, s.1 = Tree.node
+        ⟨j.val, by rw [arity_foldrX, varsOf_length]; exact j.isLt⟩
+        Query.hole f) ∧
+    (∀ s : D (foldX (varsOf l)), s ∈ ctxAbs l E j Env →
+      s.1 = Tree.bot ∨
+      ∃ f, s.1 = Tree.node
+        ⟨j.val, by rw [arity_foldrX, varsOf_length]; exact j.isLt⟩
+        Query.hole f) := by
+  classical
+  have hj : j.val < (foldX (varsOf l)).arity := by
+    rw [arity_foldrX, varsOf_length]; exact j.isLt
+  have htyApp : Comb.HasTy (varsOf l ++ [])
+      (E.fill (.var j.val (l[j.val]'j.isLt))) 𝕆 := by
+    simpa using hty
+  have hvar : Comb.HasTy (varsOf l)
+      (Comb.var j.val (l[j.val]'j.isLt) : Comb SPCF) (l[j.val]'j.isLt) :=
+    Comb.HasTy.var (mem_varsOf l j)
+  have hrunB : applyTChainX (varsOf l) (ctxAbs l E j Env) vsBot
+      = leafT 𝕆 .bot := by
+    rw [show ctxAbs l E j Env = Tmodel.combMeaning Env
+        (Comb.lamStars (varsOf l) (E.fill (.var j.val (l[j.val]'j.isLt))))
+        (foldX (varsOf l)) from rfl,
+      lamStars_peel (varsOf l) Env _ [] htyApp vsBot]
+    refine EvalCtx.fill_leaf Val.bot (Or.inl rfl) E (varsOf l) _ _
+      (l[j.val]'j.isLt) 𝕆 hty hvar (fun Env' hEnv' => ?_)
+    rw [Model.combMeaning_var,
+      hEnv' (j.val, l[j.val]'j.isLt) hfresh,
+      updEnvX_lookup (varsOf l) Env vsBot _ (mem_varsOf l j)]
+    rfl
+  have hrunE : applyTChainX (varsOf l) (ctxAbs l E j Env)
+      (vsErr j.val (l[j.val]'j.isLt)) = leafT 𝕆 (.err true) := by
+    rw [show ctxAbs l E j Env = Tmodel.combMeaning Env
+        (Comb.lamStars (varsOf l) (E.fill (.var j.val (l[j.val]'j.isLt))))
+        (foldX (varsOf l)) from rfl,
+      lamStars_peel (varsOf l) Env _ [] htyApp _]
+    refine EvalCtx.fill_leaf (Val.err true) (Or.inr ⟨true, rfl⟩) E (varsOf l) _ _
+      (l[j.val]'j.isLt) 𝕆 hty hvar (fun Env' hEnv' => ?_)
+    rw [Model.combMeaning_var,
+      hEnv' (j.val, l[j.val]'j.isLt) hfresh,
+      updEnvX_lookup (varsOf l) Env _ _ (mem_varsOf l j)]
+    show vsErr j.val (l[j.val]'j.isLt) (j.val, l[j.val]'j.isLt) = _
+    rw [vsErr, if_pos rfl]
+  have hnoleaf : ∀ (s : D (foldX (varsOf l))) (v : Val),
+      s ∈ ctxAbs l E j Env → s.1 = .leaf v → v = Val.bot := by
+    intro s v hs hsv
+    refine Classical.byContradiction fun hv => ?_
+    have hmem : (⟨.leaf v, TreeOk.leaf _ _⟩ : D 𝕆)
+        ∈ applyTChainX (varsOf l) (ctxAbs l E j Env) vsBot := by
+      refine applyTChainX_intro (varsOf l) _ vsBot s hs
+        (fun i => DSub.bot) (fun i => mem_leafT.mpr (Tree.Le.bot _)) _ ?_
+      rw [hsv, apply0ChainF_leaf]
+      exact Tree.Le.refl _
+    rw [hrunB] at hmem
+    have hle : Tree.Le (.leaf v) (.leaf .bot) := mem_leafT.mp hmem
+    cases hle with
+    | bot => exact hv rfl
+    | leaf => exact hv rfl
+  have hmemE : (⟨.leaf (.err true), TreeOk.leaf _ _⟩ : D 𝕆)
+      ∈ applyTChainX (varsOf l) (ctxAbs l E j Env)
+        (vsErr j.val (l[j.val]'j.isLt)) := by
+    rw [hrunE]
+    exact mem_leafT.mpr (Tree.Le.refl _)
+  obtain ⟨s₀, hs₀, ds₀, hds₀, hle₀⟩ := applyTChainX_mem (varsOf l) _ _ _ hmemE
+  have hs₀node : ∃ f, s₀.1 = Tree.node ⟨j.val, hj⟩ Query.hole f := by
+    cases hsv : s₀.1 with
+    | leaf v =>
+      rw [hsv, apply0ChainF_leaf] at hle₀
+      cases hle₀ with
+      | leaf => exact Val.noConfusion (hnoleaf s₀ _ hs₀ hsv)
+    | node jt q f =>
+      obtain ⟨jtv, hjtlt⟩ := jt
+      have hq : q = Query.hole := root_query_hole (hsv ▸ s₀.2)
+      subst hq
+      by_cases hjt : jtv = j.val
+      · subst hjt
+        exact ⟨f, rfl⟩
+      · have hjtlen : jtv < (varsOf l).length := by
+          rw [← arity_foldrX (varsOf l)]
+          exact hjtlt
+        have hdsb : (ds₀ ⟨jtv, hjtlen⟩).1 = Tree.bot := by
+          have hmem := hds₀ ⟨jtv, hjtlen⟩
+          have hq1 : ((varsOf l)[jtv]'hjtlen).1 = jtv :=
+            congrArg Prod.fst (varsOf_getElem l jtv hjtlen)
+          have hvs : vsErr j.val (l[j.val]'j.isLt) ((varsOf l)[jtv]'hjtlen)
+              = leafT ((varsOf l)[jtv]'hjtlen).2 .bot := by
+            rw [vsErr, if_neg (fun he => hjt (hq1 ▸ congrArg Prod.fst he))]
+          rw [hvs] at hmem
+          exact Tree.eq_bot_of_le_bot (mem_leafT.mp hmem)
+        rw [hsv, apply0ChainF_bot (varsOf l) jtv hjtlen hjtlt f _ hdsb] at hle₀
+        cases hle₀
+  refine ⟨⟨s₀, hs₀, hs₀node⟩, ?_⟩
+  intro s hs
+  cases hsv : s.1 with
+  | leaf v =>
+    have hvb := hnoleaf s v hs hsv
+    subst hvb
+    exact Or.inl rfl
+  | node jt q f =>
+    have hq : q = Query.hole := root_query_hole (hsv ▸ s.2)
+    subst hq
+    obtain ⟨f₀, hs₀v⟩ := hs₀node
+    obtain ⟨u, hu, hsu, hs₀u⟩ := (ctxAbs l E j Env).directed' s s₀ hs hs₀
+    have h1 : Tree.Le (Tree.node jt Query.hole f) u.1 :=
+      hsv ▸ (hsu : Tree.Le s.1 u.1)
+    have h2 : Tree.Le (Tree.node ⟨j.val, hj⟩ Query.hole f₀) u.1 :=
+      hs₀v ▸ (hs₀u : Tree.Le s₀.1 u.1)
+    obtain ⟨g, hg⟩ := Tree.eq_node_of_le h1
+    obtain ⟨g₀, hg₀⟩ := Tree.eq_node_of_le h2
+    rw [hg] at hg₀
+    injection hg₀ with hjj _ _
+    subst hjj
+    exact Or.inr ⟨f, rfl⟩
 
 /-- **Lemma 4.26** is Lemma B.1: "Proof.  See Appendix B." -/
 theorem lemma_4_26 (l : List Ty) (E : EvalCtx) (j : Fin l.length)
     (Env : Tmodel.Env)
     (hty : Comb.HasTy (varsOf l) (E.fill (.var j.val (l[j.val]'j.isLt))) 𝕆)
     (hfresh : ¬ E.Binds (j.val, l[j.val]'j.isLt)) :
-    (∃ s : D (l.foldr Ty.arrow 𝕆), s ∈ ctxAbs l E j Env ∧
-      ∃ f, s.1 = Tree.node (finOf l j) Query.hole f) ∧
-    (∀ s : D (l.foldr Ty.arrow 𝕆), s ∈ ctxAbs l E j Env →
-      s.1 = Tree.bot ∨ ∃ f, s.1 = Tree.node (finOf l j) Query.hole f) :=
+    (∃ s : D (foldX (varsOf l)), s ∈ ctxAbs l E j Env ∧
+      ∃ f, s.1 = Tree.node
+        ⟨j.val, by rw [arity_foldrX, varsOf_length]; exact j.isLt⟩
+        Query.hole f) ∧
+    (∀ s : D (foldX (varsOf l)), s ∈ ctxAbs l E j Env →
+      s.1 = Tree.bot ∨
+      ∃ f, s.1 = Tree.node
+        ⟨j.val, by rw [arity_foldrX, varsOf_length]; exact j.isLt⟩
+        Query.hole f) :=
   lemma_B_1 l E j Env hty hfresh
 
 /-- `errorᵢ` as an element of `T_o`. -/
