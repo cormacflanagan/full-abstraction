@@ -617,17 +617,18 @@ theorem meaning_app {L : Lang} (M : Model L) (E : M.Env) (t u : Comb L) (a ρ : 
 
 This is what makes the applicative context `C[·] = ([·] E₁ … Eₖ)` of the proof
 of Theorem 5.1 compute the `k`-ary application of the meanings. -/
-theorem meaning_apps : ∀ (σ : Ty) (M : Term SPCF) (E : (i : Fin σ.arity) → Term SPCF)
+theorem meaning_apps_env : ∀ (σ : Ty) (Env : Tmodel.Env) (Γ : List (Nat × Ty))
+    (M : Term SPCF) (E : (i : Fin σ.arity) → Term SPCF)
     (ds : (i : Fin σ.arity) → T (σ.arg i)),
-    (∀ i, Term.HasTy [] (E i) (σ.arg i)) →
-    (∀ i, Tmodel.meaning botEnv (E i) (σ.arg i) = ds i) →
-    Tmodel.meaning botEnv (Term.apps M (List.ofFn E)) 𝕆
-      = applyIdeals σ (Tmodel.meaning botEnv M σ) ds
-  | .base, M, E, ds, _, _ => by
-      show Tmodel.meaning botEnv (Term.apps M (List.ofFn E)) 𝕆 = _
+    (∀ i, Term.HasTy Γ (E i) (σ.arg i)) →
+    (∀ i, Tmodel.meaning Env (E i) (σ.arg i) = ds i) →
+    Tmodel.meaning Env (Term.apps M (List.ofFn E)) 𝕆
+      = applyIdeals σ (Tmodel.meaning Env M σ) ds
+  | .base, Env, Γ, M, E, ds, _, _ => by
+      show Tmodel.meaning Env (Term.apps M (List.ofFn E)) 𝕆 = _
       rw [show (List.ofFn E : List (Term SPCF)) = [] from List.ofFn_zero]
       rfl
-  | .arrow a τ, M, E, ds, hty, hE => by
+  | .arrow a τ, Env, Γ, M, E, ds, hty, hE => by
       have hsucc : (List.ofFn E : List (Term SPCF))
           = E ⟨0, Nat.succ_pos _⟩ :: List.ofFn fun i : Fin τ.arity =>
               E ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩ := by
@@ -638,19 +639,30 @@ theorem meaning_apps : ∀ (σ : Ty) (M : Term SPCF) (E : (i : Fin σ.arity) →
               E ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩) := by
         rw [hsucc]; rfl
       rw [hstep,
-        meaning_apps τ (.app M (E ⟨0, Nat.succ_pos _⟩))
+        meaning_apps_env τ Env Γ (.app M (E ⟨0, Nat.succ_pos _⟩))
           (fun i => E ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩)
           (fun i => ds ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩)
           (fun i => hty ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩)
           (fun i => hE ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩)]
-      show applyIdeals τ (Tmodel.combMeaning botEnv
+      show applyIdeals τ (Tmodel.combMeaning Env
         (.app (Term.toComb M) (Term.toComb (E ⟨0, Nat.succ_pos _⟩))) τ) _ = _
-      rw [meaning_app Tmodel botEnv _ _ a τ (Term.tyOf_toComb (hty ⟨0, Nat.succ_pos _⟩))]
-      have h0 : Tmodel.combMeaning botEnv (Term.toComb (E ⟨0, Nat.succ_pos _⟩)) a
+      rw [meaning_app Tmodel Env _ _ a τ (Term.tyOf_toComb (hty ⟨0, Nat.succ_pos _⟩))]
+      have h0 : Tmodel.combMeaning Env (Term.toComb (E ⟨0, Nat.succ_pos _⟩)) a
           = ds ⟨0, Nat.succ_pos _⟩ := hE ⟨0, Nat.succ_pos _⟩
       rw [h0]
       rfl
 
+/-- The meaning of `(M E₁ … Eₖ)` is `apply (T[[M]], T[[E₁]], …, T[[Eₖ]])`.
+
+This is what makes the applicative context `C[·] = ([·] E₁ … Eₖ)` of the proof
+of Theorem 5.1 compute the `k`-ary application of the meanings. -/
+theorem meaning_apps (σ : Ty) (M : Term SPCF) (E : (i : Fin σ.arity) → Term SPCF)
+    (ds : (i : Fin σ.arity) → T (σ.arg i))
+    (hty : ∀ i, Term.HasTy [] (E i) (σ.arg i))
+    (hE : ∀ i, Tmodel.meaning botEnv (E i) (σ.arg i) = ds i) :
+    Tmodel.meaning botEnv (Term.apps M (List.ofFn E)) 𝕆
+      = applyIdeals σ (Tmodel.meaning botEnv M σ) ds :=
+  meaning_apps_env σ botEnv [] M E ds hty hE
 
 /-! ## The dispatch behaviour of a node under `k`-ary application -/
 
@@ -2058,5 +2070,140 @@ theorem meaning_of_representable (σ : Ty) (t : Tree σ)
   refine eq_of_principal_applyIdeals σ _ _ fun ds => ?_
   rw [happ ds (fun i => Tree.Le.bot _),
     applyIdeals_principal σ ⟨t, hok⟩ ds]
+
+/-! ## Depth of argument types -/
+
+/-- Every argument type is at least one level shallower. -/
+theorem Ty.depth_arg : ∀ (σ : Ty) (i : Fin σ.arity), 1 + (σ.arg i).depth ≤ σ.depth
+  | .base, i => absurd i.isLt (by simp [Ty.arity])
+  | .arrow a b, ⟨0, _⟩ => by
+      show 1 + a.depth ≤ max (1 + a.depth) b.depth
+      omega
+  | .arrow a b, ⟨j + 1, hj⟩ => by
+      have hjb : j < b.arity := Nat.lt_of_succ_lt_succ hj
+      have h := Ty.depth_arg b ⟨j, hjb⟩
+      show 1 + (b.arg ⟨j, hjb⟩).depth ≤ max (1 + a.depth) b.depth
+      omega
+
+/-! ## A response realised by a tree is a path in that tree -/
+
+/-- If a tree carries a numeral at position `q`, it contains the response
+`q[?/a]`. -/
+theorem Resp.toTree_le_of_at'_num {σ : Ty} : ∀ (q : Query σ) (d : Tree σ) (a : Nat),
+    d.at' q = some (.leaf (.num a)) →
+    Tree.Le (q.substAns (RAns.num a)).toTree d
+  | .hole, d, a, h => by
+      have hd : d = Tree.leaf (.num a) := by injection h
+      rw [hd]
+      exact Tree.Le.refl _
+  | .step i p r rest, d, a, h => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv h
+      show Tree.Le (Tree.node i p _) _
+      refine Tree.Le.node _ _ _ _ fun s => ?_
+      by_cases hs : s = r
+      · subst hs
+        rw [if_pos rfl]
+        exact Resp.toTree_le_of_at'_num rest (f s) a hrest
+      · rw [if_neg hs]
+        exact Tree.Le.bot _
+
+/-- If a tree carries a node at position `q`, it contains the response
+`q[?/⟨j,p,⊥⟩]`. -/
+theorem Resp.toTree_le_of_at'_node {σ : Ty} : ∀ (q : Query σ) (d : Tree σ)
+    (j : Fin σ.arity) (p : Query (σ.arg j)) (g : Resp (σ.arg j) → Tree σ),
+    d.at' q = some (.node j p g) →
+    Tree.Le (q.substAns (RAns.node j p)).toTree d
+  | .hole, d, j, p, g, h => by
+      have hd : d = Tree.node j p g := by injection h
+      rw [hd]
+      show Tree.Le (Tree.node j p (fun _ => Tree.bot)) _
+      exact Tree.Le.node _ _ _ _ fun s => Tree.Le.bot _
+  | .step i p' r rest, d, j, p, g, h => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv h
+      show Tree.Le (Tree.node i p' _) _
+      refine Tree.Le.node _ _ _ _ fun s => ?_
+      by_cases hs : s = r
+      · subst hs
+        rw [if_pos rfl]
+        exact Resp.toTree_le_of_at'_node rest (f s) j p g hrest
+      · rw [if_neg hs]
+        exact Tree.Le.bot _
+
+/-- An argument that extends the context and realises a response also extends
+the context enlarged by that response. -/
+theorem Ctx.above_cons {σ : Ty} (γ : Ctx σ) (i : Fin σ.arity)
+    (r : Resp (σ.arg i)) (ds : (j : Fin σ.arity) → Tree (σ.arg j))
+    (hds : ∀ j, Ctx.Above γ j (ds j)) (hr : Tree.Le r.toTree (ds i))
+    (j : Fin σ.arity) : Ctx.Above (γ.cons i r) j (ds j) := by
+  by_cases hij : i = j
+  · subst hij
+    show Tree.Le ((γ.cons i r) i) (ds i)
+    rw [Ctx.cons_self]
+    exact (Tree.join_spec (γ i) r.toTree (ds i) (hds i) hr).2.2 (ds i) (hds i) hr
+  · show Tree.Le ((γ.cons i r) j) (ds j)
+    rw [Ctx.cons_other _ _ hij]
+    exact hds j
+
+/-! ## Feeding the ground arguments of a padded expression -/
+
+/-- `(M y_b y_{b+1} … y_{b+m-1})`: apply `M` to `m` consecutive ground
+variables. -/
+def appsFrom (M : Term SPCF) (b : Nat) : Nat → Term SPCF
+  | 0 => M
+  | j + 1 => appsFrom (.app M (.var b 𝕆)) (b + 1) j
+
+theorem appsFrom_hasTy : ∀ (m : Nat) {σ : Ty} (M : Term SPCF) (b : Nat)
+    (Γ : List (Nat × Ty)), Term.HasTy Γ M (Ty.pads m σ) →
+    (∀ k, k < m → (b + k, 𝕆) ∈ Γ) → Term.HasTy Γ (appsFrom M b m) σ
+  | 0, _, M, b, Γ, hM, _ => hM
+  | m + 1, σ, M, b, Γ, hM, hvars => by
+      refine appsFrom_hasTy m (.app M (.var b 𝕆)) (b + 1) Γ
+        (Term.HasTy.app hM (Term.HasTy.var ?_)) (fun k hk => ?_)
+      · have h := hvars 0 (Nat.succ_pos _)
+        rwa [Nat.add_zero] at h
+      · have h := hvars (k + 1) (Nat.succ_lt_succ hk)
+        rwa [show b + (k + 1) = b + 1 + k from by omega] at h
+
+/-- Feeding `m` ground values to a finite element of a padded type. -/
+noncomputable def applyFrontD : ∀ (m : Nat) {σ : Ty}, D (Ty.pads m σ) →
+    (Nat → Val) → D σ
+  | 0, _, t, _ => t
+  | m + 1, _, t, ws =>
+      applyFrontD m (applyD t ⟨.leaf (ws 0), TreeOk.leaf _ _⟩) (fun k => ws (k + 1))
+
+theorem applyFrontD_val : ∀ (m : Nat) {σ : Ty} (t : D (Ty.pads m σ))
+    (ws : Nat → Val),
+    (applyFrontD m t ws).1 = applyFront m t.1 (fun k => Tree.leaf (ws k))
+  | 0, _, t, ws => rfl
+  | m + 1, σ, t, ws => by
+      show (applyFrontD m (applyD t ⟨.leaf (ws 0), TreeOk.leaf _ _⟩) _).1 = _
+      rw [applyFrontD_val m _ _]
+      rfl
+
+/-- The meaning of a padded expression fed its ground arguments. -/
+theorem meaning_appsFrom : ∀ (m : Nat) {σ : Ty} (M : Term SPCF) (b : Nat)
+    (Env : Tmodel.Env) (t : D (Ty.pads m σ)) (ws : Nat → Val),
+    Tmodel.meaning Env M (Ty.pads m σ) = Ideal.principal t →
+    (∀ k, Env (b + k) 𝕆 = leafT 𝕆 (ws k)) →
+    Tmodel.meaning Env (appsFrom M b m) σ = Ideal.principal (applyFrontD m t ws)
+  | 0, _, M, b, Env, t, ws, hM, _ => hM
+  | m + 1, σ, M, b, Env, t, ws, hM, hEnv => by
+      refine meaning_appsFrom m (.app M (.var b 𝕆)) (b + 1) Env
+        (applyD t ⟨.leaf (ws 0), TreeOk.leaf _ _⟩) (fun k => ws (k + 1)) ?_
+        (fun k => ?_)
+      · have hvar : Tmodel.meaning Env (Term.var b 𝕆) 𝕆
+            = leafT 𝕆 (ws 0) := by
+          show Tmodel.combMeaning Env (.var b 𝕆) 𝕆 = _
+          rw [Model.combMeaning_var]
+          have h := hEnv 0
+          rwa [Nat.add_zero] at h
+        rw [meaning_app_term Env M (.var b 𝕆) 𝕆 (Ty.pads m σ) [(b, 𝕆)]
+            (Term.HasTy.var (List.mem_cons_self ..))]
+        rw [show ((T⟦M⟧Env) (𝕆 ⇒ Ty.pads m σ)) = Ideal.principal t from hM, hvar]
+        show applyT (Ideal.principal t) (Ideal.principal
+          (⟨.leaf (ws 0), TreeOk.leaf _ _⟩ : D 𝕆)) = _
+        exact applyT_principal t _
+      · have h := hEnv (k + 1)
+        rwa [show b + (k + 1) = b + 1 + k from by omega] at h
 
 end FA
