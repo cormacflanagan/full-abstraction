@@ -854,6 +854,235 @@ theorem theorem_4_27_bottom (E : EvalCtx) (Env : Tmodel.Env)
     (hasTy_Omega 𝕆 []) (fun Env' _ => ?_)
   exact meaning_Omega _ rfl rfl 𝕆 Env'
 
+/-- The `catch` computation at an arbitrary procedure type: applied to an
+ideal whose proper members all probe argument `n` first with query `?`,
+`catch` returns `n`. -/
+theorem applyT_catch_gen (σ : Ty) (Λ : T σ) (n : Nat) (hn : n < σ.arity)
+    (hmem : ∃ s : D σ, s ∈ Λ ∧ ∃ f, s.1 = Tree.node ⟨n, hn⟩ Query.hole f)
+    (hshape : ∀ s : D σ, s ∈ Λ → s.1 = Tree.bot ∨
+      ∃ f, s.1 = Tree.node ⟨n, hn⟩ Query.hole f) :
+    applyT (idealOf (treeCatch σ)) Λ = natAns n := by
+  refine Po.le_antisymm ?_ ?_
+  · rintro c ⟨g, hg, d, hd, hc⟩
+    have hle : Tree.Le c.1 (apply0 (treeCatch σ) d.1) :=
+      Tree.Le.trans (hc : Tree.Le c.1 (apply0 g.1 d.1))
+        (apply0_mono_left (hg : Tree.Le g.1 (treeCatch σ)) d.1)
+    rcases hshape d hd with hbot | ⟨f, hnode⟩
+    · rw [hbot] at hle
+      have hcomp : apply0 (treeCatch σ) Tree.bot = Tree.bot := by
+        rw [treeCatch]
+        exact apply0_rootProbe_bot (Nat.succ_pos _) _
+      rw [hcomp] at hle
+      show Tree.Le c.1 (.leaf (.num n))
+      exact Tree.Le.trans hle (Tree.Le.bot _)
+    · rw [hnode] at hle
+      have hcomp : apply0 (treeCatch σ) (Tree.node ⟨n, hn⟩ Query.hole f)
+          = Tree.leaf (.num n) := by
+        rw [treeCatch, apply0]
+        rfl
+      rw [hcomp] at hle
+      exact hle
+  · intro c hc
+    obtain ⟨s₀, hs₀, f₀, hnode₀⟩ := hmem
+    have hlegal : LegalResp (Query.hole : Query σ) (Resp.node ⟨n, hn⟩ Query.hole) :=
+      LegalResp.node Query.hole ⟨n, hn⟩ Query.hole LegalQuery.root
+    have gok : TreeOk Ctx.empty
+        ((Tree.node ⟨0, Nat.succ_pos _⟩ (Query.hole : Query σ)
+          fun r => if r = Resp.node ⟨n, hn⟩ Query.hole
+            then Tree.leaf (.num n) else Tree.bot) : Tree (σ ⇒ 𝕆)) := by
+      refine TreeOk.node _ _ _ _ LegalQuery.root
+        ⟨[Resp.node ⟨n, hn⟩ Query.hole], fun r hr => ?_⟩
+        (fun r _ => ?_) (fun r hr => ?_)
+      · by_cases hr2 : r = Resp.node ⟨n, hn⟩ Query.hole
+        · rw [hr2]; exact List.mem_cons_self ..
+        · exact absurd (if_neg hr2) hr
+      · by_cases hr2 : r = Resp.node ⟨n, hn⟩ Query.hole
+        · rw [if_pos hr2]; exact TreeOk.leaf _ _
+        · rw [if_neg hr2]; exact TreeOk.leaf _ _
+      · by_cases hr2 : r = Resp.node ⟨n, hn⟩ Query.hole
+        · exact absurd (hr2 ▸ hlegal) hr
+        · exact if_neg hr2
+    have hgle : Tree.Le
+        ((Tree.node ⟨0, Nat.succ_pos _⟩ (Query.hole : Query σ)
+          fun r => if r = Resp.node ⟨n, hn⟩ Query.hole
+            then Tree.leaf (.num n) else Tree.bot) : Tree (σ ⇒ 𝕆))
+        (treeCatch σ) := by
+      rw [treeCatch]
+      refine Tree.Le.node _ _ _ _ fun r => ?_
+      by_cases hr : r = Resp.node ⟨n, hn⟩ Query.hole
+      · subst hr
+        rw [if_pos rfl]
+        exact Tree.Le.refl _
+      · rw [if_neg hr]
+        exact Tree.Le.bot _
+    have hcomp : apply0
+        ((Tree.node ⟨0, Nat.succ_pos _⟩ (Query.hole : Query σ)
+          fun r => if r = Resp.node ⟨n, hn⟩ Query.hole
+            then Tree.leaf (.num n) else Tree.bot) : Tree (σ ⇒ 𝕆))
+        s₀.1 = Tree.leaf (.num n) := by
+      rw [hnode₀, apply0]
+      simp only [Tree.at'_hole]
+      show apply0 (if Query.hole.substAns (RAns.node ⟨n, hn⟩ Query.hole)
+          = Resp.node ⟨n, hn⟩ Query.hole then Tree.leaf (Val.num n) else Tree.bot)
+        (Tree.node ⟨n, hn⟩ Query.hole f₀) = _
+      rw [show (Query.hole.substAns (RAns.node ⟨n, hn⟩ Query.hole) : Resp σ)
+          = Resp.node ⟨n, hn⟩ Query.hole from rfl, if_pos rfl]
+      rfl
+    refine ⟨⟨_, gok⟩, hgle, s₀, hs₀, ?_⟩
+    show Tree.Le c.1 (apply0 _ s₀.1)
+    rw [hcomp]
+    exact (hc : Tree.Le c.1 (.leaf (.num n)))
+
+/-- The `catch` computation on a constant numeral: `catch (λ*x̄.⌜k⌝) = ⌜k+n⌝`. -/
+theorem applyT_catch_num (σ : Ty) (k : Nat) :
+    applyT (idealOf (treeCatch σ)) (leafT σ (.num k)) = natAns (k + σ.arity) := by
+  refine Po.le_antisymm ?_ ?_
+  · rintro c ⟨g, hg, d, hd, hc⟩
+    have hle : Tree.Le c.1 (apply0 (treeCatch σ) d.1) :=
+      Tree.Le.trans (hc : Tree.Le c.1 (apply0 g.1 d.1))
+        (apply0_mono_left (hg : Tree.Le g.1 (treeCatch σ)) d.1)
+    have hdc : d.1 = Tree.bot ∨ d.1 = .leaf (.num k) := by
+      cases hdv : d.1 with
+      | leaf w =>
+        have hle2 : Tree.Le (Tree.leaf w) (.leaf (.num k)) :=
+          hdv ▸ (mem_leafT.mp hd)
+        cases hle2 with
+        | bot => exact Or.inl rfl
+        | leaf => exact Or.inr rfl
+      | node i3 q3 f3 =>
+        have hle2 : Tree.Le (Tree.node i3 q3 f3) (.leaf (.num k)) :=
+          hdv ▸ (mem_leafT.mp hd)
+        cases hle2
+    rcases hdc with hdb | hdn
+    · rw [hdb] at hle
+      have hcomp : apply0 (treeCatch σ) Tree.bot = Tree.bot := by
+        rw [treeCatch]
+        exact apply0_rootProbe_bot (Nat.succ_pos _) _
+      rw [hcomp] at hle
+      show Tree.Le c.1 (.leaf (.num (k + σ.arity)))
+      exact Tree.Le.trans hle (Tree.Le.bot _)
+    · rw [hdn] at hle
+      have hcomp : apply0 (treeCatch σ) (Tree.leaf (.num k) : Tree σ)
+          = Tree.leaf (.num (k + σ.arity)) := by
+        rw [treeCatch, apply0]
+        rfl
+      rw [hcomp] at hle
+      exact hle
+  · intro c hc
+    have hlegal : LegalResp (Query.hole : Query σ) (Resp.ans k) :=
+      LegalResp.num Query.hole k
+    have gok : TreeOk Ctx.empty
+        ((Tree.node ⟨0, Nat.succ_pos _⟩ (Query.hole : Query σ)
+          fun r => if r = Resp.ans k
+            then Tree.leaf (.num (k + σ.arity)) else Tree.bot) : Tree (σ ⇒ 𝕆)) := by
+      refine TreeOk.node _ _ _ _ LegalQuery.root
+        ⟨[Resp.ans k], fun r hr => ?_⟩ (fun r _ => ?_) (fun r hr => ?_)
+      · by_cases hr2 : r = Resp.ans k
+        · rw [hr2]; exact List.mem_cons_self ..
+        · exact absurd (if_neg hr2) hr
+      · by_cases hr2 : r = Resp.ans k
+        · rw [if_pos hr2]; exact TreeOk.leaf _ _
+        · rw [if_neg hr2]; exact TreeOk.leaf _ _
+      · by_cases hr2 : r = Resp.ans k
+        · exact absurd (hr2 ▸ hlegal) hr
+        · exact if_neg hr2
+    have hgle : Tree.Le
+        ((Tree.node ⟨0, Nat.succ_pos _⟩ (Query.hole : Query σ)
+          fun r => if r = Resp.ans k
+            then Tree.leaf (.num (k + σ.arity)) else Tree.bot) : Tree (σ ⇒ 𝕆))
+        (treeCatch σ) := by
+      rw [treeCatch]
+      refine Tree.Le.node _ _ _ _ fun r => ?_
+      by_cases hr : r = Resp.ans k
+      · subst hr
+        rw [if_pos rfl]
+        exact Tree.Le.refl _
+      · rw [if_neg hr]
+        exact Tree.Le.bot _
+    have hcomp : apply0
+        ((Tree.node ⟨0, Nat.succ_pos _⟩ (Query.hole : Query σ)
+          fun r => if r = Resp.ans k
+            then Tree.leaf (.num (k + σ.arity)) else Tree.bot) : Tree (σ ⇒ 𝕆))
+        (Tree.leaf (.num k) : Tree σ) = Tree.leaf (.num (k + σ.arity)) := by
+      rw [apply0]
+      simp only [Tree.at'_hole]
+      show apply0 (if Query.hole.substAns (RAns.num k)
+          = Resp.ans k then Tree.leaf (Val.num (k + σ.arity)) else Tree.bot)
+        (Tree.leaf (.num k) : Tree σ) = _
+      rw [show (Query.hole.substAns (RAns.num k) : Resp σ) = Resp.ans k from rfl,
+        if_pos rfl]
+      rfl
+    refine ⟨⟨_, gok⟩, hgle, ⟨.leaf (.num k), TreeOk.leaf _ _⟩,
+      mem_leafT.mpr (Tree.Le.refl _), ?_⟩
+    show Tree.Le c.1 (apply0 _ (Tree.leaf (.num k) : Tree σ))
+    rw [hcomp]
+    exact (hc : Tree.Le c.1 (.leaf (.num (k + σ.arity))))
+
+/-- The `(catch)` clause of Theorem 4.27. -/
+theorem theorem_4_27_catch (l : List Ty) (E : EvalCtx) (j : Fin l.length)
+    (Env : Tmodel.Env)
+    (hty : Comb.HasTy (varsOf l) (E.fill (.var j.val (l[j.val]'j.isLt))) 𝕆)
+    (hfresh : ¬ E.Binds (j.val, l[j.val]'j.isLt)) :
+    Tmodel.combMeaning Env
+      (.app (.const (.catchC (l.foldr Ty.arrow 𝕆)))
+        (Comb.lamStars (varsOf l) (E.fill (.var j.val (l[j.val]'j.isLt))))) 𝕆
+      = natAns j.val := by
+  rw [← varsOf_foldr l]
+  have htyApp : Comb.HasTy (varsOf l ++ [])
+      (E.fill (.var j.val (l[j.val]'j.isLt))) 𝕆 := by
+    simpa using hty
+  have htyL : Comb.HasTy [] (Comb.lamStars (varsOf l)
+      (E.fill (.var j.val (l[j.val]'j.isLt)))) (foldX (varsOf l)) :=
+    Comb.lamStars_hasTy (varsOf l) [] _ 𝕆 htyApp
+  have htyOf : Comb.tyOf (Comb.lamStars (varsOf l)
+      (E.fill (.var j.val (l[j.val]'j.isLt)))) = foldX (varsOf l) :=
+    Comb.tyOf_of_hasTy htyL
+  rw [Model.combMeaning_app, htyOf]
+  have hm : Tmodel.combMeaning Env
+      (Comb.const (SConst.catchC (foldX (varsOf l))) : Comb SPCF)
+      (foldX (varsOf l) ⇒ 𝕆)
+      = Tmodel.interpConst (SConst.catchC (foldX (varsOf l))) :=
+    Model.combMeaning_const Tmodel Env _
+  rw [hm, show Tmodel.interpConst (SConst.catchC (foldX (varsOf l)))
+      = idealOf (treeCatch (foldX (varsOf l))) from rfl]
+  obtain ⟨hmem, hshape⟩ := lemma_B_1 l E j Env hty hfresh
+  exact applyT_catch_gen (foldX (varsOf l)) (ctxAbs l E j Env) j.val
+    (by rw [arity_foldrX, varsOf_length]; exact j.isLt) hmem hshape
+
+/-- The `(return)` clause of Theorem 4.27. -/
+theorem theorem_4_27_return (l : List Ty) (k : Nat) (Env : Tmodel.Env) :
+    Tmodel.combMeaning Env
+      (.app (.const (.catchC (l.foldr Ty.arrow 𝕆)))
+        (Comb.lamStars (varsOf l) (.const (.num k)))) 𝕆
+      = natAns (k + l.length) := by
+  rw [← varsOf_foldr l]
+  have htyApp : Comb.HasTy (varsOf l ++ [])
+      (Comb.const (SConst.num k) : Comb SPCF) 𝕆 := Comb.HasTy.const
+  have htyL : Comb.HasTy [] (Comb.lamStars (varsOf l)
+      (Comb.const (SConst.num k) : Comb SPCF)) (foldX (varsOf l)) :=
+    Comb.lamStars_hasTy (varsOf l) [] _ 𝕆 htyApp
+  have htyOf : Comb.tyOf (Comb.lamStars (varsOf l)
+      (Comb.const (SConst.num k) : Comb SPCF)) = foldX (varsOf l) :=
+    Comb.tyOf_of_hasTy htyL
+  rw [Model.combMeaning_app, htyOf]
+  have hm : Tmodel.combMeaning Env
+      (Comb.const (SConst.catchC (foldX (varsOf l))) : Comb SPCF)
+      (foldX (varsOf l) ⇒ 𝕆)
+      = Tmodel.interpConst (SConst.catchC (foldX (varsOf l))) :=
+    Model.combMeaning_const Tmodel Env _
+  rw [hm, show Tmodel.interpConst (SConst.catchC (foldX (varsOf l)))
+      = idealOf (treeCatch (foldX (varsOf l))) from rfl]
+  have hΛ : Tmodel.combMeaning Env (Comb.lamStars (varsOf l)
+      (Comb.const (SConst.num k) : Comb SPCF)) (foldX (varsOf l))
+      = leafT (foldX (varsOf l)) (.num k) := by
+    refine lamStars_meaning_leaf (varsOf l) Env _ 𝕆 [] htyApp (.num k)
+      (fun Env' _ => ?_)
+    exact Model.combMeaning_const Tmodel Env' (SConst.num k)
+  rw [hΛ]
+  show applyT (idealOf (treeCatch (foldX (varsOf l))))
+    (leafT (foldX (varsOf l)) (Val.num k)) = natAns (k + l.length)
+  rw [applyT_catch_num, arity_foldrX, varsOf_length]
+
 /-- **Theorem 4.27.**  *For all evaluation contexts `E`, types
 `σ = σ₁ → … → σₙ`, and variables `x₁, …, xₙ`:*
 
@@ -890,7 +1119,8 @@ theorem theorem_4_27 :
       Tmodel.combMeaning Env
         (.app (.const (.catchC (l.foldr Ty.arrow 𝕆)))
           (Comb.lamStars (varsOf l) (.const (.num k)))) 𝕆
-        = natAns (k + l.length)) := by
-  sorry
+        = natAns (k + l.length)) :=
+  ⟨theorem_4_27_error, theorem_4_27_bottom, theorem_4_27_catch,
+    theorem_4_27_return⟩
 
 end FA
