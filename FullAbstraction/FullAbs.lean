@@ -126,11 +126,129 @@ def Representable (σ : Ty) (γ : Ctx σ) (e : Tree σ) : Prop :=
       applyIdeals σ (Tmodel.meaning botEnv M σ) (fun i => Ideal.principal (ds i))
         = Ideal.principal (groundD (applyArgs σ e (fun i => (ds i).1)))
 
+/-- Abstraction over a variable list, at the term level. -/
+theorem Term.lams_closed : ∀ (xs : List (Nat × Ty)) (B : Term SPCF),
+    Term.Closed B → Term.Closed (Term.lams xs B)
+  | [], _, h => h
+  | p :: xs, B, h => by
+      intro q hq
+      exact Term.lams_closed xs B h q hq.1
+
+/-- Typing for iterated `λ`. -/
+theorem Term.lams_hasTy : ∀ (xs : List (Nat × Ty)) (Γ : List (Nat × Ty))
+    (B : Term SPCF) (ρ : Ty), Term.HasTy (xs ++ Γ) B ρ →
+    Term.HasTy Γ (Term.lams xs B) (xs.foldr (fun p τ => p.2 ⇒ τ) ρ)
+  | [], _, _, _, h => h
+  | (x, σ) :: xs, Γ, B, ρ, h => by
+      show Term.HasTy Γ (Term.lam x σ (Term.lams xs B)) _
+      refine Term.HasTy.lam (Term.lams_hasTy xs ((x, σ) :: Γ) B ρ ?_)
+      refine Term.weaken (fun p hp => ?_) h
+      simp only [List.mem_append, List.mem_cons] at hp ⊢
+      rcases hp with (hp | hp) | hp
+      · exact Or.inr (Or.inl hp)
+      · exact Or.inl hp
+      · exact Or.inr (Or.inr hp)
+
+/-- A leaf applies to anything as itself. -/
+theorem applyArgs_leaf : ∀ (σ : Ty) (v : Val)
+    (ds : (i : Fin σ.arity) → Tree (σ.arg i)),
+    applyArgs σ (.leaf v) ds = .leaf v
+  | .base, _, _ => rfl
+  | .arrow a τ, v, ds => by
+      show applyArgs τ (apply0 (.leaf v) (ds ⟨0, Nat.succ_pos _⟩)) _ = _
+      exact applyArgs_leaf τ v _
+
+/-- A leaf-valued ideal applies to anything as itself. -/
+theorem applyIdeals_leafT : ∀ (σ : Ty) (v : Val)
+    (ds : (i : Fin σ.arity) → D (σ.arg i)),
+    applyIdeals σ (leafT σ v) (fun i => Ideal.principal (ds i))
+      = Ideal.principal (groundD (.leaf v))
+  | .base, v, _ => congrArg Ideal.principal (Subtype.ext rfl)
+  | .arrow a τ, v, ds => by
+      show applyIdeals τ (applyT (leafT (a ⇒ τ) v)
+        (Ideal.principal (ds ⟨0, Nat.succ_pos _⟩))) _ = _
+      rw [applyT_leafT]
+      exact applyIdeals_leafT τ v _
+
+/-- The leaf case of the induction of Lemma 5.2: `λ*x̄.⌜a⌝`, `λ*x̄.errorⱼ` and
+`λ*x̄.Ω` represent the leaves. -/
+theorem representable_leaf (σ : Ty) (γ : Ctx σ) (v : Val) :
+    Representable σ γ (.leaf v) := by
+  obtain ⟨xs, rfl⟩ : ∃ xs : List (Nat × Ty), σ = foldX xs :=
+    ⟨varsOf σ.args, by
+      show σ = (varsOf σ.args).foldr (fun p τ => p.2 ⇒ τ) 𝕆
+      rw [varsOf_foldr, Ty.foldr_args]⟩
+  have key : ∀ B : Term SPCF, Term.Closed B → Term.HasTy (xs ++ []) B 𝕆 →
+      (∀ Env' : Tmodel.Env, Tmodel.combMeaning Env' (Term.toComb B) 𝕆 = leafT 𝕆 v) →
+      Representable (foldX xs) γ (.leaf v) := by
+    intro B hBcl hBty hBmean
+    refine ⟨Term.lams xs B, Term.lams_closed xs B hBcl,
+      Term.lams_hasTy xs [] B 𝕆 hBty, fun ds hds => ?_⟩
+    have hmean : Tmodel.meaning botEnv (Term.lams xs B) (foldX xs)
+        = leafT (foldX xs) v := by
+      show Tmodel.combMeaning botEnv (Term.toComb (Term.lams xs B)) (foldX xs) = _
+      rw [Term.toComb_lams]
+      exact lamStars_meaning_leaf xs botEnv (Term.toComb B) 𝕆 []
+        (Term.toComb_hasTy hBty) v (fun Env' _ => hBmean Env')
+    rw [hmean, applyIdeals_leafT, applyArgs_leaf]
+  cases v with
+  | num a =>
+    refine key (.const (.num a)) (fun p hp => hp) Term.HasTy.const (fun Env' => ?_)
+    exact Model.combMeaning_const Tmodel Env' (SConst.num a)
+  | err b =>
+    refine key (.const (.err b)) (fun p hp => hp) Term.HasTy.const (fun Env' => ?_)
+    exact Model.combMeaning_const Tmodel Env' (SConst.err b)
+  | bot =>
+    refine key omegaTerm (by rintro p (hp | hp) <;> exact hp)
+      (Term.weaken (fun p hp => absurd hp (by simp)) hasTy_omegaTerm)
+      (fun Env' => ?_)
+    exact meaning_omegaTerm Env'
+
+/-- The node case of the induction of Lemma 5.2: the `catch`-based
+construction of §5. -/
+theorem representable_node (n : Nat)
+    (ihOut : ∀ σ' : Ty, σ'.depth ≤ n → ∀ (γ' : Ctx σ') (e' : Tree σ'),
+      TreeOk γ' e' → Representable σ' γ' e')
+    (σ : Ty) (hσ : σ.depth ≤ n + 1) (i : Fin σ.arity) (q : Query (σ.arg i))
+    (f : Resp (σ.arg i) → Tree σ)
+    (ihIn : ∀ (r : Resp (σ.arg i)) (γ' : Ctx σ), TreeOk γ' (f r) →
+      Representable σ γ' (f r))
+    (γ : Ctx σ) (hok : TreeOk γ (.node i q f)) :
+    Representable σ γ (.node i q f) := by
+  sorry
+
+/-- The depth of a type is positive. -/
+theorem Ty.depth_pos : ∀ σ : Ty, 0 < σ.depth
+  | .base => Nat.one_pos
+  | .arrow a b => by
+      show 0 < max (1 + a.depth) b.depth
+      have := Ty.depth_pos b
+      omega
+
+/-- The nested induction of §5, staged on the depth of the type. -/
+theorem repSubtrees : ∀ (n : Nat) (σ : Ty), σ.depth ≤ n →
+    ∀ (e : Tree σ) (γ : Ctx σ), TreeOk γ e → Representable σ γ e := by
+  intro n
+  induction n with
+  | zero =>
+    intro σ hσ
+    exact absurd (Nat.lt_of_lt_of_le (Ty.depth_pos σ) hσ) (by omega)
+  | succ n ihn =>
+    intro σ hσ e
+    induction e with
+    | leaf v =>
+      intro γ _
+      exact representable_leaf σ γ v
+    | node i q f ihf =>
+      intro γ hok
+      exact representable_node n (fun σ' h γ' e' he' => ihn σ' h e' γ' he')
+        σ hσ i q f (fun r γ' h' => ihf r γ' h') γ hok
+
 /-- The stronger statement actually proved by the nested induction of §5:
 every finite subtree is representable in every legal context. -/
 theorem lemma_5_2_subtrees (σ : Ty) (γ : Ctx σ) (e : Tree σ) (he : TreeOk γ e) :
-    Representable σ γ e := by
-  sorry
+    Representable σ γ e :=
+  repSubtrees σ.depth σ (Nat.le_refl _) e γ he
 
 /-! ## The ingredients of Theorem 5.1 -/
 
