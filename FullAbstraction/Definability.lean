@@ -2549,4 +2549,128 @@ theorem applyIdeals_lams : ∀ (σ : Ty) (b : Nat) (Env : Tmodel.Env)
         lamStar_apply Env b a (ds ⟨0, Nat.succ_pos _⟩) _ τ Γ hbody]
       exact applyIdeals_lams τ (b + 1) _ B ((b, a) :: Γ) hB2 _
 
+/-! ## The construction of §5
+
+Given a node `⟨i, q, f⟩`, the expression `M` of §5 is
+
+```
+M = λ*x₁ … x_k .
+      let w = (catch (λ*y₁ … y_m . (x_i B₁ … B_l))) in
+      (if0 w        (F₁ x₁ … x_k)
+      (if0 (sub1⊥ w) (F₂ x₁ … x_k) …))
+```
+
+where the `Bₕ` report, through `catch`, which response below the root of `e`
+the argument `x_i` realises, and the `F`s represent the subtrees. -/
+
+/-- The node responses in a list, numbered. -/
+noncomputable def nodeResps {α : Ty} (q : Query α) (l₀ : List (Resp α)) :
+    List (Resp α) :=
+  dedupL (filterP (fun r => LegalResp q r ∧
+    ∃ (j : Fin α.arity) (p : Query (α.arg j)), r.ansOf = RAns.node j p) l₀)
+
+theorem mem_nodeResps {α : Ty} (q : Query α) (l₀ : List (Resp α)) (r : Resp α) :
+    r ∈ nodeResps q l₀ ↔ (r ∈ l₀ ∧ LegalResp q r ∧
+      ∃ (j : Fin α.arity) (p : Query (α.arg j)), r.ansOf = RAns.node j p) := by
+  rw [nodeResps, mem_dedupL, mem_filterP]
+
+theorem nodeResps_pairwise {α : Ty} (q : Query α) (l₀ : List (Resp α)) :
+    List.Pairwise (fun a b : Resp α => a ≠ b) (nodeResps q l₀) :=
+  dedupL_pairwise _
+
+/-- The position, among the arguments of `α`, that an answer probes. -/
+noncomputable def posOfAns {α : Ty} (h : Fin α.arity) :
+    RAns α → Option (Query (α.arg h))
+  | .num _ => none
+  | .node j p => if hj : j = h then some (hj ▸ p) else none
+
+/-- The position, among the arguments of `α`, that a response probes. -/
+noncomputable def posOf {α : Ty} (h : Fin α.arity) (r : Resp α) :
+    Option (Query (α.arg h)) := posOfAns h r.ansOf
+
+theorem posOf_of_ansOf {α : Ty} (h : Fin α.arity) (r : Resp α)
+    (p : Query (α.arg h)) (hAns : r.ansOf = RAns.node h p) :
+    posOf h r = some p := by
+  show posOfAns h r.ansOf = some p
+  rw [hAns, posOfAns, dif_pos rfl]
+
+theorem ansOf_of_posOf {α : Ty} (h : Fin α.arity) (r : Resp α)
+    (p : Query (α.arg h)) (hpos : posOf h r = some p) :
+    r.ansOf = RAns.node h p := by
+  have hpos' : posOfAns h r.ansOf = some p := hpos
+  cases hAns : r.ansOf with
+  | num n =>
+    rw [hAns, posOfAns] at hpos'
+    exact absurd hpos' (fun hc => Option.noConfusion hc)
+  | node j p' =>
+    rw [hAns, posOfAns] at hpos'
+    by_cases hj : j = h
+    · subst hj
+      rw [dif_pos rfl] at hpos'
+      have hp : p' = p := Option.some.inj hpos'
+      rw [hp]
+    · rw [dif_neg hj] at hpos'
+      exact absurd hpos' (fun hc => Option.noConfusion hc)
+
+/-- The graft positions for argument `h`: the numbered responses that probe
+it. -/
+noncomputable def psForArg {α : Ty} (rs : List (Resp α)) (h : Fin α.arity) :
+    List (Nat × Query (α.arg h)) :=
+  (enumFrom' 0 rs).filterMap (fun pr => (posOf h pr.2).map (fun p => (pr.1, p)))
+
+theorem mem_psForArg {α : Ty} (rs : List (Resp α)) (h : Fin α.arity)
+    (np : Nat × Query (α.arg h)) :
+    np ∈ psForArg rs h ↔
+      ∃ r, (np.1, r) ∈ enumFrom' 0 rs ∧ posOf h r = some np.2 := by
+  rw [psForArg, List.mem_filterMap]
+  constructor
+  · rintro ⟨pr, hpr, hres⟩
+    cases hp : posOf h pr.2 with
+    | none => rw [hp] at hres; exact absurd hres (fun hc => Option.noConfusion hc)
+    | some p =>
+      rw [hp] at hres
+      have heq : (pr.1, p) = np := Option.some.inj hres
+      refine ⟨pr.2, ?_, ?_⟩
+      · rw [← congrArg Prod.fst heq]
+        exact hpr
+      · rw [hp, ← congrArg Prod.snd heq]
+  · rintro ⟨r, hmem, hpos⟩
+    refine ⟨(np.1, r), hmem, ?_⟩
+    show Option.map (fun p => (np.1, p)) (posOf h r) = some np
+    rw [hpos]
+    rfl
+
+/-- The `k` argument variables of `M`, as expressions. -/
+def xargs (σ : Ty) : List (Term SPCF) :=
+  List.ofFn (fun j : Fin σ.arity => (Term.var j.val (σ.arg j) : Term SPCF))
+
+/-- The body `M'` of the `catch`, and the whole expression `M` of §5. -/
+noncomputable def catchBody (σ : Ty) (i : Fin σ.arity) (m : Nat)
+    (Es : (h : Fin (σ.arg i).arity) → Term SPCF) : Term SPCF :=
+  Term.lams (yvars σ.arity m)
+    (Term.apps (Term.var i.val (σ.arg i))
+      (List.ofFn (fun h : Fin (σ.arg i).arity => appsFrom (Es h) σ.arity m)))
+
+/-- The arms of the sequential case split. -/
+noncomputable def caseArms (σ : Ty) (i : Fin σ.arity) (q : Query (σ.arg i))
+    (rs : List (Resp (σ.arg i))) (A : Nat)
+    (Fs : Resp (σ.arg i) → Term SPCF) : List (Nat × Term SPCF) :=
+  (enumFrom' 0 rs).map (fun pr => (pr.1, Term.apps (Fs pr.2) (xargs σ)))
+    ++ (List.range (A + 1)).map
+        (fun a => (rs.length + a,
+          Term.apps (Fs (q.substAns (RAns.num a))) (xargs σ)))
+
+/-- The expression `M` of §5. -/
+noncomputable def nodeTerm (σ : Ty) (i : Fin σ.arity) (q : Query (σ.arg i))
+    (rs : List (Resp (σ.arg i))) (A : Nat)
+    (Es : (h : Fin (σ.arg i).arity) → Term SPCF)
+    (Fs : Resp (σ.arg i) → Term SPCF) : Term SPCF :=
+  Term.lams (varsFrom 0 σ.args)
+    (Term.app
+      (Term.lam (σ.arity + rs.length) 𝕆
+        (cascadeTerm (Term.var (σ.arity + rs.length) 𝕆)
+          (caseArms σ i q rs A Fs)))
+      (Term.app (Term.const (SConst.catchC (Ty.pads rs.length 𝕆)))
+        (catchBody σ i rs.length Es)))
+
 end FA
