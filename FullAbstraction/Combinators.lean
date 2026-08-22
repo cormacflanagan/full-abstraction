@@ -1043,15 +1043,12 @@ noncomputable def Tfun : Nat → Query (σ ⇒ τ ⇒ ρ) → Query τ → Query
             -- `y` asks about `z` at `pz`: consult `d₃`
             match d₃.at' pz with
             | some (.leaf (.num a)) =>
-                Tfun n q₁ p (q₂.snoc ⟨0, h0⟩ pz (pz.substAns (.num a)))
-                  (Tree.join d₂ r₂.toTree) d₃
+                Tfun n q₁ p (q₂.snoc ⟨0, h0⟩ pz (pz.substAns (.num a))) d₂ d₃
             | some (.node jz pzz _) =>
-                Tfun n q₁ p (q₂.snoc ⟨0, h0⟩ pz (pz.substAns (.node jz pzz)))
-                  (Tree.join d₂ r₂.toTree) d₃
+                Tfun n q₁ p (q₂.snoc ⟨0, h0⟩ pz (pz.substAns (.node jz pzz))) d₂ d₃
             | some (.leaf .bot) =>
                 .node ⟨2, by show 2 < ρ.arity + 3; omega⟩ pz fun s =>
-                  Tfun n q₁ p (q₂.snoc ⟨0, h0⟩ pz s)
-                    (Tree.join d₂ r₂.toTree) (Tree.join d₃ s.toTree)
+                  Tfun n q₁ p (q₂.snoc ⟨0, h0⟩ pz s) d₂ (Tree.join d₃ s.toTree)
             | _ => Tree.bot
         | some (.node ⟨j + 1, hj⟩ pj) =>
             -- `y` announces a node about `τⱼ`: it resolves `x`'s query
@@ -1062,6 +1059,497 @@ noncomputable def Tfun : Nat → Query (σ ⇒ τ ⇒ ρ) → Query τ → Query
 end
 
 end SCombinator
+
+/-! ### The invariant on the accumulated knowledge, and `encode`'s correctness -/
+
+/-- A response's tree lies below any tree that answers its query with the
+matching root. -/
+theorem substAns_toTree_le {γ : Ty} : ∀ (q : Query γ) (e t : Tree γ) (x : RAns γ),
+    e.at' q = some t → t.root = (RAns.toTree x).root →
+    Tree.Le (q.substAns x).toTree e
+  | .hole, e, t, x, hq, hroot => by
+      have het : e = t := Option.some.inj hq
+      subst het
+      cases x with
+      | num a =>
+        cases e with
+        | leaf v =>
+          have hv : v = Val.num a := by
+            simpa [Tree.root, RAns.toTree] using hroot
+          subst hv
+          exact Tree.Le.refl _
+        | node i q f => exact absurd hroot (by simp [Tree.root, RAns.toTree])
+      | node j p =>
+        cases e with
+        | leaf v => exact absurd hroot (by simp [Tree.root, RAns.toTree])
+        | node i q f =>
+          have hij : (⟨i, q⟩ : NodeVal γ) = ⟨j, p⟩ := by
+            simpa [Tree.root, RAns.toTree] using hroot
+          have h1 : i = j := congrArg Sigma.fst hij
+          subst h1
+          have h2 : q = p := by injection hij
+          subst h2
+          show Tree.Le (Tree.node i q fun _ => Tree.bot) (Tree.node i q f)
+          exact Tree.Le.node _ _ _ _ fun s => Tree.Le.bot _
+  | .step i p r rest, e, t, x, hq, hroot => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv hq
+      show Tree.Le (Tree.node i p fun s =>
+        if s = r then (rest.substAns x).toTree else Tree.bot) (Tree.node i p f)
+      refine Tree.Le.node _ _ _ _ fun s => ?_
+      by_cases hs : s = r
+      · subst hs
+        rw [if_pos rfl]
+        exact substAns_toTree_le rest (f s) t x hrest hroot
+      · rw [if_neg hs]
+        exact Tree.Le.bot _
+
+section SCombinator
+variable {σ τ ρ : Ty}
+
+/-- The tree accumulated about argument 2 is **well-formed over `d₃`**
+(Figure 5, facts 1 and 2): every recorded probe of `z` carries exactly one
+recorded answer — the one `d₃` gives — and a recorded continuation beyond it. -/
+inductive Accum (d₃ : Tree σ) : Tree (σ ⇒ τ) → Prop where
+  | leaf (v : Val) : Accum d₃ (.leaf v)
+  | node0 {h0 : 0 < (σ ⇒ τ).arity} (qz : Query ((σ ⇒ τ).arg ⟨0, h0⟩))
+      (f : Resp ((σ ⇒ τ).arg ⟨0, h0⟩) → Tree (σ ⇒ τ)) (x : RAns σ) (t : Tree σ)
+      (hans : d₃.at' qz = some t) (hroot : t.root = (RAns.toTree x).root)
+      (hone : ∀ s, f s ≠ Tree.bot → s = qz.substAns x)
+      (hprop : f (qz.substAns x) ≠ Tree.bot)
+      (hsub : ∀ s, Accum d₃ (f s)) :
+      Accum d₃ (.node ⟨0, h0⟩ qz f)
+  | nodeS {j : Nat} {hj : j + 1 < (σ ⇒ τ).arity}
+      (qt : Query ((σ ⇒ τ).arg ⟨j + 1, hj⟩))
+      (f : Resp ((σ ⇒ τ).arg ⟨j + 1, hj⟩) → Tree (σ ⇒ τ))
+      (hsub : ∀ r, Accum d₃ (f r)) :
+      Accum d₃ (.node ⟨j + 1, hj⟩ qt f)
+
+/-- The recorded answer of an `Accum` node is proper. -/
+theorem RAns.toTree_root_ne_bot {γ : Ty} (x : RAns γ) {t : Tree γ}
+    (h : t.root = (RAns.toTree x).root) : t ≠ Tree.bot := by
+  intro hb
+  subst hb
+  cases x <;> simp [Tree.root, RAns.toTree, Tree.bot] at h
+
+/-- `Accum` survives growth of the knowledge about argument 3. -/
+theorem Accum.mono_d3 {d₃ d₃' : Tree σ} (h : Tree.Le d₃ d₃') :
+    ∀ {d₂ : Tree (σ ⇒ τ)}, Accum d₃ d₂ → Accum d₃' d₂ := by
+  intro d₂ hacc
+  induction hacc with
+  | leaf v => exact Accum.leaf v
+  | node0 qz f x t hans hroot hone hprop hsub ih =>
+    rcases at'_mono qz h with hn | ⟨a, b, ha, hb, hab⟩
+    · rw [hans] at hn; exact Option.noConfusion hn
+    · have hta : t = a := by rw [hans] at ha; exact Option.some.inj ha
+      subst hta
+      refine Accum.node0 qz f x b hb ?_ hone hprop fun s => ih s
+      rw [Tree.root_of_le hab (RAns.toTree_root_ne_bot x hroot)]
+      exact hroot
+  | nodeS qt f hsub ih => exact Accum.nodeS qt f fun r => ih r
+
+/-- The composite `apply (d₂, d₃)` does not change when `d₃` grows: `d₂`'s
+recorded probes of `z` are all answered by `d₃` already. -/
+theorem apply0_congr_d3 {d₃ d₃' : Tree σ} (h : Tree.Le d₃ d₃') :
+    ∀ {d₂ : Tree (σ ⇒ τ)}, Accum d₃ d₂ → apply0 d₂ d₃' = apply0 d₂ d₃ := by
+  intro d₂ hacc
+  induction hacc with
+  | leaf v => rfl
+  | node0 qz f x t hans hroot hone hprop hsub ih =>
+    rcases at'_mono qz h with hn | ⟨a, b, ha, hb, hab⟩
+    · rw [hans] at hn; exact Option.noConfusion hn
+    · have hta : t = a := by rw [hans] at ha; exact Option.some.inj ha
+      subst hta
+      cases x with
+      | num n =>
+        have ht : t = Tree.leaf (.num n) := by
+          cases t with
+          | leaf v =>
+            have : v = Val.num n := by simpa [Tree.root, RAns.toTree] using hroot
+            rw [this]
+          | node _ _ _ => exact absurd hroot (by simp [Tree.root, RAns.toTree])
+        subst ht
+        have hb' : b = Tree.leaf (.num n) := by
+          cases hab with
+          | leaf _ => rfl
+        subst hb'
+        rw [apply0, apply0, hans, hb]
+        exact ih _
+      | node jz pz =>
+        obtain ⟨f₃, hf₃⟩ : ∃ f₃, t = Tree.node jz pz f₃ := by
+          cases t with
+          | leaf v => exact absurd hroot (by simp [Tree.root, RAns.toTree])
+          | node j' p' f₃ =>
+            have hij : (⟨j', p'⟩ : NodeVal σ) = ⟨jz, pz⟩ := by
+              simpa [Tree.root, RAns.toTree] using hroot
+            have h1 : j' = jz := congrArg Sigma.fst hij
+            subst h1
+            have h2 : p' = pz := by injection hij
+            subst h2
+            exact ⟨f₃, rfl⟩
+        subst hf₃
+        obtain ⟨g₃, hg₃⟩ := Tree.eq_node_of_le hab
+        subst hg₃
+        rw [apply0, apply0, hans, hb]
+        exact ih _
+  | nodeS qt f hsub ih =>
+    rw [apply0, apply0]
+    exact congrArg _ (funext fun r => ih r)
+end SCombinator
+
+
+/-- Root-directed inversion: a tree whose root is a numeral is that leaf. -/
+theorem root_num_inv {γ : Ty} {t : Tree γ} {n : Nat}
+    (h : t.root = Sum.inl (Val.num n)) : t = .leaf (.num n) := by
+  cases t with
+  | leaf v =>
+    have : v = Val.num n := by simpa [Tree.root] using h
+    rw [this]
+  | node i q f => exact absurd h (by simp [Tree.root])
+
+/-- Root-directed inversion: a tree whose root is a node value is a node. -/
+theorem root_node_inv {γ : Ty} {t : Tree γ} {j : Fin γ.arity} {p : Query (γ.arg j)}
+    (h : t.root = Sum.inr ⟨j, p⟩) : ∃ f, t = .node j p f := by
+  cases t with
+  | leaf v => exact absurd h (by simp [Tree.root])
+  | node i q f =>
+    have hij : (⟨i, q⟩ : NodeVal γ) = ⟨j, p⟩ := by simpa [Tree.root] using h
+    have h1 : i = j := congrArg Sigma.fst hij
+    subst h1
+    have h2 : q = p := by injection hij
+    subst h2
+    exact ⟨f, rfl⟩
+
+section SCombinator
+variable {σ τ ρ : Ty}
+
+/-- One step of the composite along an answered probe of `z`. -/
+theorem apply0_accum_step {d₃ : Tree σ} {h0 : 0 < (σ ⇒ τ).arity}
+    {qz : Query ((σ ⇒ τ).arg ⟨0, h0⟩)} {f : Resp ((σ ⇒ τ).arg ⟨0, h0⟩) → Tree (σ ⇒ τ)}
+    {x : RAns σ} {t : Tree σ} (hans : d₃.at' qz = some t)
+    (hroot : t.root = (RAns.toTree x).root) :
+    apply0 (Tree.node ⟨0, h0⟩ qz f) d₃ = apply0 (f (qz.substAns x)) d₃ := by
+  cases x with
+  | num n =>
+    have ht : t = Tree.leaf (.num n) := root_num_inv (by
+      rw [hroot]; rfl)
+    subst ht
+    rw [apply0, hans]
+  | node jz pz =>
+    obtain ⟨f₃, ht⟩ := root_node_inv (t := t) (j := jz) (p := pz) (by
+      rw [hroot]; rfl)
+    subst ht
+    rw [apply0, hans]
+
+/-- **Correctness of `encode`** (Figure 5): under the invariant, the encoded
+query shifts back to `p`, probes the perimeter of `d₂`, is coherent, and
+records about `z` only answers that `d₃` gives. -/
+theorem encode_spec (d₃ : Tree σ) :
+    ∀ (d₂ : Tree (σ ⇒ τ)) (p : Query τ), Accum d₃ d₂ → p.Coherent →
+    (apply0 d₂ d₃).at' p = some Tree.bot →
+    (encode d₂ p).shift1 = p ∧
+    d₂.at' (encode d₂ p) = some Tree.bot ∧
+    (encode d₂ p).Coherent ∧
+    RespCtx.Above (encode d₂ p).ctxList ⟨0, Nat.succ_pos _⟩ d₃
+  | .leaf v, p, _, _, hper => by
+      rw [show apply0 (Tree.leaf v : Tree (σ ⇒ τ)) d₃ = .leaf v from rfl] at hper
+      obtain ⟨rfl, rfl⟩ : p = .hole ∧ v = Val.bot := by
+        cases p with
+        | hole =>
+          refine ⟨rfl, ?_⟩
+          have h := Option.some.inj hper
+          injection h
+        | step i p' r rest => exact absurd hper (by simp [Tree.at', Tree.stepAt])
+      refine ⟨?_, ?_, trivial, ?_⟩
+      · rw [encode]
+        simp only [Query.shift1]
+      · rw [encode]
+        rfl
+      · rw [encode]
+        intro s hs
+        exact absurd hs (by simp [Query.ctxList, RespCtx.at'])
+  | .node ⟨0, h0⟩ qz f, p, hacc, hcoh, hper => by
+      cases hacc with
+      | node0 _ _ x t hans hroot hone hprop hsub =>
+        have hex : ∃ s, f s ≠ Tree.bot := ⟨qz.substAns x, hprop⟩
+        have hpb : properBranch f = qz.substAns x := by
+          rw [properBranch, dif_pos hex]
+          exact hone _ (Classical.choose_spec hex)
+        rw [apply0_accum_step hans hroot] at hper
+        obtain ⟨h1, h2, h3, h4⟩ :=
+          encode_spec d₃ (f (qz.substAns x)) p (hsub _) hcoh hper
+        rw [encode, hpb]
+        refine ⟨?_, ?_, ?_, ?_⟩
+        · show Query.shift1 (.step ⟨0, h0⟩ qz (qz.substAns x)
+            (encode (f (qz.substAns x)) p)) = p
+          simp only [Query.shift1]
+          exact h1
+        · rw [Tree.at'_step_self]
+          exact h2
+        · exact ⟨Query.qry_substAns qz x, h3⟩
+        · intro s hs
+          rcases List.mem_cons.mp hs with heq | hmem
+          · have hs2 : s = qz.substAns x := by injection heq
+            subst hs2
+            exact substAns_toTree_le qz d₃ t x hans hroot
+          · exact h4 s hmem
+  | .node ⟨j + 1, hj⟩ qt f, p, hacc, hcoh, hper => by
+      cases hacc with
+      | nodeS _ _ hsub =>
+        rw [apply0] at hper
+        cases p with
+        | hole =>
+          exfalso
+          have h := Option.some.inj hper
+          exact absurd h.symm (by simp [Tree.bot])
+        | step i p' r rest =>
+          obtain ⟨g, hg, hrest⟩ := at'_step_inv hper
+          injection hg with hij hqq hgg
+          subst hij
+          have hq2 : qt = p' := eq_of_heq hqq
+          subst hq2
+          have hg2 : (fun r => apply0 (f r) d₃) = g := eq_of_heq hgg
+          subst hg2
+          obtain ⟨hc1, hc2⟩ := hcoh
+          obtain ⟨h1, h2, h3, h4⟩ := encode_spec d₃ (f r) rest (hsub r) hc2 hrest
+          rw [encode, dif_pos rfl]
+          refine ⟨?_, ?_, ?_, ?_⟩
+          · show Query.shift1 (.step ⟨j + 1, hj⟩ qt (Tree.castResp rfl r)
+              (encode (f (Tree.castResp rfl r)) rest)) = _
+            simp only [Query.shift1, Tree.castResp_rfl]
+            rw [h1]
+          · rw [Tree.castResp_rfl, Tree.at'_step_self]
+            exact h2
+          · rw [Tree.castResp_rfl]
+            exact ⟨hc1, h3⟩
+          · intro s hs
+            rw [Tree.castResp_rfl] at hs
+            rcases List.mem_cons.mp hs with heq | hmem
+            · exact absurd (congrArg (fun z => z.1.val) heq) (by simp)
+            · exact h4 s hmem
+end SCombinator
+
+
+section SCombinator
+variable {σ τ ρ : Ty}
+
+/-- The answer determines the answer: two answers with the same tree root are
+equal. -/
+theorem RAns.root_inj {γ : Ty} {x x' : RAns γ}
+    (h : (RAns.toTree x).root = (RAns.toTree x').root) : x = x' := by
+  cases x with
+  | num a =>
+    cases x' with
+    | num b =>
+      have hab : a = b := by simpa [RAns.toTree, Tree.root] using h
+      rw [hab]
+    | node j p => exact absurd h (by simp [RAns.toTree, Tree.root])
+  | node j p =>
+    cases x' with
+    | num b => exact absurd h (by simp [RAns.toTree, Tree.root])
+    | node j' p' =>
+      have hjp : (⟨j, p⟩ : NodeVal γ) = ⟨j', p'⟩ := by
+        simpa [RAns.toTree, Tree.root] using h
+      have h1 : j = j' := congrArg Sigma.fst hjp
+      subst h1
+      have h2 : p = p' := by injection hjp
+      rw [h2]
+
+/-- A join of trees is `⊥` only if both are. -/
+theorem Tree.join_ne_bot_left {γ : Ty} {a b : Tree γ} (ha : a ≠ Tree.bot) :
+    Tree.join a b ≠ Tree.bot := by
+  intro hj
+  cases a with
+  | leaf v =>
+    cases v with
+    | bot => exact ha rfl
+    | err e => cases b <;> simp [Tree.join, Tree.bot] at hj
+    | num n => cases b <;> simp [Tree.join, Tree.bot] at hj
+  | node i q f =>
+    cases b with
+    | leaf v => rw [Tree.join_node_leaf] at hj; exact Tree.noConfusion hj
+    | node j p g =>
+      by_cases h : (⟨i, q⟩ : NodeVal γ) = ⟨j, p⟩
+      · rw [Tree.join] at hj
+        rw [dif_pos h] at hj
+        exact Tree.noConfusion hj
+      · rw [Tree.join] at hj
+        rw [dif_neg h] at hj
+        exact Tree.noConfusion hj
+
+/-- The recorded probes of `z` along a query are answered by `d₃`
+(the traversed branches of the `T`-loop record only what `d₃` says). -/
+def ZConsistent (d₃ : Tree σ) : Query (σ ⇒ τ) → Prop
+  | .hole => True
+  | .step ⟨0, _⟩ qz s rest =>
+      (∃ (x' : RAns σ) (t : Tree σ), s = qz.substAns x' ∧
+        d₃.at' qz = some t ∧ t.root = (RAns.toTree x').root) ∧ ZConsistent d₃ rest
+  | .step ⟨_ + 1, _⟩ _ _ rest => ZConsistent d₃ rest
+
+/-- The shift of a resolved answer about `x`'s second argument. -/
+def shiftAns : RAns (σ ⇒ τ) → RAns τ
+  | .num a => .num a
+  | .node ⟨0, _⟩ _ => .num 0
+  | .node ⟨j + 1, hj⟩ pj => .node ⟨j, Nat.lt_of_succ_lt_succ hj⟩ pj
+
+/-- An answer about argument 2 is **resolved** when it is not a probe of `z`. -/
+def RAns.Resolved : RAns (σ ⇒ τ) → Prop
+  | .num _ => True
+  | .node ⟨0, _⟩ _ => False
+  | .node ⟨_ + 1, _⟩ _ => True
+
+/-- **Recording a resolved response**: joining `q₂[?/x]` into `d₂` extends the
+composite `apply (d₂, d₃)` by exactly the shifted response. -/
+theorem apply0_join_resolved (d₃ : Tree σ) :
+    ∀ (q₂ : Query (σ ⇒ τ)) (d₂ : Tree (σ ⇒ τ)) (x : RAns (σ ⇒ τ)),
+    d₂.at' q₂ = some Tree.bot → ZConsistent d₃ q₂ → x.Resolved →
+    apply0 (Tree.join d₂ (q₂.substAns x).toTree) d₃
+      = Tree.join (apply0 d₂ d₃) ((q₂.shift1.substAns (shiftAns x)).toTree)
+  | .hole, d₂, x, hper, _, hres => by
+      have hd : d₂ = Tree.bot := by
+        have := Option.some.inj hper
+        exact this
+      subst hd
+      rw [show Tree.join (Tree.bot : Tree (σ ⇒ τ)) ((Query.hole.substAns x).toTree)
+        = (Query.hole.substAns x).toTree from Tree.join_bot_left _,
+        show apply0 (Tree.bot : Tree (σ ⇒ τ)) d₃ = Tree.bot from rfl]
+      cases x with
+      | num a =>
+        simp only [Query.substAns, Resp.toTree, Query.shift1, shiftAns]
+        rw [show Tree.join (Tree.bot : Tree τ) (Tree.leaf (Val.num a))
+          = Tree.leaf (Val.num a) from Tree.join_bot_left _]
+        rfl
+      | node j pj =>
+        match j with
+        | ⟨0, h0⟩ => exact absurd hres (by simp [RAns.Resolved])
+        | ⟨j' + 1, hj⟩ =>
+          simp only [Query.substAns, Resp.toTree, Query.shift1, shiftAns]
+          rw [show Tree.join (Tree.bot : Tree τ)
+              (Tree.node ⟨j', Nat.lt_of_succ_lt_succ hj⟩ pj fun _ => Tree.bot)
+            = Tree.node ⟨j', Nat.lt_of_succ_lt_succ hj⟩ pj (fun _ => Tree.bot)
+            from Tree.join_bot_left _, apply0]
+          exact congrArg _ (funext fun _ => rfl)
+  | .step ⟨0, h0⟩ qz s rest, d₂, x, hper, hzc, hres => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv hper
+      simp only [ZConsistent] at hzc
+      obtain ⟨⟨x', t, hs, hans, hroot⟩, hzc'⟩ := hzc
+      subst hs
+      -- the joined node
+      have hjoin : Tree.join (Tree.node ⟨0, h0⟩ qz f)
+          ((Query.step ⟨0, h0⟩ qz (qz.substAns x') rest).substAns x).toTree
+          = Tree.node ⟨0, h0⟩ qz fun s' =>
+              Tree.join (f s') (if s' = qz.substAns x'
+                then (rest.substAns x).toTree else Tree.bot) := by
+        show Tree.join (Tree.node ⟨0, h0⟩ qz f) (Tree.node ⟨0, h0⟩ qz _) = _
+        rw [Tree.join_node_self]
+      rw [hjoin]
+      rw [apply0_accum_step (f := fun s' =>
+            Tree.join (f s') (if s' = qz.substAns x'
+              then (rest.substAns x).toTree else Tree.bot)) hans hroot,
+        apply0_accum_step (f := f) hans hroot]
+      rw [if_pos rfl]
+      have hshift : (Query.step ⟨0, h0⟩ qz (qz.substAns x') rest).shift1 = rest.shift1 := by
+        simp only [Query.shift1]
+      rw [hshift]
+      exact apply0_join_resolved d₃ rest (f (qz.substAns x')) x hrest hzc' hres
+  | .step ⟨j + 1, hj⟩ qt r rest, d₂, x, hper, hzc, hres => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv hper
+      simp only [ZConsistent] at hzc
+      have hzc' : ZConsistent d₃ rest := hzc
+      have hjoin : Tree.join (Tree.node ⟨j + 1, hj⟩ qt f)
+          ((Query.step ⟨j + 1, hj⟩ qt r rest).substAns x).toTree
+          = Tree.node ⟨j + 1, hj⟩ qt fun r' =>
+              Tree.join (f r') (if r' = r then (rest.substAns x).toTree else Tree.bot) := by
+        show Tree.join (Tree.node ⟨j + 1, hj⟩ qt f) (Tree.node ⟨j + 1, hj⟩ qt _) = _
+        rw [Tree.join_node_self]
+      rw [hjoin, apply0, apply0]
+      have hshift : (Query.step ⟨j + 1, hj⟩ qt r rest).shift1
+          = Query.step ⟨j, Nat.lt_of_succ_lt_succ hj⟩ qt r rest.shift1 := by
+        simp only [Query.shift1]
+      rw [hshift]
+      show _ = Tree.join (Tree.node ⟨j, _⟩ qt fun r' => apply0 (f r') d₃)
+        (Tree.node ⟨j, _⟩ qt fun r' => if r' = r
+          then ((rest.shift1).substAns (shiftAns x)).toTree else Tree.bot)
+      rw [Tree.join_node_self]
+      refine congrArg _ (funext fun r' => ?_)
+      by_cases hr : r' = r
+      · subst hr
+        rw [if_pos rfl, if_pos rfl]
+        exact apply0_join_resolved d₃ rest (f r') x hrest hzc' hres
+      · rw [if_neg hr, if_neg hr, Tree.join_bot_right, Tree.join_bot_right]
+
+/-- Joining a resolved response into well-formed accumulated knowledge keeps it
+well-formed. -/
+theorem Accum_join_resolved (d₃ : Tree σ) :
+    ∀ (q₂ : Query (σ ⇒ τ)) (d₂ : Tree (σ ⇒ τ)) (x : RAns (σ ⇒ τ)),
+    Accum d₃ d₂ → d₂.at' q₂ = some Tree.bot → ZConsistent d₃ q₂ → x.Resolved →
+    Accum d₃ (Tree.join d₂ (q₂.substAns x).toTree)
+  | .hole, d₂, x, hacc, hper, _, hres => by
+      have hd : d₂ = Tree.bot := Option.some.inj hper
+      subst hd
+      rw [show Tree.join (Tree.bot : Tree (σ ⇒ τ)) ((Query.hole.substAns x).toTree)
+        = (Query.hole.substAns x).toTree from Tree.join_bot_left _]
+      cases x with
+      | num a => exact Accum.leaf _
+      | node j pj =>
+        match j with
+        | ⟨0, h0⟩ => exact absurd hres (by simp [RAns.Resolved])
+        | ⟨j' + 1, hj⟩ =>
+          exact Accum.nodeS pj _ fun _ => Accum.leaf _
+  | .step ⟨0, h0⟩ qz s rest, d₂, x, hacc, hper, hzc, hres => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv hper
+      simp only [ZConsistent] at hzc
+      obtain ⟨⟨x', t, hs, hans, hroot⟩, hzc'⟩ := hzc
+      subst hs
+      cases hacc with
+      | node0 _ _ x₀ t₀ hans₀ hroot₀ hone hprop hsub =>
+        -- the recorded answer and the invariant's agree
+        have ht : t = t₀ := by rw [hans] at hans₀; exact Option.some.inj hans₀
+        subst ht
+        have hx : x' = x₀ := RAns.root_inj (by rw [← hroot, ← hroot₀])
+        subst hx
+        have hjoin : Tree.join (Tree.node ⟨0, h0⟩ qz f)
+            ((Query.step ⟨0, h0⟩ qz (qz.substAns x') rest).substAns x).toTree
+            = Tree.node ⟨0, h0⟩ qz fun s' =>
+                Tree.join (f s') (if s' = qz.substAns x'
+                  then (rest.substAns x).toTree else Tree.bot) := by
+          show Tree.join (Tree.node ⟨0, h0⟩ qz f) (Tree.node ⟨0, h0⟩ qz _) = _
+          rw [Tree.join_node_self]
+        rw [hjoin]
+        refine Accum.node0 qz _ x' t hans hroot (fun s' hs' => ?_)
+          (Tree.join_ne_bot_left hprop) (fun s' => ?_)
+        · by_cases hs2 : s' = qz.substAns x'
+          · exact hs2
+          · rw [if_neg hs2, Tree.join_bot_right] at hs'
+            exact hone s' hs'
+        · by_cases hs2 : s' = qz.substAns x'
+          · subst hs2
+            rw [if_pos rfl]
+            exact Accum_join_resolved d₃ rest (f (qz.substAns x')) x
+              (hsub (qz.substAns x')) hrest hzc' hres
+          · rw [if_neg hs2, Tree.join_bot_right]
+            exact hsub s'
+  | .step ⟨j + 1, hj⟩ qt r rest, d₂, x, hacc, hper, hzc, hres => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv hper
+      simp only [ZConsistent] at hzc
+      have hzc' : ZConsistent d₃ rest := hzc
+      cases hacc with
+      | nodeS _ _ hsub =>
+        have hjoin : Tree.join (Tree.node ⟨j + 1, hj⟩ qt f)
+            ((Query.step ⟨j + 1, hj⟩ qt r rest).substAns x).toTree
+            = Tree.node ⟨j + 1, hj⟩ qt fun r' =>
+                Tree.join (f r') (if r' = r then (rest.substAns x).toTree else Tree.bot) := by
+          show Tree.join (Tree.node ⟨j + 1, hj⟩ qt f) (Tree.node ⟨j + 1, hj⟩ qt _) = _
+          rw [Tree.join_node_self]
+        rw [hjoin]
+        refine Accum.nodeS qt _ fun r' => ?_
+        by_cases hr : r' = r
+        · subst hr
+          rw [if_pos rfl]
+          exact Accum_join_resolved d₃ rest (f r') x (hsub r') hrest hzc' hres
+        · rw [if_neg hr, Tree.join_bot_right]
+          exact hsub r'
+end SCombinator
+
 
 section SCombinator
 variable {σ τ ρ : Ty}
