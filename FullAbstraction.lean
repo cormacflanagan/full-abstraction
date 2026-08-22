@@ -20,5 +20,6 @@ import FullAbstraction.Apply
 import FullAbstraction.Combinators
 import FullAbstraction.SPCFSemantics
 import FullAbstraction.Control
+import FullAbstraction.Definability
 import FullAbstraction.FullAbs
 import FullAbstraction.Sequentiality
