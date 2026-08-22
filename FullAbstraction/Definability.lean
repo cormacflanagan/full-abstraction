@@ -1171,9 +1171,15 @@ theorem applyFront_plant : ∀ (m : Nat) {σ : Ty} (P : Query σ)
         ⟨apply0 x (vs 0), at'_apply0_padQ (Query.padQN m P) t (vs 0) x hx⟩
 
 /-- A probe of one of the `m` leading ground arguments. -/
-noncomputable def probeT (m : Nat) (σ : Ty) (l : Nat) (hl : l < m) :
-    Tree (Ty.pads m σ) :=
-  Tree.node ⟨l, by rw [Ty.arity_pads]; omega⟩ Query.hole (fun _ => Tree.bot)
+noncomputable def probeT (m : Nat) (σ : Ty) (l : Nat) : Tree (Ty.pads m σ) :=
+  if h : l < (Ty.pads m σ).arity then
+    Tree.node ⟨l, h⟩ Query.hole (fun _ => Tree.bot)
+  else Tree.bot
+
+theorem probeT_lt (m : Nat) (σ : Ty) (l : Nat) (hl : l < m) :
+    probeT m σ l = Tree.node ⟨l, by rw [Ty.arity_pads]; omega⟩ Query.hole
+      (fun _ => Tree.bot) := by
+  rw [probeT, dif_pos]
 
 /-- What a probe reports about a flat value. -/
 def probeVal (σ : Ty) : Val → Tree σ
@@ -1197,30 +1203,30 @@ theorem Tree.padN_probeVal (m : Nat) (σ : Ty) (w : Val) :
 the probed argument carries. -/
 theorem applyFront_probeT : ∀ (m : Nat) (σ : Ty) (l : Nat) (hl : l < m)
     (vs : Nat → Tree 𝕆) (w : Val), vs l = Tree.leaf w →
-    applyFront m (probeT m σ l hl) vs = probeVal σ w
+    applyFront m (probeT m σ l) vs = probeVal σ w
   | 0, _, _, hl, _, _, _ => absurd hl (Nat.not_lt_zero _)
   | m + 1, σ, 0, hl, vs, w, hw => by
-      show applyFront m (apply0 (probeT (m + 1) σ 0 hl) (vs 0)) _ = _
-      have hcomp : apply0 (probeT (m + 1) σ 0 hl) (vs 0)
+      show applyFront m (apply0 (probeT (m + 1) σ 0) (vs 0)) _ = _
+      have hcomp : apply0 (probeT (m + 1) σ 0) (vs 0)
           = Tree.padN m (probeVal σ w) := by
-        rw [Tree.padN_probeVal, probeT, hw, apply0]
+        rw [Tree.padN_probeVal, probeT_lt (m + 1) σ 0 hl, hw, apply0]
         simp only [Tree.at'_hole]
         cases w <;> rfl
       rw [hcomp, applyFront_padN]
   | m + 1, σ, l + 1, hl, vs, w, hw => by
-      show applyFront m (apply0 (probeT (m + 1) σ (l + 1) hl) (vs 0)) _ = _
+      show applyFront m (apply0 (probeT (m + 1) σ (l + 1)) (vs 0)) _ = _
       have hlm : l < m := Nat.lt_of_succ_lt_succ hl
-      have hcomp : apply0 (probeT (m + 1) σ (l + 1) hl) (vs 0)
-          = probeT m σ l hlm := by
-        rw [probeT, apply0, probeT]
+      have hcomp : apply0 (probeT (m + 1) σ (l + 1)) (vs 0)
+          = probeT m σ l := by
+        rw [probeT_lt (m + 1) σ (l + 1) hl, apply0, probeT_lt m σ l hlm]
         rfl
       rw [hcomp]
       exact applyFront_probeT m σ l hlm (fun k => vs (k + 1)) w hw
 
 /-- A probe is a legal tree in the empty context. -/
 theorem TreeOk_probeT (m : Nat) (σ : Ty) (l : Nat) (hl : l < m) :
-    TreeOk (Ctx.empty : Ctx (Ty.pads m σ)) (probeT m σ l hl) := by
-  rw [probeT]
+    TreeOk (Ctx.empty : Ctx (Ty.pads m σ)) (probeT m σ l) := by
+  rw [probeT_lt m σ l hl]
   exact TreeOk.node _ _ _ _ LegalQuery.root ⟨[], fun r hr => absurd rfl hr⟩
     (fun r _ => TreeOk.leaf _ _) (fun r _ => rfl)
 
@@ -1301,22 +1307,22 @@ theorem Query.padQN_inj : ∀ (m : Nat) {σ : Ty} {P P' : Query σ},
 /-- The grafted tree: probes of the new ground arguments, planted at perimeter
 positions of a padded tree. -/
 noncomputable def graftT (m : Nat) {σ : Ty} (base : Tree σ) :
-    List (Fin m × Query σ) → Tree (Ty.pads m σ)
+    List (Nat × Query σ) → Tree (Ty.pads m σ)
   | [] => Tree.padN m base
   | p :: ps => plant (Query.padQN m p.2) (graftT m base ps)
-      (probeT m σ p.1.val p.1.isLt)
+      (probeT m σ p.1)
 
 /-- The positions of a graft: perimeter positions of the base, pairwise
 distinct. -/
-def GoodPositions {σ : Ty} {m : Nat} (base : Tree σ)
-    (ps : List (Fin m × Query σ)) : Prop :=
+def GoodPositions {σ : Ty} (base : Tree σ)
+    (ps : List (Nat × Query σ)) : Prop :=
   (∀ p ∈ ps, base.at' p.2 = some Tree.bot) ∧
-    List.Pairwise (fun p q : Fin m × Query σ => p.2 ≠ q.2) ps
+    List.Pairwise (fun p q : Nat × Query σ => p.2 ≠ q.2) ps
 
 /-- A position of the base that no probe occupies is still a perimeter position
 of the graft. -/
 theorem at'_graftT_bot : ∀ (m : Nat) {σ : Ty} (base : Tree σ)
-    (ps : List (Fin m × Query σ)), GoodPositions base ps →
+    (ps : List (Nat × Query σ)), GoodPositions base ps →
     ∀ P : Query σ, base.at' P = some Tree.bot → (∀ p ∈ ps, p.2 ≠ P) →
     (graftT m base ps).at' (Query.padQN m P) = some Tree.bot
   | m, σ, base, [], _, P, hP, _ => by
@@ -1335,14 +1341,14 @@ theorem at'_graftT_bot : ∀ (m : Nat) {σ : Ty} (base : Tree σ)
         (hall p (List.mem_cons_self ..))
         (fun q hq => Ne.symm (hhead q hq))
       show (plant (Query.padQN m p.2) (graftT m base ps)
-        (probeT m σ p.1.val p.1.isLt)).at' (Query.padQN m P) = _
+        (probeT m σ p.1)).at' (Query.padQN m P) = _
       exact at'_plant_other (Query.padQN m p.2) _ _ (Query.padQN m P)
         hhead2 hrec (fun hc => hnotin p (List.mem_cons_self ..)
           (Query.padQN_inj m hc))
 
 /-- The graft only grows the padded base. -/
 theorem le_graftT : ∀ (m : Nat) {σ : Ty} (base : Tree σ)
-    (ps : List (Fin m × Query σ)), GoodPositions base ps →
+    (ps : List (Nat × Query σ)), GoodPositions base ps →
     Tree.Le (Tree.padN m base) (graftT m base ps)
   | m, σ, base, [], _ => Tree.Le.refl _
   | m, σ, base, p :: ps, ⟨hall, hpair⟩ => by
@@ -1356,9 +1362,9 @@ theorem le_graftT : ∀ (m : Nat) {σ : Ty} (base : Tree σ)
 
 /-- Each probe sits at its position in the graft. -/
 theorem at'_graftT_probe : ∀ (m : Nat) {σ : Ty} (base : Tree σ)
-    (ps : List (Fin m × Query σ)), GoodPositions base ps →
+    (ps : List (Nat × Query σ)), GoodPositions base ps →
     ∀ p ∈ ps, (graftT m base ps).at' (Query.padQN m p.2)
-      = some (probeT m σ p.1.val p.1.isLt)
+      = some (probeT m σ p.1)
   | m, σ, base, [], _, p, hp => absurd hp (by simp)
   | m, σ, base, q :: ps, ⟨hall, hpair⟩, p, hp => by
       obtain ⟨hhead, htail⟩ := List.pairwise_cons.mp hpair
@@ -1367,7 +1373,7 @@ theorem at'_graftT_probe : ∀ (m : Nat) {σ : Ty} (base : Tree σ)
       have hqbot := at'_graftT_bot m base ps hgood q.2
         (hall q (List.mem_cons_self ..)) (fun r hr => Ne.symm (hhead r hr))
       show (plant (Query.padQN m q.2) (graftT m base ps)
-        (probeT m σ q.1.val q.1.isLt)).at' (Query.padQN m p.2) = _
+        (probeT m σ q.1)).at' (Query.padQN m p.2) = _
       rcases List.mem_cons.mp hp with rfl | htl
       · rw [at'_plant_self (Query.padQN m p.2) _ _ ⟨Tree.bot, hqbot⟩]
       · have hne : q.2 ≠ p.2 := hhead p htl
@@ -1387,7 +1393,7 @@ theorem at'_graftT_probe : ∀ (m : Nat) {σ : Ty} (base : Tree σ)
 the graft gives a tree above the base which reports, at each probe position,
 the flat value of the probed argument. -/
 theorem applyFront_graftT_le (m : Nat) {σ : Ty} (base : Tree σ)
-    (ps : List (Fin m × Query σ)) (hgood : GoodPositions base ps)
+    (ps : List (Nat × Query σ)) (hgood : GoodPositions base ps)
     (vs : Nat → Tree 𝕆) :
     Tree.Le base (applyFront m (graftT m base ps) vs) := by
   have h := applyFront_mono m (t := Tree.padN m base)
@@ -1395,14 +1401,14 @@ theorem applyFront_graftT_le (m : Nat) {σ : Ty} (base : Tree σ)
   rwa [applyFront_padN] at h
 
 theorem applyFront_graftT_probe (m : Nat) {σ : Ty} (base : Tree σ)
-    (ps : List (Fin m × Query σ)) (hgood : GoodPositions base ps)
+    (ps : List (Nat × Query σ)) (hgood : GoodPositions base ps)
     (vs : Nat → Tree 𝕆) (ws : Nat → Val) (hvs : ∀ k, vs k = Tree.leaf (ws k))
-    (p : Fin m × Query σ) (hp : p ∈ ps) :
+    (p : Nat × Query σ) (hp : p ∈ ps) (hlt : p.1 < m) :
     (applyFront m (graftT m base ps) vs).at' p.2
-      = some (probeVal σ (ws p.1.val)) := by
+      = some (probeVal σ (ws p.1)) := by
   rw [at'_applyFront m p.2 (graftT m base ps) vs _
     (at'_graftT_probe m base ps hgood p hp)]
-  rw [applyFront_probeT m σ p.1.val p.1.isLt vs (ws p.1.val) (hvs _)]
+  rw [applyFront_probeT m σ p.1 hlt vs (ws p.1) (hvs _)]
 
 /-! ## Legality of the graft -/
 
@@ -1461,10 +1467,10 @@ theorem ctxFrom_padQN : ∀ (m : Nat) {σ : Ty} (P : Query σ) (γ : Ctx σ),
 theorem TreeOk_probeT_ctx (m : Nat) (σ : Ty) (l : Nat) (hl : l < m)
     (P : Query σ) :
     TreeOk ((Query.padQN m P).ctxFrom (Ctx.empty : Ctx (Ty.pads m σ)))
-      (probeT m σ l hl) := by
+      (probeT m σ l) := by
   rw [show (Ctx.empty : Ctx (Ty.pads m σ)) = Ctx.padCN m (Ctx.empty : Ctx σ)
     from (Ctx.padCN_empty m σ).symm, ctxFrom_padQN m P Ctx.empty]
-  rw [probeT]
+  rw [probeT_lt m σ l hl]
   refine TreeOk.node _ _ _ _ ?_ ⟨[], fun r hr => absurd rfl hr⟩
     (fun r _ => TreeOk.leaf _ _) (fun r _ => rfl)
   rw [Ctx.padCN_lt m _ l hl]
@@ -1472,27 +1478,29 @@ theorem TreeOk_probeT_ctx (m : Nat) (σ : Ty) (l : Nat) (hl : l < m)
 
 /-- The graft of legal probes into a legal padded base is legal. -/
 theorem TreeOk_graftT : ∀ (m : Nat) {σ : Ty} (base : Tree σ)
-    (ps : List (Fin m × Query σ)), GoodPositions base ps →
-    (∀ p ∈ ps, QueryOk σ p.2) → TreeOk (Ctx.empty : Ctx σ) base →
+    (ps : List (Nat × Query σ)), GoodPositions base ps →
+    (∀ p ∈ ps, QueryOk σ p.2) → (∀ p ∈ ps, p.1 < m) →
+    TreeOk (Ctx.empty : Ctx σ) base →
     TreeOk (Ctx.empty : Ctx (Ty.pads m σ)) (graftT m base ps)
-  | m, σ, base, [], _, _, hbase => by
+  | m, σ, base, [], _, _, _, hbase => by
       show TreeOk _ (Tree.padN m base)
       rw [show (Ctx.empty : Ctx (Ty.pads m σ)) = Ctx.padCN m (Ctx.empty : Ctx σ)
         from (Ctx.padCN_empty m σ).symm]
       exact TreeOk_padN m hbase
-  | m, σ, base, p :: ps, ⟨hall, hpair⟩, hqok, hbase => by
+  | m, σ, base, p :: ps, ⟨hall, hpair⟩, hqok, hlt, hbase => by
       obtain ⟨hhead, htail⟩ := List.pairwise_cons.mp hpair
       have hgood : GoodPositions base ps :=
         ⟨fun q hq => hall q (List.mem_cons_of_mem _ hq), htail⟩
       show TreeOk _ (plant (Query.padQN m p.2) (graftT m base ps)
-        (probeT m σ p.1.val p.1.isLt))
+        (probeT m σ p.1))
       refine TreeOk_plant (Query.padQN m p.2) Ctx.empty _ _
         (TreeOk_graftT m base ps hgood
-          (fun q hq => hqok q (List.mem_cons_of_mem _ hq)) hbase)
+          (fun q hq => hqok q (List.mem_cons_of_mem _ hq))
+          (fun q hq => hlt q (List.mem_cons_of_mem _ hq)) hbase)
         (at'_graftT_bot m base ps hgood p.2 (hall p (List.mem_cons_self ..))
           (fun q hq => Ne.symm (hhead q hq)))
         (QueryOk_padQN m p.2 (hqok p (List.mem_cons_self ..)))
-        (TreeOk_probeT_ctx m σ p.1.val p.1.isLt p.2)
+        (TreeOk_probeT_ctx m σ p.1 (hlt p (List.mem_cons_self ..)) p.2)
 
 /-- Adding ground arguments costs at most one level of depth. -/
 theorem Ty.depth_pads : ∀ (m : Nat) (σ : Ty),
@@ -1941,5 +1949,114 @@ theorem cascade_num_hit (Env : Tmodel.Env) (W : Term SPCF)
       rw [subIterVal_num_le c u (by omega), applyT_if0_chain' (u - c) _ _,
         if_neg (by omega)]
       exact ih (fun p hp => harms p (List.mem_cons_of_mem _ hp)) htail htl
+
+/-- `apply` is determined by its values on *finite* arguments: this is the
+continuity of `apply` in its second argument (Definition 4.9). -/
+theorem applyT_eq_of_principal {σ τ : Ty} (F G : T (σ ⇒ τ))
+    (h : ∀ d : D σ, applyT F (Ideal.principal d) = applyT G (Ideal.principal d)) :
+    ∀ E : T σ, applyT F E = applyT G E := by
+  intro E
+  apply Ideal.ext
+  intro c
+  have key : ∀ (F' G' : T (σ ⇒ τ)),
+      (∀ d : D σ, applyT F' (Ideal.principal d) = applyT G' (Ideal.principal d)) →
+      c ∈ applyT F' E → c ∈ applyT G' E := by
+    rintro F' G' hFG ⟨f, hf, d, hd, hc⟩
+    have hdd : d ∈ Ideal.principal d := Po.le_refl d
+    have hmem : c ∈ applyT F' (Ideal.principal d) := ⟨f, hf, d, hdd, hc⟩
+    rw [hFG d] at hmem
+    obtain ⟨g, hg, d', hd', hc'⟩ := hmem
+    exact ⟨g, hg, d, hd, Po.le_trans hc' (apply0_mono_right g.1 hd')⟩
+  exact ⟨key F G h, key G F fun d => (h d).symm⟩
+
+/-- Two elements of `T_σ` that apply alike to all tuples of *finite* arguments
+are equal.  The induction is on `σ`: extensionality (Theorem 4.11) reduces
+equality at `σ → τ` to equality of the applications, continuity reduces those to
+finite arguments, and the induction hypothesis at `τ` consumes the remaining
+arguments. -/
+theorem eq_of_principal_applyIdeals : ∀ (σ : Ty) (F G : T σ),
+    (∀ ds : (i : Fin σ.arity) → D (σ.arg i),
+      applyIdeals σ F (fun i => Ideal.principal (ds i))
+        = applyIdeals σ G (fun i => Ideal.principal (ds i))) → F = G
+  | .base, F, G, h => h fun i => absurd i.isLt (by simp)
+  | .arrow a τ, F, G, h => by
+      refine theorem_4_11.2 a τ F G fun x => ?_
+      refine applyT_eq_of_principal F G (fun d => ?_) x
+      refine eq_of_principal_applyIdeals τ (applyT F (Ideal.principal d))
+        (applyT G (Ideal.principal d)) fun es => ?_
+      exact h fun i =>
+        match i with
+        | ⟨0, _⟩ => d
+        | ⟨j + 1, hj⟩ => es ⟨j, Nat.lt_of_succ_lt_succ hj⟩
+
+
+/-! ## Bridging lemmas for the representability construction -/
+
+/-- **Every path with legal responses into a legal tree is legal.**  The
+strengthening of `legalPath_of_TreeOk` that Definition 4.2's `QueryOk` makes
+available: it is the recorded responses, not the subtree reached, that decide
+legality. -/
+theorem legalIn_of_TreeOk {σ : Ty} : ∀ (q : Query σ) (γ : Ctx σ) (d e : Tree σ),
+    TreeOk γ d → d.at' q = some e → QueryOk σ q → q.LegalIn γ
+  | .hole, _, _, _, _, _, _ => trivial
+  | .step i p r rest, γ, d, e, hd, hq, hok => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv hq
+      obtain ⟨hp, _, hsub, _⟩ := TreeOk_node_inv hd
+      obtain ⟨hr, hokr⟩ := (QueryOk_step i p r rest).mp hok
+      exact ⟨hp, hr,
+        legalIn_of_TreeOk rest (γ.cons i r) (f r) e (hsub r hr) hrest hokr⟩
+
+/-- Being above what a context records is preserved by growing the tree. -/
+theorem RespCtx.Above.mono {σ : Ty} {γ : RespCtx σ} {i : Fin σ.arity}
+    {d d' : Tree (σ.arg i)} (h : RespCtx.Above γ i d) (hle : Tree.Le d d') :
+    RespCtx.Above γ i d' :=
+  fun r hr => Tree.Le.trans (h r hr) hle
+
+/-- A legal context knows only legal closed trees about its arguments. -/
+theorem CtxOk.treeOk {σ : Ty} : ∀ {γ : Ctx σ}, CtxOk γ →
+    ∀ i, TreeOk (Ctx.empty : Ctx (σ.arg i)) (γ i)
+  | _, .empty, _ => TreeOk.leaf _ _
+  | _, @CtxOk.cons _ γ i q r hγ hq hr, j => by
+      by_cases hij : i = j
+      · subst hij
+        rw [Ctx.cons_self]
+        obtain ⟨x, rfl, hx⟩ := hr
+        refine TreeOk_join_resp _ Ctx.empty (γ i) (CtxOk.treeOk hγ i) ?_ ?_ ?_
+        · rw [Query.qry_substAns]; exact hq.1
+        · rw [Query.qry_substAns]; exact hq.2
+        · rw [Query.qry_substAns, Query.ansOf_substAns]; exact hx
+      · rw [Ctx.cons_other _ _ hij]; exact CtxOk.treeOk hγ j
+
+/-- The context a legal path determines is legal. -/
+theorem CtxOk.ctxFrom {σ : Ty} : ∀ (q : Query σ) (γ : Ctx σ), CtxOk γ →
+    q.LegalIn γ → CtxOk (q.ctxFrom γ)
+  | .hole, γ, h, _ => h
+  | .step i p r rest, γ, h, ⟨hp, hr, hrest⟩ =>
+      CtxOk.ctxFrom rest (γ.cons i r) (CtxOk.cons h hp hr) hrest
+
+/-- The context determined by a legal query inside a legal tree is legal. -/
+theorem CtxOk.ofQuery {σ : Ty} {γ : Ctx σ} (hγ : CtxOk γ) {q : Query σ}
+    {d e : Tree σ} (hd : TreeOk γ d) (hq : d.at' q = some e) (hok : QueryOk σ q) :
+    CtxOk (q.ctxFrom γ) :=
+  CtxOk.ctxFrom q γ hγ (legalIn_of_TreeOk q γ d e hd hq hok)
+
+/-- Every response a legal query records is below the tree it determines. -/
+theorem above_ctx_of_TreeOk {σ : Ty} {γ : Ctx σ} {q : Query σ} {d e : Tree σ}
+    (hd : TreeOk γ d) (hq : d.at' q = some e) (hok : QueryOk σ q)
+    (i : Fin σ.arity) : RespCtx.Above q.ctxList i ((q.ctxFrom γ) i) :=
+  Ctx.above_ctxFrom q γ (legalIn_of_TreeOk q γ d e hd hq hok) i
+
+/-- A representable closed tree is the meaning of a closed expression: the
+"reduces to tree representability by extensionality" remark of
+Definition 5.3. -/
+theorem meaning_of_representable (σ : Ty) (t : Tree σ)
+    (hok : TreeOk (Ctx.empty : Ctx σ) t) (hrep : Representable σ Ctx.empty t) :
+    ∃ M : Term SPCF, Term.Closed M ∧ Term.HasTy [] M σ ∧
+      Tmodel.meaning botEnv M σ = Ideal.principal ⟨t, hok⟩ := by
+  obtain ⟨M, hcl, hty, happ⟩ := hrep
+  refine ⟨M, hcl, hty, ?_⟩
+  refine eq_of_principal_applyIdeals σ _ _ fun ds => ?_
+  rw [happ ds (fun i => Tree.Le.bot _),
+    applyIdeals_principal σ ⟨t, hok⟩ ds]
 
 end FA
