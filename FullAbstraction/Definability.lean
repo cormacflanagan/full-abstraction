@@ -2206,4 +2206,143 @@ theorem meaning_appsFrom : ∀ (m : Nat) {σ : Ty} (M : Term SPCF) (b : Nat)
       · have h := hEnv (k + 1)
         rwa [show b + (k + 1) = b + 1 + k from by omega] at h
 
+/-! ## Numbering a finite set of responses
+
+The construction of §5 numbers the query responses below the root of `e`: the
+`j`-th response is the one whose probe `catch` reports as `j`. -/
+
+/-- Pair each element of a list with its position, counting from `n₀`. -/
+def enumFrom' {α : Type} : Nat → List α → List (Nat × α)
+  | _, [] => []
+  | n, a :: l => (n, a) :: enumFrom' (n + 1) l
+
+theorem enumFrom'_length {α : Type} : ∀ (n : Nat) (l : List α),
+    (enumFrom' n l).length = l.length
+  | _, [] => rfl
+  | n, a :: l => by
+      show (enumFrom' (n + 1) l).length + 1 = l.length + 1
+      rw [enumFrom'_length (n + 1) l]
+
+theorem mem_enumFrom' {α : Type} : ∀ (n : Nat) (l : List α) (a : α), a ∈ l →
+    ∃ k, (n + k, a) ∈ enumFrom' n l ∧ k < l.length
+  | _, [], _, h => absurd h (fun hc => List.not_mem_nil hc)
+  | n, b :: l, a, h => by
+      rcases List.mem_cons.mp h with rfl | htl
+      · exact ⟨0, by rw [Nat.add_zero]; exact List.mem_cons_self .., Nat.succ_pos _⟩
+      · obtain ⟨k, hk, hlt⟩ := mem_enumFrom' (n + 1) l a htl
+        refine ⟨k + 1, ?_, Nat.succ_lt_succ hlt⟩
+        rw [show n + (k + 1) = n + 1 + k from by omega]
+        exact List.mem_cons_of_mem _ hk
+
+theorem enumFrom'_mem_snd {α : Type} : ∀ (n : Nat) (l : List α) (p : Nat × α),
+    p ∈ enumFrom' n l → p.2 ∈ l
+  | _, [], _, h => absurd h (fun hc => List.not_mem_nil hc)
+  | n, b :: l, p, h => by
+      rcases List.mem_cons.mp h with rfl | htl
+      · exact List.mem_cons_self ..
+      · exact List.mem_cons_of_mem _ (enumFrom'_mem_snd (n + 1) l p htl)
+
+theorem enumFrom'_lt {α : Type} : ∀ (n : Nat) (l : List α) (p : Nat × α),
+    p ∈ enumFrom' n l → p.1 < n + l.length
+  | _, [], _, h => absurd h (fun hc => List.not_mem_nil hc)
+  | n, b :: l, p, h => by
+      rcases List.mem_cons.mp h with rfl | htl
+      · show n < n + (l.length + 1)
+        omega
+      · have h2 := enumFrom'_lt (n + 1) l p htl
+        show p.1 < n + (l.length + 1)
+        omega
+
+theorem enumFrom'_ge {α : Type} : ∀ (n : Nat) (l : List α) (p : Nat × α),
+    p ∈ enumFrom' n l → n ≤ p.1
+  | _, [], _, h => absurd h (fun hc => List.not_mem_nil hc)
+  | n, b :: l, p, h => by
+      rcases List.mem_cons.mp h with rfl | htl
+      · exact Nat.le_refl _
+      · exact Nat.le_of_succ_le (enumFrom'_ge (n + 1) l p htl)
+
+theorem enumFrom'_pairwise_lt {α : Type} : ∀ (n : Nat) (l : List α),
+    List.Pairwise (fun p q : Nat × α => p.1 < q.1) (enumFrom' n l)
+  | _, [] => List.Pairwise.nil
+  | n, a :: l => by
+      refine List.pairwise_cons.mpr ⟨fun q hq => ?_, enumFrom'_pairwise_lt (n + 1) l⟩
+      exact Nat.lt_of_lt_of_le (Nat.lt_succ_self n) (enumFrom'_ge (n + 1) l q hq)
+
+/-- Two entries of an enumeration with the same index are the same entry. -/
+theorem enumFrom'_fst_inj {α : Type} : ∀ (n : Nat) (l : List α) (p q : Nat × α),
+    p ∈ enumFrom' n l → q ∈ enumFrom' n l → p.1 = q.1 → p.2 = q.2
+  | _, [], _, _, h, _, _ => absurd h (fun hc => List.not_mem_nil hc)
+  | n, a :: l, p, q, hp, hq, heq => by
+      rcases List.mem_cons.mp hp with rfl | hp'
+      · rcases List.mem_cons.mp hq with rfl | hq'
+        · rfl
+        · exact absurd (heq ▸ enumFrom'_ge (n + 1) l q hq') (by omega)
+      · rcases List.mem_cons.mp hq with rfl | hq'
+        · exact absurd (heq ▸ enumFrom'_ge (n + 1) l p hp') (by omega)
+        · exact enumFrom'_fst_inj (n + 1) l p q hp' hq' heq
+
+/-- Removing duplicates from a list. -/
+noncomputable def dedupL {α : Type} : List α → List α
+  | [] => []
+  | a :: l =>
+      if _ : (Classical.propDecidable (a ∈ dedupL l)).decide = true then dedupL l
+      else a :: dedupL l
+
+theorem dedupL_cons_pos {α : Type} (b : α) (l : List α) (h : b ∈ dedupL l) :
+    dedupL (b :: l) = dedupL l := by
+  show (if _ : (Classical.propDecidable (b ∈ dedupL l)).decide = true then _
+    else _) = _
+  rw [dif_pos (by simpa using h)]
+
+theorem dedupL_cons_neg {α : Type} (b : α) (l : List α) (h : ¬ b ∈ dedupL l) :
+    dedupL (b :: l) = b :: dedupL l := by
+  show (if _ : (Classical.propDecidable (b ∈ dedupL l)).decide = true then _
+    else _) = _
+  rw [dif_neg (by simpa using h)]
+
+theorem mem_dedupL {α : Type} : ∀ (l : List α) (a : α), a ∈ dedupL l ↔ a ∈ l
+  | [], a => Iff.rfl
+  | b :: l, a => by
+      by_cases hb : b ∈ dedupL l
+      · rw [dedupL_cons_pos b l hb]
+        constructor
+        · intro h; exact List.mem_cons_of_mem _ ((mem_dedupL l a).mp h)
+        · intro h
+          rcases List.mem_cons.mp h with rfl | htl
+          · exact hb
+          · exact (mem_dedupL l a).mpr htl
+      · rw [dedupL_cons_neg b l hb]
+        constructor
+        · intro h
+          rcases List.mem_cons.mp h with rfl | htl
+          · exact List.mem_cons_self ..
+          · exact List.mem_cons_of_mem _ ((mem_dedupL l a).mp htl)
+        · intro h
+          rcases List.mem_cons.mp h with rfl | htl
+          · exact List.mem_cons_self ..
+          · exact List.mem_cons_of_mem _ ((mem_dedupL l a).mpr htl)
+
+theorem dedupL_pairwise {α : Type} : ∀ (l : List α),
+    List.Pairwise (fun a b : α => a ≠ b) (dedupL l)
+  | [] => List.Pairwise.nil
+  | b :: l => by
+      by_cases hb : b ∈ dedupL l
+      · rw [dedupL_cons_pos b l hb]
+        exact dedupL_pairwise l
+      · rw [dedupL_cons_neg b l hb]
+        exact List.pairwise_cons.mpr
+          ⟨fun a ha hc => hb (hc ▸ ha), dedupL_pairwise l⟩
+
+/-- The largest element of a list of naturals (or `0`). -/
+def maxOfL : List Nat → Nat
+  | [] => 0
+  | a :: l => max a (maxOfL l)
+
+theorem le_maxOfL : ∀ (l : List Nat) (a : Nat), a ∈ l → a ≤ maxOfL l
+  | [], _, h => absurd h (fun hc => List.not_mem_nil hc)
+  | b :: l, a, h => by
+      rcases List.mem_cons.mp h with rfl | htl
+      · exact Nat.le_max_left _ _
+      · exact Nat.le_trans (le_maxOfL l a htl) (Nat.le_max_right _ _)
+
 end FA
