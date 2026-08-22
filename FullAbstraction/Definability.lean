@@ -2780,4 +2780,127 @@ theorem psForArg_queryOk {α : Ty} (q : Query α) (rs : List (Resp α))
   rw [ansOf_of_posOf h r np.2 hpos] at hok
   exact hok.2
 
+/-! ## The argument expressions `Bₕ` and what they denote -/
+
+/-- The meaning of a closed expression does not depend on the environment. -/
+theorem meaning_closed (M : Term SPCF) (hcl : Term.Closed M) (ρ : Ty)
+    (E E' : Tmodel.Env) : Tmodel.meaning E M ρ = Tmodel.meaning E' M ρ :=
+  Model.combMeaning_congr_env E E' _ ρ fun z ν hz =>
+    absurd (Term.FV_toComb M (z, ν) hz) (hcl (z, ν))
+
+/-- The tree `e_h` of §5: the tree context `q̂(h)`, padded with the response
+arguments and grafted with a probe at each position a response asks about. -/
+noncomputable def graftFor {α : Ty} (q : Query α) (rs : List (Resp α))
+    (h : Fin α.arity) : Tree (Ty.pads rs.length (α.arg h)) :=
+  graftT rs.length (q.ctx h) (psForArg rs h)
+
+theorem graftFor_ok {α : Ty} (q : Query α) (rs : List (Resp α))
+    (hlegal : ∀ r ∈ rs, LegalResp q r)
+    (hnd : List.Pairwise (fun a b : Resp α => a ≠ b) rs)
+    (h : Fin α.arity) (hctx : TreeOk (Ctx.empty : Ctx (α.arg h)) (q.ctx h)) :
+    TreeOk (Ctx.empty : Ctx (Ty.pads rs.length (α.arg h))) (graftFor q rs h) :=
+  TreeOk_graftT rs.length (q.ctx h) (psForArg rs h)
+    (goodPositions_psForArg q rs hlegal hnd h)
+    (psForArg_queryOk q rs hlegal h) (psForArg_lt rs h) hctx
+
+/-- `b_h`: the value of the argument expression `B_h` when the response
+variables carry the flat values `ws`. -/
+noncomputable def argVal {α : Ty} (q : Query α) (rs : List (Resp α))
+    (h : Fin α.arity) (ws : Nat → Val) : Tree (α.arg h) :=
+  applyFront rs.length (graftFor q rs h) (fun k => Tree.leaf (ws k))
+
+/-- `b_h` extends what `q` records about argument `h`. -/
+theorem le_argVal {α : Ty} (q : Query α) (rs : List (Resp α))
+    (hlegal : ∀ r ∈ rs, LegalResp q r)
+    (hnd : List.Pairwise (fun a b : Resp α => a ≠ b) rs)
+    (h : Fin α.arity) (ws : Nat → Val) :
+    Tree.Le (q.ctx h) (argVal q rs h ws) :=
+  applyFront_graftT_le rs.length (q.ctx h) (psForArg rs h)
+    (goodPositions_psForArg q rs hlegal hnd h) _
+
+/-- At the position a numbered response asks about, `b_h` reports that
+response's flat value. -/
+theorem at'_argVal_probe {α : Ty} (q : Query α) (rs : List (Resp α))
+    (hlegal : ∀ r ∈ rs, LegalResp q r)
+    (hnd : List.Pairwise (fun a b : Resp α => a ≠ b) rs)
+    (h : Fin α.arity) (ws : Nat → Val) (n : Nat) (r : Resp α)
+    (p : Query (α.arg h)) (hmem : (n, r) ∈ enumFrom' 0 rs)
+    (hAns : r.ansOf = RAns.node h p) :
+    (argVal q rs h ws).at' p = some (probeVal (α.arg h) (ws n)) := by
+  have hnp : ((n, p) : Nat × Query (α.arg h)) ∈ psForArg rs h :=
+    (mem_psForArg rs h (n, p)).mpr ⟨r, hmem, posOf_of_ansOf h r p hAns⟩
+  exact applyFront_graftT_probe rs.length (q.ctx h) (psForArg rs h)
+    (goodPositions_psForArg q rs hlegal hnd h) _ ws (fun k => rfl) (n, p) hnp
+    (psForArg_lt rs h (n, p) hnp)
+
+/-- At a perimeter position no response asks about, `b_h` is still `⊥`. -/
+theorem at'_argVal_bot {α : Ty} (q : Query α) (rs : List (Resp α))
+    (hlegal : ∀ r ∈ rs, LegalResp q r)
+    (hnd : List.Pairwise (fun a b : Resp α => a ≠ b) rs)
+    (h : Fin α.arity) (ws : Nat → Val) (p : Query (α.arg h))
+    (hp : (q.ctx h).at' p = some Tree.bot)
+    (hnot : ∀ np ∈ psForArg rs h, np.2 ≠ p) :
+    (argVal q rs h ws).at' p = some Tree.bot := by
+  have h1 := at'_graftT_bot rs.length (q.ctx h) (psForArg rs h)
+    (goodPositions_psForArg q rs hlegal hnd h) p hp hnot
+  have h2 := at'_applyFront rs.length p (graftFor q rs h)
+    (fun k => Tree.leaf (ws k)) Tree.bot h1
+  rw [show applyFront rs.length (Tree.bot : Tree (Ty.pads rs.length (α.arg h)))
+      (fun k => Tree.leaf (ws k)) = Tree.bot from by
+    rw [show (Tree.bot : Tree (Ty.pads rs.length (α.arg h)))
+        = Tree.padN rs.length (Tree.bot : Tree (α.arg h)) from
+      (Tree.padN_leaf rs.length Val.bot).symm]
+    exact applyFront_padN rs.length Tree.bot _] at h2
+  exact h2
+
+/-- **The body of `M'`.**  In an environment binding `x_i` to a finite argument
+and the response variables to flat values, `(x_i B₁ … B_l)` denotes the
+application of that argument to the `b_h`. -/
+theorem meaning_inner {σ : Ty} (i : Fin σ.arity) (q : Query (σ.arg i))
+    (rs : List (Resp (σ.arg i)))
+    (Es : (h : Fin (σ.arg i).arity) → Term SPCF)
+    (hEs_cl : ∀ h, Term.Closed (Es h))
+    (hEs_ty : ∀ h, Term.HasTy [] (Es h) (Ty.pads rs.length ((σ.arg i).arg h)))
+    (hgok : ∀ h, TreeOk (Ctx.empty : Ctx (Ty.pads rs.length ((σ.arg i).arg h)))
+      (graftFor q rs h))
+    (hEs_mean : ∀ h, Tmodel.meaning botEnv (Es h)
+        (Ty.pads rs.length ((σ.arg i).arg h))
+      = Ideal.principal ⟨graftFor q rs h, hgok h⟩)
+    (Env : Tmodel.Env) (dsi : D (σ.arg i)) (ws : Nat → Val)
+    (hx : Env i.val (σ.arg i) = Ideal.principal dsi)
+    (hy : ∀ n, Env (σ.arity + n) 𝕆 = leafT 𝕆 (ws n))
+    (Γ : List (Nat × Ty)) (hΓ : ∀ n, n < rs.length → (σ.arity + n, 𝕆) ∈ Γ) :
+    Tmodel.meaning Env (Term.apps (Term.var i.val (σ.arg i))
+        (List.ofFn (fun h => appsFrom (Es h) σ.arity rs.length))) 𝕆
+      = Ideal.principal (groundD (applyArgs (σ.arg i) dsi.1
+          (fun h => argVal q rs h ws))) := by
+  have hBty : ∀ h : Fin (σ.arg i).arity,
+      Term.HasTy Γ (appsFrom (Es h) σ.arity rs.length) ((σ.arg i).arg h) := by
+    intro h
+    refine appsFrom_hasTy rs.length (Es h) σ.arity Γ ?_ (fun k hk => hΓ k hk)
+    exact Term.weaken (fun p hp => absurd hp (fun hc => List.not_mem_nil hc))
+      (hEs_ty h)
+  have hBmean : ∀ h : Fin (σ.arg i).arity,
+      Tmodel.meaning Env (appsFrom (Es h) σ.arity rs.length) ((σ.arg i).arg h)
+        = Ideal.principal (applyFrontD rs.length ⟨graftFor q rs h, hgok h⟩ ws) := by
+    intro h
+    refine meaning_appsFrom rs.length (Es h) σ.arity Env ⟨graftFor q rs h, hgok h⟩ ws ?_
+      (fun k => hy k)
+    rw [meaning_closed (Es h) (hEs_cl h) _ Env botEnv]
+    exact hEs_mean h
+  rw [meaning_apps_env (σ.arg i) Env Γ (Term.var i.val (σ.arg i))
+      (fun h => appsFrom (Es h) σ.arity rs.length)
+      (fun h => Ideal.principal (applyFrontD rs.length ⟨graftFor q rs h, hgok h⟩ ws))
+      hBty hBmean]
+  have hvar : Tmodel.meaning Env (Term.var i.val (σ.arg i)) (σ.arg i)
+      = Ideal.principal dsi := by
+    show Tmodel.combMeaning Env (.var i.val (σ.arg i)) (σ.arg i) = _
+    rw [Model.combMeaning_var]
+    exact hx
+  rw [hvar, applyIdeals_principal (σ.arg i) dsi
+    (fun h => applyFrontD rs.length ⟨graftFor q rs h, hgok h⟩ ws)]
+  refine congrArg (fun t => Ideal.principal (groundD t))
+    (congrArg (applyArgs (σ.arg i) dsi.1) (funext fun h => ?_))
+  exact applyFrontD_val rs.length ⟨graftFor q rs h, hgok h⟩ ws
+
 end FA
