@@ -3,7 +3,8 @@
 
 Every numbered result of the paper, with its Lean name.  The `#print axioms`
 lines below report, for each, whether its proof is complete (`propext`,
-`Classical.choice`, `Quot.sound` only) or still rests on `sorryAx`.
+`Classical.choice`, `Quot.sound` only) or still rests on `sorryAx`.  No result
+in the development rests on `sorryAx`.
 
 Run `lake env lean FullAbstraction/Audit.lean` to check.
 -/
@@ -117,9 +118,8 @@ section Complete
 end Complete
 
 section DerivedOrDependent
--- Results with real proofs.  Since the Theorem 4.22 chain closed, everything
--- here is axiom-clean except the Theorem 5.1 forms, which inherit `sorryAx`
--- from `lemma_5_2`.
+-- Results with real proofs.  Since the Lemma 5.2 chain closed, everything here
+-- is axiom-clean.
 #print axioms meaning_omegaTerm
 #print axioms meaning_errTerm
 #print axioms meaning_apps
@@ -152,10 +152,18 @@ section DerivedOrDependent
 #print axioms theorem_6_4
 end DerivedOrDependent
 
-section Outstanding
--- Results still resting on `sorryAx` because their own proof is `sorry`.
+section Definability
+-- Lemma 5.2 and the §5 construction that proves it.
 #print axioms lemma_5_2
 #print axioms lemma_5_2_subtrees
-end Outstanding
+#print axioms repSubtrees
+#print axioms representable_leaf
+#print axioms representable_node
+#print axioms representable_node_of
+#print axioms nodeBody_value
+#print axioms catchVal_node
+#print axioms catchBody_const
+#print axioms lemma_B_1
+end Definability
 
 end FA

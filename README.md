@@ -11,11 +11,10 @@ The paper is included in this repository as
 `Observable_Sequentiality_and_Full_Abstraction.pdf`.
 
 Every numbered definition, lemma, claim, corollary and theorem of the paper —
-including the two appendices — is stated in Lean 4.  Where a proof is complete
-it is given; where it is not, the statement carries a `sorry` and appears in the
-"outstanding" table below.  Nothing is asserted as an `axiom`: every gap is a
-visible `sorry`, so `#print axioms` distinguishes finished results from
-unfinished ones (see `FullAbstraction/Audit.lean`).
+including the two appendices — is stated **and proved** in Lean 4.  Nothing is
+asserted as an `axiom` and nothing rests on a `sorry`: `#print axioms` reports
+only `propext`, `Classical.choice` and `Quot.sound` for every named result,
+Theorem 5.1 included (see `FullAbstraction/Audit.lean`).
 
 ## Building
 
@@ -45,7 +44,8 @@ takes seconds.
 | `Combinators.lean` | **Def. 4.19** (`add1`, `sub1`, `if0`, `catch`), **Def. 4.20** (`K`), **Defs. 4.21/A.3** + **Claim A.5** (`S`), `Ω_σ`, `T[[Y_σ]]`, **Def. 4.1** (the model `T`) — **Theorem 4.22**, **Cors. 4.23, 4.24**, **Lemma A.1**, **Claim A.2**, **Def. A.4**, **Lemmas A.6, A.7** |
 | `SPCFSemantics.lean` | **Def. 6.1**; the ground domain `T_o` is proved flat |
 | `Control.lean` | **Lemma 4.26**, **Theorem 4.27**, **Lemma B.1** |
-| `FullAbs.lean` | **Def. 5.3**, **Lemma 5.2**, **Theorem 5.1** |
+| `Definability.lean` | **Def. 5.3** and the machinery of §5: padding and grafting, the argument expressions `Bₕ`, the `catch` analysis, the sequential case split |
+| `FullAbs.lean` | **Lemma 5.2**, **Theorem 5.1** |
 | `Sequentiality.lean` | **Theorems 6.2, 6.4, 6.7** |
 | `Audit.lean` | `#print axioms` for every named result |
 
@@ -230,10 +230,7 @@ basis `D_σ`, and hence `T_σ`, be built without any outstanding assumption.
 
 ### Proved from stated ingredients
 
-These have real proofs, but their statement or their ingredients still mention
-a `sorry` — since the Theorem 4.22 chain closed, that now means only the
-Theorem 5.1 forms, which inherit `sorryAx` from `lemma_5_2`.  The derivation
-is the content.
+These have real proofs and are axiom-clean; the derivation is the content.
 
 | Result | Lean name | Derived from |
 | --- | --- | --- |
@@ -288,14 +285,47 @@ four clauses follow, with `catch` computed by `applyT_catch_gen`.  Each
 statement carries the paper's standing conventions as hypotheses: the filled
 context is well typed, and the context does not capture the hole variable.
 
-### Outstanding
+### Definability (Lemma 5.2, §5)
 
-One declaration (in two forms), stated faithfully, whose proof is still
-`sorry`.
+Proved outright.  The construction is the paper's, with the extra ground
+arguments added at the *front* of a type rather than the end, which makes the
+reinterpretation of `q̂(h)` a structural operation (`Tree.pad`) instead of a
+list-append coercion.
 
-| Result | Lean name | Note |
-| --- | --- | --- |
-| **Lemma 5.2** (definability of the finite elements) | `lemma_5_2`, `lemma_5_2_subtrees` | the crux of §5; **Theorem 5.1 now rests only on this** |
+For a node `e = ⟨i, q, f⟩` legal in a context `γ`, the query responses below
+the root are numbered `0, …, m−1` (`nodeResps`, `enumFrom'`).  For each
+argument `h` of the probed argument's type, the tree
+
+```
+e_h = graft of a probe of the n-th new ground argument at the position pₙ,
+      for every numbered response ⟨h, pₙ⟩, into the padded tree q̂(h)
+```
+
+is legal and of smaller type-depth, so the induction hypothesis represents it
+by a closed `E_h`; the argument expression is then just `Bₕ = (E_h y₀ … y_{m−1})`.
+The distinct positions `pₙ` are perimeter positions of `q̂(h)`, so the grafts
+do not disturb one another (`at'_plant_disjoint`), and applying the response
+variables reads the probe back (`applyFront_graftT_probe`).
+
+Feeding `B₁ … B_l` to the probed argument sees only the subtree at `q`
+(Corollary 4.15).  If that subtree is a leaf, `(x_i B̄)` is that leaf whatever
+the response variables carry, so `M'` is a constant and `catch M'` is `⊥`,
+`errorᵢ`, or `a + m`.  If it is a node realising the `n`-th response, the
+all-`⊥` run diverges and the run that errs at `yₙ` errs, which pins the root of
+every member of `T[[M']]` to a probe of `yₙ` (`root_shape_of_runs`, the
+semantic content of Lemma B.1) and makes `catch M'` return `n`.  The
+sequential case split then dispatches to the representative of the
+corresponding branch, testing `w` against `0, 1, …` with iterates of
+`sub1⊥ = λx.(if0 x Ω (sub1 x))`.
+
+| Result | Lean name |
+| --- | --- |
+| **Definition 5.3** (subtree representability) | `Representable` |
+| the leaf case | `representable_leaf` |
+| the node case | `representable_node`, `representable_node_of` |
+| the body of `M` computes the node | `nodeBody_value` |
+| what `catch` reports | `catchBody_const`, `catchVal_node` |
+| **Lemma 5.2** | `lemma_5_2`, `lemma_5_2_subtrees` |
 
 #### How Theorem 4.11 gets its uniformity
 

@@ -2072,6 +2072,14 @@ theorem meaning_of_representable (σ : Ty) (t : Tree σ)
     applyIdeals_principal σ ⟨t, hok⟩ ds]
 
 /-! ## Depth of argument types -/
+/-- The depth of a type is positive. -/
+theorem Ty.depth_pos : ∀ σ : Ty, 0 < σ.depth
+  | .base => Nat.one_pos
+  | .arrow a b => by
+      show 0 < max (1 + a.depth) b.depth
+      have := Ty.depth_pos b
+      omega
+
 
 /-- Every argument type is at least one level shallower. -/
 theorem Ty.depth_arg : ∀ (σ : Ty) (i : Fin σ.arity), 1 + (σ.arg i).depth ≤ σ.depth
@@ -3685,5 +3693,25 @@ theorem representable_node_of {σ : Ty} (i : Fin σ.arity) (q : Query (σ.arg i)
         omega)]
       exact hEnvx j)
 
+
+/-- The final answer a response records, if any. -/
+noncomputable def numOfAns {α : Ty} : RAns α → Option Nat
+  | .num a => some a
+  | .node _ _ => none
+
+/-- The final answers recorded in a list of responses. -/
+noncomputable def ansNums {α : Ty} (l : List (Resp α)) : List Nat :=
+  l.filterMap (fun r => numOfAns r.ansOf)
+
+theorem mem_ansNums {α : Ty} (l : List (Resp α)) (r : Resp α) (a : Nat)
+    (hr : r ∈ l) (hAns : r.ansOf = RAns.num a) : a ∈ ansNums l := by
+  refine List.mem_filterMap.mpr ⟨r, hr, ?_⟩
+  rw [hAns, numOfAns]
+
+/-- Every final answer with a proper branch is bounded by the list's
+maximum. -/
+theorem le_maxOfL_ansNums {α : Ty} (l : List (Resp α)) (r : Resp α) (a : Nat)
+    (hr : r ∈ l) (hAns : r.ansOf = RAns.num a) : a ≤ maxOfL (ansNums l) :=
+  le_maxOfL _ a (mem_ansNums l r a hr hAns)
 
 end FA

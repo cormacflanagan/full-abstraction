@@ -64,26 +64,79 @@ theorem appCtx_fill (Es : List (Term SPCF)) (M : Term SPCF) :
 construction of §5. -/
 theorem representable_node (n : Nat)
     (ihOut : ∀ σ' : Ty, σ'.depth ≤ n → ∀ (γ' : Ctx σ') (e' : Tree σ'),
-      TreeOk γ' e' → Representable σ' γ' e')
+      CtxOk γ' → TreeOk γ' e' → Representable σ' γ' e')
     (σ : Ty) (hσ : σ.depth ≤ n + 1) (i : Fin σ.arity) (q : Query (σ.arg i))
     (f : Resp (σ.arg i) → Tree σ)
-    (ihIn : ∀ (r : Resp (σ.arg i)) (γ' : Ctx σ), TreeOk γ' (f r) →
+    (ihIn : ∀ (r : Resp (σ.arg i)) (γ' : Ctx σ), CtxOk γ' → TreeOk γ' (f r) →
       Representable σ γ' (f r))
-    (γ : Ctx σ) (hok : TreeOk γ (.node i q f)) :
+    (γ : Ctx σ) (hγ : CtxOk γ) (hok : TreeOk γ (.node i q f)) :
     Representable σ γ (.node i q f) := by
-  sorry
-
-/-- The depth of a type is positive. -/
-theorem Ty.depth_pos : ∀ σ : Ty, 0 < σ.depth
-  | .base => Nat.one_pos
-  | .arrow a b => by
-      show 0 < max (1 + a.depth) b.depth
-      have := Ty.depth_pos b
-      omega
+  classical
+  obtain ⟨hq, hfin, hsub, hnon⟩ := TreeOk_node_inv hok
+  obtain ⟨l₀, hl₀⟩ := hfin
+  -- the numbered node responses and the largest final answer
+  have hrs_legal : ∀ r ∈ nodeResps q l₀, LegalResp q r :=
+    fun r hr => ((mem_nodeResps q l₀ r).mp hr).2.1
+  have hrs_nd := nodeResps_pairwise q l₀
+  have hrs_cover : ∀ (h : Fin (σ.arg i).arity) (p : Query ((σ.arg i).arg h)),
+      f (q.substAns (RAns.node h p)) ≠ Tree.bot →
+      q.substAns (RAns.node h p) ∈ nodeResps q l₀ := by
+    intro h p hne
+    have hlegal : LegalResp q (q.substAns (RAns.node h p)) :=
+      Classical.byContradiction fun hc => hne (hnon _ hc)
+    refine (mem_nodeResps q l₀ _).mpr ⟨hl₀ _ hne, hlegal, h, p, ?_⟩
+    exact Query.ansOf_substAns q (RAns.node h p)
+  have hA : ∀ a : Nat, f (q.substAns (RAns.num a)) ≠ Tree.bot →
+      a ≤ maxOfL (ansNums l₀) := by
+    intro a hne
+    exact le_maxOfL_ansNums l₀ _ a (hl₀ _ hne) (Query.ansOf_substAns q (RAns.num a))
+  -- the tree context determined by `q` is a legal closed context
+  have hLegalIn : q.LegalIn (Ctx.empty : Ctx (σ.arg i)) :=
+    legalIn_of_TreeOk q Ctx.empty (γ i) Tree.bot (CtxOk.treeOk hγ i) hq.1 hq.2
+  have hqctx : CtxOk (q.ctx) := CtxOk.ctxFrom q Ctx.empty CtxOk.empty hLegalIn
+  have hgok : ∀ h : Fin (σ.arg i).arity,
+      TreeOk (Ctx.empty : Ctx (Ty.pads (nodeResps q l₀).length ((σ.arg i).arg h)))
+        (graftFor q (nodeResps q l₀) h) :=
+    fun h => graftFor_ok q (nodeResps q l₀) hrs_legal hrs_nd h
+      (CtxOk.treeOk hqctx h)
+  -- the grafted trees are representable, being of smaller depth
+  have hdepth : ∀ h : Fin (σ.arg i).arity,
+      (Ty.pads (nodeResps q l₀).length ((σ.arg i).arg h)).depth ≤ n := by
+    intro h
+    have h1 := Ty.depth_arg σ i
+    have h2 := Ty.depth_arg (σ.arg i) h
+    have h3 := Ty.depth_pads (nodeResps q l₀).length ((σ.arg i).arg h)
+    have h4 := Ty.depth_pos ((σ.arg i).arg h)
+    omega
+  have hErep : ∀ h : Fin (σ.arg i).arity,
+      ∃ M : Term SPCF, Term.Closed M ∧
+        Term.HasTy [] M (Ty.pads (nodeResps q l₀).length ((σ.arg i).arg h)) ∧
+        Tmodel.meaning botEnv M
+            (Ty.pads (nodeResps q l₀).length ((σ.arg i).arg h))
+          = Ideal.principal ⟨graftFor q (nodeResps q l₀) h, hgok h⟩ :=
+    fun h => meaning_of_representable _ _ (hgok h)
+      (ihOut _ (hdepth h) Ctx.empty _ CtxOk.empty (hgok h))
+  -- the branches are representable
+  have hFrep : ∀ r : Resp (σ.arg i), Representable σ (γ.cons i r) (f r) := by
+    intro r
+    by_cases hr : LegalResp q r
+    · exact ihIn r (γ.cons i r) (CtxOk.cons hγ hq hr) (hsub r hr)
+    · have hfr : f r = Tree.leaf Val.bot := hnon r hr
+      rw [hfr]
+      exact representable_leaf σ (γ.cons i r) Val.bot
+  refine representable_node_of i q f γ hγ hok (nodeResps q l₀)
+    (maxOfL (ansNums l₀)) hrs_legal hrs_nd hrs_cover hA
+    (fun h => Classical.choose (hErep h))
+    (fun h => (Classical.choose_spec (hErep h)).1)
+    (fun h => (Classical.choose_spec (hErep h)).2.1)
+    hgok (fun h => (Classical.choose_spec (hErep h)).2.2)
+    (fun r => Classical.choose (hFrep r))
+    (fun r => (Classical.choose_spec (hFrep r)).2.1)
+    (fun r _ ds hds => (Classical.choose_spec (hFrep r)).2.2 ds hds)
 
 /-- The nested induction of §5, staged on the depth of the type. -/
 theorem repSubtrees : ∀ (n : Nat) (σ : Ty), σ.depth ≤ n →
-    ∀ (e : Tree σ) (γ : Ctx σ), TreeOk γ e → Representable σ γ e := by
+    ∀ (e : Tree σ) (γ : Ctx σ), CtxOk γ → TreeOk γ e → Representable σ γ e := by
   intro n
   induction n with
   | zero =>
@@ -93,18 +146,19 @@ theorem repSubtrees : ∀ (n : Nat) (σ : Ty), σ.depth ≤ n →
     intro σ hσ e
     induction e with
     | leaf v =>
-      intro γ _
+      intro γ _ _
       exact representable_leaf σ γ v
     | node i q f ihf =>
-      intro γ hok
-      exact representable_node n (fun σ' h γ' e' he' => ihn σ' h e' γ' he')
-        σ hσ i q f (fun r γ' h' => ihf r γ' h') γ hok
+      intro γ hγ hok
+      exact representable_node n
+        (fun σ' h γ' e' hγ' he' => ihn σ' h e' γ' hγ' he')
+        σ hσ i q f (fun r γ' hγ' h' => ihf r γ' hγ' h') γ hγ hok
 
 /-- The stronger statement actually proved by the nested induction of §5:
 every finite subtree is representable in every legal context. -/
-theorem lemma_5_2_subtrees (σ : Ty) (γ : Ctx σ) (e : Tree σ) (he : TreeOk γ e) :
-    Representable σ γ e :=
-  repSubtrees σ.depth σ (Nat.le_refl _) e γ he
+theorem lemma_5_2_subtrees (σ : Ty) (γ : Ctx σ) (hγ : CtxOk γ) (e : Tree σ)
+    (he : TreeOk γ e) : Representable σ γ e :=
+  repSubtrees σ.depth σ (Nat.le_refl _) e γ hγ he
 
 /-! ## The ingredients of Theorem 5.1 -/
 
@@ -215,7 +269,7 @@ Definition 5.3. -/
 theorem lemma_5_2 (σ : Ty) (d : D σ) :
     ∃ M : Term SPCF, Term.Closed M ∧ Term.HasTy [] M σ ∧
       Tmodel.meaning botEnv M σ = Ideal.principal d := by
-  obtain ⟨M, hcl, hty, happ⟩ := lemma_5_2_subtrees σ Ctx.empty d.1 d.2
+  obtain ⟨M, hcl, hty, happ⟩ := lemma_5_2_subtrees σ Ctx.empty CtxOk.empty d.1 d.2
   refine ⟨M, hcl, hty, ?_⟩
   refine eq_of_principal_applyIdeals σ _ _ fun ds => ?_
   rw [happ ds (fun i => Tree.Le.bot _), applyIdeals_principal σ d ds]
