@@ -2903,4 +2903,105 @@ theorem meaning_inner {σ : Ty} (i : Fin σ.arity) (q : Query (σ.arg i))
     (congrArg (applyArgs (σ.arg i) dsi.1) (funext fun h => ?_))
   exact applyFrontD_val rs.length ⟨graftFor q rs h, hgok h⟩ ws
 
+/-! ## `M'` and the value `catch` reports -/
+
+/-- The typing of the body of `M'`. -/
+theorem inner_hasTy {σ : Ty} (i : Fin σ.arity) (rs : List (Resp (σ.arg i)))
+    (Es : (h : Fin (σ.arg i).arity) → Term SPCF)
+    (hEs_ty : ∀ h, Term.HasTy [] (Es h) (Ty.pads rs.length ((σ.arg i).arg h)))
+    (Γ : List (Nat × Ty)) (hxΓ : (i.val, σ.arg i) ∈ Γ)
+    (hyΓ : ∀ n, n < rs.length → (σ.arity + n, 𝕆) ∈ Γ) :
+    Term.HasTy Γ (Term.apps (Term.var i.val (σ.arg i))
+      (List.ofFn (fun h => appsFrom (Es h) σ.arity rs.length))) 𝕆 := by
+  have hgen : ∀ (τ : Ty) (M : Term SPCF), Term.HasTy Γ M τ →
+      ∀ (E : (h : Fin τ.arity) → Term SPCF),
+      (∀ h, Term.HasTy Γ (E h) (τ.arg h)) →
+      Term.HasTy Γ (Term.apps M (List.ofFn E)) 𝕆 := by
+    intro τ
+    induction τ with
+    | base =>
+      intro M hM E _
+      rw [show (List.ofFn E : List (Term SPCF)) = [] from List.ofFn_zero]
+      exact hM
+    | arrow a b iha ihb =>
+      intro M hM E hE
+      have hsucc : (List.ofFn E : List (Term SPCF))
+          = E ⟨0, Nat.succ_pos _⟩ :: List.ofFn fun j : Fin b.arity =>
+              E ⟨j.val + 1, Nat.succ_lt_succ j.isLt⟩ := by
+        rw [List.ofFn_succ]; rfl
+      rw [show Term.apps M (List.ofFn E)
+          = Term.apps (.app M (E ⟨0, Nat.succ_pos _⟩))
+              (List.ofFn fun j : Fin b.arity =>
+                E ⟨j.val + 1, Nat.succ_lt_succ j.isLt⟩) from by rw [hsucc]; rfl]
+      exact ihb _ (Term.HasTy.app hM (hE ⟨0, Nat.succ_pos _⟩)) _
+        (fun j => hE ⟨j.val + 1, Nat.succ_lt_succ j.isLt⟩)
+  refine hgen (σ.arg i) _ (Term.HasTy.var hxΓ) _ (fun h => ?_)
+  exact appsFrom_hasTy rs.length (Es h) σ.arity Γ
+    (Term.weaken (fun p hp => absurd hp (fun hc => List.not_mem_nil hc))
+      (hEs_ty h)) (fun k hk => hyΓ k hk)
+
+/-- The `x`-variable of `M` is not one of the response variables of `M'`. -/
+theorem xvar_not_mem_yvars {σ : Ty} (i : Fin σ.arity) (m : Nat) :
+    ¬ ((i.val, σ.arg i) ∈ yvars σ.arity m) := by
+  intro hmem
+  have h := yvars_fst_ge m σ.arity (i.val, σ.arg i) hmem
+  exact absurd i.isLt (by omega)
+
+/-- **`M'` is a constant.**  If the application `(x_i B̄)` denotes the leaf `v`
+whatever flat values the response variables carry, then `M'` denotes `v`. -/
+theorem catchBody_const {σ : Ty} (i : Fin σ.arity) (q : Query (σ.arg i))
+    (rs : List (Resp (σ.arg i)))
+    (Es : (h : Fin (σ.arg i).arity) → Term SPCF)
+    (hEs_cl : ∀ h, Term.Closed (Es h))
+    (hEs_ty : ∀ h, Term.HasTy [] (Es h) (Ty.pads rs.length ((σ.arg i).arg h)))
+    (hgok : ∀ h, TreeOk (Ctx.empty : Ctx (Ty.pads rs.length ((σ.arg i).arg h)))
+      (graftFor q rs h))
+    (hEs_mean : ∀ h, Tmodel.meaning botEnv (Es h)
+        (Ty.pads rs.length ((σ.arg i).arg h))
+      = Ideal.principal ⟨graftFor q rs h, hgok h⟩)
+    (Env : Tmodel.Env) (dsi : D (σ.arg i))
+    (hx : Env i.val (σ.arg i) = Ideal.principal dsi)
+    (Γ : List (Nat × Ty)) (hxΓ : (i.val, σ.arg i) ∈ Γ)
+    (v : Val)
+    (hconst : ∀ ws : Nat → Val,
+      applyArgs (σ.arg i) dsi.1 (fun h => argVal q rs h ws) = Tree.leaf v) :
+    Tmodel.meaning Env (catchBody σ i rs.length Es) (Ty.pads rs.length 𝕆)
+      = leafT (Ty.pads rs.length 𝕆) v := by
+  classical
+  have hyΓ : ∀ n, n < rs.length →
+      (σ.arity + n, 𝕆) ∈ (yvars σ.arity rs.length ++ Γ) :=
+    fun n hn => List.mem_append_left _ (mem_yvars rs.length σ.arity n hn)
+  have hty := inner_hasTy i rs Es hEs_ty (yvars σ.arity rs.length ++ Γ)
+    (List.mem_append_right _ hxΓ) hyΓ
+  have hgoal : Tmodel.combMeaning Env
+      (Comb.lamStars (yvars σ.arity rs.length)
+        (Term.toComb (Term.apps (Term.var i.val (σ.arg i))
+          (List.ofFn (fun h => appsFrom (Es h) σ.arity rs.length)))))
+      ((yvars σ.arity rs.length).foldr (fun p τ => p.2 ⇒ τ) 𝕆)
+      = leafT _ v := by
+    refine lamStars_meaning_leaf (yvars σ.arity rs.length) Env _ 𝕆 Γ
+      (Term.toComb_hasTy hty) v (fun Env' hEnv' => ?_)
+    -- the response variables carry flat values, whatever `Env'` says
+    have hws : ∀ n : Nat, ∃ w : Val,
+        Env' (σ.arity + n) 𝕆 = leafT 𝕆 w :=
+      fun n => T_ground_flat (Env' (σ.arity + n) 𝕆)
+    have hxEnv' : Env' i.val (σ.arg i) = Ideal.principal dsi := by
+      rw [hEnv' (i.val, σ.arg i) (xvar_not_mem_yvars i rs.length)]
+      exact hx
+    have hmean := meaning_inner i q rs Es hEs_cl hEs_ty hgok hEs_mean Env' dsi
+      (fun n => Classical.choose (hws n)) hxEnv'
+      (fun n => Classical.choose_spec (hws n))
+      (yvars σ.arity rs.length ++ Γ) hyΓ
+    show Tmodel.meaning Env' (Term.apps (Term.var i.val (σ.arg i))
+      (List.ofFn (fun h => appsFrom (Es h) σ.arity rs.length))) 𝕆 = _
+    rw [hmean, hconst (fun n => Classical.choose (hws n))]
+    rfl
+  show Tmodel.combMeaning Env
+    (Term.toComb (Term.lams (yvars σ.arity rs.length) _)) _ = _
+  rw [Term.toComb_lams]
+  rw [show (Ty.pads rs.length 𝕆)
+      = (yvars σ.arity rs.length).foldr (fun p τ => p.2 ⇒ τ) 𝕆 from
+    (foldX_yvars rs.length σ.arity).symm]
+  exact hgoal
+
 end FA
