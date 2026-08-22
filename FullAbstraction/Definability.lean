@@ -3209,4 +3209,107 @@ theorem catchVal_node {σ : Ty} (i : Fin σ.arity) (q : Query (σ.arg i))
   · -- typing of `M'`
     refine catchBody_hasTy i rs Es hEs_ty Γ hxΓ
 
+/-! ## Typing implies closedness -/
+
+/-- A well-typed phrase has its free variables in its typing context. -/
+theorem Term.fv_subset_of_hasTy {L : Lang} : ∀ {Γ : List (Nat × Ty)} {M : Term L}
+    {ρ : Ty}, Term.HasTy Γ M ρ → ∀ p, p ∈ Term.FV M → p ∈ Γ := by
+  intro Γ M ρ h
+  induction h with
+  | var hx => intro p hp; exact (hp : p = _) ▸ hx
+  | const => intro p hp; exact absurd hp (fun hc => hc)
+  | app _ _ ihM ihN =>
+    intro p hp
+    rcases (hp : p ∈ Term.FV _ ∪ Term.FV _) with h1 | h1
+    · exact ihM p h1
+    · exact ihN p h1
+  | lam _ ih =>
+    intro p hp
+    obtain ⟨hp1, hp2⟩ : p ∈ Term.FV _ ∧ p ≠ _ := hp
+    rcases List.mem_cons.mp (ih p hp1) with h1 | h1
+    · exact absurd h1 hp2
+    · exact h1
+
+theorem Term.closed_of_hasTy {L : Lang} {M : Term L} {ρ : Ty}
+    (h : Term.HasTy [] M ρ) : Term.Closed M :=
+  fun p hp => absurd (Term.fv_subset_of_hasTy h p hp) (fun hc => List.not_mem_nil hc)
+
+/-! ## The arms of the case split -/
+
+/-- The meaning of an arm `(F x₁ … x_k)`. -/
+theorem meaning_arm (σ : Ty) (Env : Tmodel.Env) (F : Term SPCF)
+    (Γ : List (Nat × Ty)) (hΓ : ∀ j : Fin σ.arity, (j.val, σ.arg j) ∈ Γ)
+    (ds : (j : Fin σ.arity) → T (σ.arg j))
+    (hEnv : ∀ j : Fin σ.arity, Env j.val (σ.arg j) = ds j) :
+    Tmodel.meaning Env (Term.apps F (xargs σ)) 𝕆
+      = applyIdeals σ (Tmodel.meaning Env F σ) ds := by
+  refine meaning_apps_env σ Env Γ F
+    (fun j : Fin σ.arity => (Term.var j.val (σ.arg j) : Term SPCF)) ds
+    (fun j => Term.HasTy.var (hΓ j)) (fun j => ?_)
+  show Tmodel.combMeaning Env (.var j.val (σ.arg j)) (σ.arg j) = ds j
+  rw [Model.combMeaning_var]
+  exact hEnv j
+
+theorem arm_hasTy (σ : Ty) (F : Term SPCF) (Γ : List (Nat × Ty))
+    (hΓ : ∀ j : Fin σ.arity, (j.val, σ.arg j) ∈ Γ) (hF : Term.HasTy Γ F σ) :
+    Term.HasTy Γ (Term.apps F (xargs σ)) 𝕆 := by
+  have hgen : ∀ (τ : Ty) (M : Term SPCF), Term.HasTy Γ M τ →
+      ∀ (E : (h : Fin τ.arity) → Term SPCF),
+      (∀ h, Term.HasTy Γ (E h) (τ.arg h)) →
+      Term.HasTy Γ (Term.apps M (List.ofFn E)) 𝕆 := by
+    intro τ
+    induction τ with
+    | base =>
+      intro M hM E _
+      rw [show (List.ofFn E : List (Term SPCF)) = [] from List.ofFn_zero]
+      exact hM
+    | arrow a b iha ihb =>
+      intro M hM E hE
+      have hsucc : (List.ofFn E : List (Term SPCF))
+          = E ⟨0, Nat.succ_pos _⟩ :: List.ofFn fun j : Fin b.arity =>
+              E ⟨j.val + 1, Nat.succ_lt_succ j.isLt⟩ := by
+        rw [List.ofFn_succ]; rfl
+      rw [show Term.apps M (List.ofFn E)
+          = Term.apps (.app M (E ⟨0, Nat.succ_pos _⟩))
+              (List.ofFn fun j : Fin b.arity =>
+                E ⟨j.val + 1, Nat.succ_lt_succ j.isLt⟩) from by rw [hsucc]; rfl]
+      exact ihb _ (Term.HasTy.app hM (hE ⟨0, Nat.succ_pos _⟩)) _
+        (fun j => hE ⟨j.val + 1, Nat.succ_lt_succ j.isLt⟩)
+  exact hgen σ F hF _ (fun j => Term.HasTy.var (hΓ j))
+
+/-- The keys of the case split ascend. -/
+theorem caseArms_pairwise (σ : Ty) (i : Fin σ.arity) (q : Query (σ.arg i))
+    (rs : List (Resp (σ.arg i))) (A : Nat) (Fs : Resp (σ.arg i) → Term SPCF) :
+    List.Pairwise (fun p p' : Nat × Term SPCF => p.1 < p'.1)
+      (caseArms σ i q rs A Fs) := by
+  rw [caseArms, List.pairwise_append]
+  refine ⟨?_, ?_, ?_⟩
+  · rw [List.pairwise_map]
+    exact enumFrom'_pairwise_lt 0 rs
+  · rw [List.pairwise_map]
+    refine List.Pairwise.imp ?_ List.pairwise_lt_range
+    intro a b hab
+    exact Nat.add_lt_add_left hab _
+  · intro a ha b hb
+    obtain ⟨pr, hpr, rfl⟩ := List.mem_map.mp ha
+    obtain ⟨c, hc, rfl⟩ := List.mem_map.mp hb
+    have h1 : pr.1 < rs.length := by
+      have := enumFrom'_lt 0 rs pr hpr
+      omega
+    show pr.1 < rs.length + c
+    omega
+
+theorem caseArms_hasTy (σ : Ty) (i : Fin σ.arity) (q : Query (σ.arg i))
+    (rs : List (Resp (σ.arg i))) (A : Nat) (Fs : Resp (σ.arg i) → Term SPCF)
+    (Γ : List (Nat × Ty)) (hΓ : ∀ j : Fin σ.arity, (j.val, σ.arg j) ∈ Γ)
+    (hFs : ∀ r, Term.HasTy Γ (Fs r) σ) :
+    ∀ p ∈ caseArms σ i q rs A Fs, Term.HasTy Γ p.2 𝕆 := by
+  intro p hp
+  rw [caseArms, List.mem_append] at hp
+  rcases hp with hp | hp
+  · obtain ⟨pr, _, rfl⟩ := List.mem_map.mp hp
+    exact arm_hasTy σ (Fs pr.2) Γ hΓ (hFs _)
+  · obtain ⟨a, _, rfl⟩ := List.mem_map.mp hp
+    exact arm_hasTy σ _ Γ hΓ (hFs _)
+
 end FA
