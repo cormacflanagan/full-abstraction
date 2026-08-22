@@ -100,7 +100,6 @@ theorem varsCtx_foldr {k : Nat} (xs : Fin k → Nat) :
   | zero => rfl
   | succ k ih => rw [varsCtx_succ, List.foldr_cons, ih (fun i => xs i.succ)]; rfl
 
-/-- Typing for iterated `λ*`. -/
 /-- Filling with fresh ground variables preserves typing, in a context
 providing those variables. -/
 theorem MCtx.fill_vars_hasTy {k : Nat} (Ms : Fin k → Term SPCF) (xs : Fin k → Nat)

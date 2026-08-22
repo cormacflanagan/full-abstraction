@@ -450,41 +450,80 @@ theorem EvalCtx.fill_leaf (v : Val) (hv : v = Val.bot ∨ ∃ b, v = Val.err b) 
         · exact applyT_rootProbe_bot (Nat.succ_pos _) _
         · exact applyT_rootProbe_err (Nat.succ_pos _) _ b
 
+/-- Every index is listed by `finRange`. -/
+theorem finRange_mem : ∀ (n : Nat) (i : Fin n), i ∈ List.finRange n
+  | 0, i => absurd i.isLt (by omega)
+  | n + 1, i => by
+      rw [List.finRange_succ]
+      refine Fin.cases ?_ (fun i' => ?_) i
+      · exact List.mem_cons_self ..
+      · exact List.mem_cons_of_mem _
+          (List.mem_map.mpr ⟨i', finRange_mem n i', rfl⟩)
+
+/-- Membership of the `j`-th variable in `varsOf l`. -/
+theorem mem_varsOf (l : List Ty) (j : Fin l.length) :
+    (j.val, l[j.val]'j.isLt) ∈ varsOf l := by
+  simp only [varsOf, List.mem_map]
+  exact ⟨j, finRange_mem _ j, rfl⟩
+
+/-- The abstraction `T[[λ* x₁ … xₙ . E[xⱼ]]]`, as an ideal. -/
+noncomputable def ctxAbs (l : List Ty) (E : EvalCtx) (j : Fin l.length)
+    (Env : Tmodel.Env) : T (l.foldr Ty.arrow 𝕆) :=
+  Tmodel.combMeaning Env
+    (Comb.lamStars (varsOf l) (E.fill (.var j.val (l[j.val]'j.isLt))))
+    (l.foldr Ty.arrow 𝕆)
+
 /-- **Lemma B.1.**  *For all variables `x₁, …, xₙ`, for all evaluation contexts
 `E`, and for all `1 ≤ j ≤ n`,*
 `T[[λ* x₁ … xₙ . E[xⱼ]]] = ⟨j, ?, f⟩` *for an appropriate branching function
 `f`.*
 
-That is: a procedure whose body places the variable `xⱼ` in the hole of an
-evaluation context probes its `j`-th argument first, with the initial query
-`?`. -/
+The tree `⟨j, ?, f⟩` is infinite (its continuation copies whatever computation
+follows), so in the ideal completion the statement reads: the meaning has a
+member with root `⟨j, ?⟩`, and every member is `⊥` or has that root.  The
+hypotheses are the paper's conventions: the filled context is well typed, and
+the context does not capture the variable in its hole. -/
 theorem lemma_B_1 (l : List Ty) (E : EvalCtx) (j : Fin l.length)
-    (Env : Tmodel.Env) :
-    ∃ (f : Resp ((l.foldr Ty.arrow 𝕆).arg (finOf l j)) → Tree (l.foldr Ty.arrow 𝕆))
-      (d : D (l.foldr Ty.arrow 𝕆)),
-      d.1 = .node (finOf l j) .hole f ∧
-      Tmodel.combMeaning Env
-        (Comb.lamStars (varsOf l) (E.fill (.var j.val (l[j.val]'j.isLt))))
-        (l.foldr Ty.arrow 𝕆) = Ideal.principal d := by
+    (Env : Tmodel.Env)
+    (hty : Comb.HasTy (varsOf l) (E.fill (.var j.val (l[j.val]'j.isLt))) 𝕆)
+    (hfresh : ¬ E.Binds (j.val, l[j.val]'j.isLt)) :
+    (∃ s : D (l.foldr Ty.arrow 𝕆), s ∈ ctxAbs l E j Env ∧
+      ∃ f, s.1 = Tree.node (finOf l j) Query.hole f) ∧
+    (∀ s : D (l.foldr Ty.arrow 𝕆), s ∈ ctxAbs l E j Env →
+      s.1 = Tree.bot ∨ ∃ f, s.1 = Tree.node (finOf l j) Query.hole f) := by
   sorry
 
-/-- **Lemma 4.26.**  *For all variables `x₁, …, xₙ`, for all evaluation contexts
-`E`, and for all `j`, `1 ≤ j ≤ n`, `T[[λ* x₁ … xₙ . E[xⱼ]]] = ⟨j, ?, f⟩` for
-some appropriate branching function `f`.*
-
-"Proof.  See Appendix B." -/
-theorem lemma_4_26 (l : List Ty) (E : EvalCtx) (j : Fin l.length) (Env : Tmodel.Env) :
-    ∃ (f : Resp ((l.foldr Ty.arrow 𝕆).arg (finOf l j)) → Tree (l.foldr Ty.arrow 𝕆))
-      (d : D (l.foldr Ty.arrow 𝕆)),
-      d.1 = .node (finOf l j) .hole f ∧
-      Tmodel.combMeaning Env
-        (Comb.lamStars (varsOf l) (E.fill (.var j.val (l[j.val]'j.isLt))))
-        (l.foldr Ty.arrow 𝕆) = Ideal.principal d :=
-  lemma_B_1 l E j Env
+/-- **Lemma 4.26** is Lemma B.1: "Proof.  See Appendix B." -/
+theorem lemma_4_26 (l : List Ty) (E : EvalCtx) (j : Fin l.length)
+    (Env : Tmodel.Env)
+    (hty : Comb.HasTy (varsOf l) (E.fill (.var j.val (l[j.val]'j.isLt))) 𝕆)
+    (hfresh : ¬ E.Binds (j.val, l[j.val]'j.isLt)) :
+    (∃ s : D (l.foldr Ty.arrow 𝕆), s ∈ ctxAbs l E j Env ∧
+      ∃ f, s.1 = Tree.node (finOf l j) Query.hole f) ∧
+    (∀ s : D (l.foldr Ty.arrow 𝕆), s ∈ ctxAbs l E j Env →
+      s.1 = Tree.bot ∨ ∃ f, s.1 = Tree.node (finOf l j) Query.hole f) :=
+  lemma_B_1 l E j Env hty hfresh
 
 /-- `errorᵢ` as an element of `T_o`. -/
 noncomputable def errAns (b : Bool) : T 𝕆 :=
   Ideal.principal ⟨.leaf (.err b), TreeOk.leaf _ _⟩
+
+/-- The `(error)` clause of Theorem 4.27. -/
+theorem theorem_4_27_error (E : EvalCtx) (b : Bool) (Env : Tmodel.Env)
+    (hty : Comb.HasTy [] (E.fill (.const (.err b))) 𝕆) :
+    Tmodel.combMeaning Env (E.fill (.const (.err b))) 𝕆 = errAns b := by
+  refine EvalCtx.fill_leaf (Val.err b) (Or.inr ⟨b, rfl⟩) E [] Env _ 𝕆 𝕆 hty
+    Comb.HasTy.const (fun Env' _ => ?_)
+  exact Model.combMeaning_const Tmodel Env' (SConst.err b)
+
+/-- The `(bottom)` clause of Theorem 4.27. -/
+theorem theorem_4_27_bottom (E : EvalCtx) (Env : Tmodel.Env)
+    (hty : Comb.HasTy [] (E.fill (Omega 𝕆)) 𝕆) :
+    Tmodel.combMeaning Env (E.fill (Omega 𝕆)) 𝕆
+      = Ideal.principal (DSub.bot : D 𝕆) := by
+  refine EvalCtx.fill_leaf Val.bot (Or.inl rfl) E [] Env _ 𝕆 𝕆 hty
+    (hasTy_Omega 𝕆 []) (fun Env' _ => ?_)
+  exact meaning_Omega _ rfl rfl 𝕆 Env'
 
 /-- **Theorem 4.27.**  *For all evaluation contexts `E`, types
 `σ = σ₁ → … → σₙ`, and variables `x₁, …, xₙ`:*
@@ -495,17 +534,24 @@ T[[E[⊥]]]                                 = ⊥                (bottom)
 T[[apply (catch_σ, λ* x₁ … xₙ . E[xⱼ])]]  = ⌜j−1⌝            (catch), 1 ≤ j ≤ n
 T[[apply (catch_σ, λ* x₁ … xₙ . ⌜k⌝)]]    = ⌜k+n⌝            (return)
 ```
--/
+
+Each clause assumes its term is well typed, and the `(catch)` clause assumes
+the context does not capture the variable in its hole — the paper's standing
+conventions. -/
 theorem theorem_4_27 :
     -- (error)
     (∀ (E : EvalCtx) (b : Bool) (Env : Tmodel.Env),
+      Comb.HasTy [] (E.fill (.const (.err b))) 𝕆 →
       Tmodel.combMeaning Env (E.fill (.const (.err b))) 𝕆 = errAns b) ∧
     -- (bottom)
     (∀ (E : EvalCtx) (Env : Tmodel.Env),
+      Comb.HasTy [] (E.fill (Omega 𝕆)) 𝕆 →
       Tmodel.combMeaning Env (E.fill (Omega 𝕆)) 𝕆
         = Ideal.principal (DSub.bot : D 𝕆)) ∧
     -- (catch)
     (∀ (l : List Ty) (E : EvalCtx) (j : Fin l.length) (Env : Tmodel.Env),
+      Comb.HasTy (varsOf l) (E.fill (.var j.val (l[j.val]'j.isLt))) 𝕆 →
+      ¬ E.Binds (j.val, l[j.val]'j.isLt) →
       Tmodel.combMeaning Env
         (.app (.const (.catchC (l.foldr Ty.arrow 𝕆)))
           (Comb.lamStars (varsOf l) (E.fill (.var j.val (l[j.val]'j.isLt))))) 𝕆
