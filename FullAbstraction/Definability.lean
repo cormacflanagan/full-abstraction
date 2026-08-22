@@ -3341,79 +3341,6 @@ theorem legalResp_of_at'_node {α : Ty} {q : Query α} {d : Tree α}
   obtain ⟨hlq, _, _, _⟩ := TreeOk_node_inv hsub
   exact ⟨RAns.node h p, rfl, hlq⟩
 
-/-! ## The node case of Lemma 5.2 -/
-
-/-- **The construction of §5 represents the node.** -/
-theorem representable_node_of {σ : Ty} (i : Fin σ.arity) (q : Query (σ.arg i))
-    (f : Resp (σ.arg i) → Tree σ) (γ : Ctx σ) (hγ : CtxOk γ)
-    (hok : TreeOk γ (Tree.node i q f))
-    (rs : List (Resp (σ.arg i))) (A : Nat)
-    (hrs_legal : ∀ r ∈ rs, LegalResp q r)
-    (hrs_nd : List.Pairwise (fun a b : Resp (σ.arg i) => a ≠ b) rs)
-    (hrs_cover : ∀ (h : Fin (σ.arg i).arity) (p : Query ((σ.arg i).arg h)),
-      f (q.substAns (RAns.node h p)) ≠ Tree.bot →
-      q.substAns (RAns.node h p) ∈ rs)
-    (hA : ∀ a : Nat, f (q.substAns (RAns.num a)) ≠ Tree.bot → a ≤ A)
-    (Es : (h : Fin (σ.arg i).arity) → Term SPCF)
-    (hEs_cl : ∀ h, Term.Closed (Es h))
-    (hEs_ty : ∀ h, Term.HasTy [] (Es h) (Ty.pads rs.length ((σ.arg i).arg h)))
-    (hgok : ∀ h, TreeOk (Ctx.empty : Ctx (Ty.pads rs.length ((σ.arg i).arg h)))
-      (graftFor q rs h))
-    (hEs_mean : ∀ h, Tmodel.meaning botEnv (Es h)
-        (Ty.pads rs.length ((σ.arg i).arg h))
-      = Ideal.principal ⟨graftFor q rs h, hgok h⟩)
-    (Fs : Resp (σ.arg i) → Term SPCF)
-    (hFs_ty : ∀ r, Term.HasTy [] (Fs r) σ)
-    (hFs_mean : ∀ r, LegalResp q r → ∀ ds : (j : Fin σ.arity) → D (σ.arg j),
-      (∀ j, Ctx.Above (γ.cons i r) j (ds j).1) →
-      applyIdeals σ (Tmodel.meaning botEnv (Fs r) σ)
-          (fun j => Ideal.principal (ds j))
-        = Ideal.principal (groundD (applyArgs σ (f r) (fun j => (ds j).1)))) :
-    Representable σ γ (Tree.node i q f) := by
-  classical
-  obtain ⟨hq, hfin, hsub, hnon⟩ := TreeOk_node_inv hok
-  have hxΓ : ∀ j : Fin σ.arity, (j.val, σ.arg j) ∈ varsFrom 0 σ.args := by
-    intro j
-    have h := mem_varsFrom σ 0 j
-    rwa [Nat.zero_add] at h
-  -- the pieces of `M`
-  have hWty : Term.HasTy (varsFrom 0 σ.args)
-      (Term.app (Term.const (SConst.catchC (Ty.pads rs.length 𝕆)))
-        (catchBody σ i rs.length Es)) 𝕆 :=
-    Term.HasTy.app Term.HasTy.const
-      (catchBody_hasTy i rs Es hEs_ty _ (hxΓ i))
-  have hxΓ' : ∀ j : Fin σ.arity,
-      (j.val, σ.arg j) ∈ ((σ.arity + rs.length, 𝕆) :: varsFrom 0 σ.args) :=
-    fun j => List.mem_cons_of_mem _ (hxΓ j)
-  have hcasty : Term.HasTy ((σ.arity + rs.length, 𝕆) :: varsFrom 0 σ.args)
-      (cascadeTerm (Term.var (σ.arity + rs.length) 𝕆)
-        (caseArms σ i q rs A Fs)) 𝕆 :=
-    cascadeTerm_hasTy _ _ _ (Term.HasTy.var (List.mem_cons_self ..))
-      (caseArms_hasTy σ i q rs A Fs _ hxΓ' (fun r =>
-        Term.weaken (fun p hp => absurd hp (fun hc => List.not_mem_nil hc))
-          (hFs_ty r)))
-  have hbody : Term.HasTy (varsFrom 0 σ.args ++ [])
-      (Term.app (Term.lam (σ.arity + rs.length) 𝕆
-        (cascadeTerm (Term.var (σ.arity + rs.length) 𝕆)
-          (caseArms σ i q rs A Fs)))
-        (Term.app (Term.const (SConst.catchC (Ty.pads rs.length 𝕆)))
-          (catchBody σ i rs.length Es))) 𝕆 := by
-    rw [List.append_nil]
-    exact Term.HasTy.app (Term.HasTy.lam hcasty) hWty
-  have htyM : Term.HasTy [] (nodeTerm σ i q rs A Es Fs) σ :=
-    lams_varsFrom_hasTy σ 0 _ [] hbody
-  refine ⟨nodeTerm σ i q rs A Es Fs, Term.closed_of_hasTy htyM, htyM, ?_⟩
-  intro ds hds
-  rw [show nodeTerm σ i q rs A Es Fs
-      = Term.lams (varsFrom 0 σ.args)
-        (Term.app (Term.lam (σ.arity + rs.length) 𝕆
-          (cascadeTerm (Term.var (σ.arity + rs.length) 𝕆)
-            (caseArms σ i q rs A Fs)))
-          (Term.app (Term.const (SConst.catchC (Ty.pads rs.length 𝕆)))
-            (catchBody σ i rs.length Es))) from rfl,
-    applyIdeals_lams σ 0 botEnv _ [] hbody (fun j => Ideal.principal (ds j))]
-  sorry
-
 /-- **The body of `M` computes the node.**  With the arguments bound in `Env`,
 `let w = catch M' in cascade` denotes exactly what applying the node to those
 arguments gives. -/
@@ -3670,5 +3597,93 @@ theorem nodeBody_value {σ : Ty} (i : Fin σ.arity) (q : Query (σ.arg i))
       rw [hfbot, show (Tree.bot : Tree σ) = Tree.leaf Val.bot from rfl,
         applyArgs_leaf σ Val.bot (fun j => (ds j).1)]
       rfl
+
+/-! ## The node case of Lemma 5.2 -/
+
+/-- **The construction of §5 represents the node.** -/
+theorem representable_node_of {σ : Ty} (i : Fin σ.arity) (q : Query (σ.arg i))
+    (f : Resp (σ.arg i) → Tree σ) (γ : Ctx σ) (hγ : CtxOk γ)
+    (hok : TreeOk γ (Tree.node i q f))
+    (rs : List (Resp (σ.arg i))) (A : Nat)
+    (hrs_legal : ∀ r ∈ rs, LegalResp q r)
+    (hrs_nd : List.Pairwise (fun a b : Resp (σ.arg i) => a ≠ b) rs)
+    (hrs_cover : ∀ (h : Fin (σ.arg i).arity) (p : Query ((σ.arg i).arg h)),
+      f (q.substAns (RAns.node h p)) ≠ Tree.bot →
+      q.substAns (RAns.node h p) ∈ rs)
+    (hA : ∀ a : Nat, f (q.substAns (RAns.num a)) ≠ Tree.bot → a ≤ A)
+    (Es : (h : Fin (σ.arg i).arity) → Term SPCF)
+    (hEs_cl : ∀ h, Term.Closed (Es h))
+    (hEs_ty : ∀ h, Term.HasTy [] (Es h) (Ty.pads rs.length ((σ.arg i).arg h)))
+    (hgok : ∀ h, TreeOk (Ctx.empty : Ctx (Ty.pads rs.length ((σ.arg i).arg h)))
+      (graftFor q rs h))
+    (hEs_mean : ∀ h, Tmodel.meaning botEnv (Es h)
+        (Ty.pads rs.length ((σ.arg i).arg h))
+      = Ideal.principal ⟨graftFor q rs h, hgok h⟩)
+    (Fs : Resp (σ.arg i) → Term SPCF)
+    (hFs_ty : ∀ r, Term.HasTy [] (Fs r) σ)
+    (hFs_mean : ∀ r, LegalResp q r → ∀ ds : (j : Fin σ.arity) → D (σ.arg j),
+      (∀ j, Ctx.Above (γ.cons i r) j (ds j).1) →
+      applyIdeals σ (Tmodel.meaning botEnv (Fs r) σ)
+          (fun j => Ideal.principal (ds j))
+        = Ideal.principal (groundD (applyArgs σ (f r) (fun j => (ds j).1)))) :
+    Representable σ γ (Tree.node i q f) := by
+  classical
+  obtain ⟨hq, hfin, hsub, hnon⟩ := TreeOk_node_inv hok
+  have hxΓ : ∀ j : Fin σ.arity, (j.val, σ.arg j) ∈ varsFrom 0 σ.args := by
+    intro j
+    have h := mem_varsFrom σ 0 j
+    rwa [Nat.zero_add] at h
+  -- the pieces of `M`
+  have hWty : Term.HasTy (varsFrom 0 σ.args)
+      (Term.app (Term.const (SConst.catchC (Ty.pads rs.length 𝕆)))
+        (catchBody σ i rs.length Es)) 𝕆 :=
+    Term.HasTy.app Term.HasTy.const
+      (catchBody_hasTy i rs Es hEs_ty _ (hxΓ i))
+  have hxΓ' : ∀ j : Fin σ.arity,
+      (j.val, σ.arg j) ∈ ((σ.arity + rs.length, 𝕆) :: varsFrom 0 σ.args) :=
+    fun j => List.mem_cons_of_mem _ (hxΓ j)
+  have hcasty : Term.HasTy ((σ.arity + rs.length, 𝕆) :: varsFrom 0 σ.args)
+      (cascadeTerm (Term.var (σ.arity + rs.length) 𝕆)
+        (caseArms σ i q rs A Fs)) 𝕆 :=
+    cascadeTerm_hasTy _ _ _ (Term.HasTy.var (List.mem_cons_self ..))
+      (caseArms_hasTy σ i q rs A Fs _ hxΓ' (fun r =>
+        Term.weaken (fun p hp => absurd hp (fun hc => List.not_mem_nil hc))
+          (hFs_ty r)))
+  have hbody : Term.HasTy (varsFrom 0 σ.args ++ [])
+      (Term.app (Term.lam (σ.arity + rs.length) 𝕆
+        (cascadeTerm (Term.var (σ.arity + rs.length) 𝕆)
+          (caseArms σ i q rs A Fs)))
+        (Term.app (Term.const (SConst.catchC (Ty.pads rs.length 𝕆)))
+          (catchBody σ i rs.length Es))) 𝕆 := by
+    rw [List.append_nil]
+    exact Term.HasTy.app (Term.HasTy.lam hcasty) hWty
+  have htyM : Term.HasTy [] (nodeTerm σ i q rs A Es Fs) σ :=
+    lams_varsFrom_hasTy σ 0 _ [] hbody
+  refine ⟨nodeTerm σ i q rs A Es Fs, Term.closed_of_hasTy htyM, htyM, ?_⟩
+  intro ds hds
+  rw [show nodeTerm σ i q rs A Es Fs
+      = Term.lams (varsFrom 0 σ.args)
+        (Term.app (Term.lam (σ.arity + rs.length) 𝕆
+          (cascadeTerm (Term.var (σ.arity + rs.length) 𝕆)
+            (caseArms σ i q rs A Fs)))
+          (Term.app (Term.const (SConst.catchC (Ty.pads rs.length 𝕆)))
+            (catchBody σ i rs.length Es))) from rfl,
+    applyIdeals_lams σ 0 botEnv _ [] hbody (fun j => Ideal.principal (ds j))]
+  have hEnvx : ∀ j : Fin σ.arity,
+      envArgs 0 σ (fun j => Ideal.principal (ds j)) botEnv j.val (σ.arg j)
+        = Ideal.principal (ds j) := by
+    intro j
+    have h := envArgs_self σ 0 (fun j => Ideal.principal (ds j)) botEnv j
+    rwa [Nat.zero_add] at h
+  exact nodeBody_value i q f γ hγ hq rs A hrs_legal hrs_nd hrs_cover hA
+    Es hEs_cl hEs_ty hgok hEs_mean Fs hFs_ty hFs_mean ds hds _ hEnvx
+    (varsFrom 0 σ.args) hxΓ
+    (fun ν x j => by
+      rw [Model.envUpdate_other _ _ _ _ _ _ (fun hc => by
+        have h1 : j.val = σ.arity + rs.length := hc.1
+        have := j.isLt
+        omega)]
+      exact hEnvx j)
+
 
 end FA
