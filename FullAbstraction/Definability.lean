@@ -2184,18 +2184,18 @@ theorem applyFrontD_val : ∀ (m : Nat) {σ : Ty} (t : D (Ty.pads m σ))
 theorem meaning_appsFrom : ∀ (m : Nat) {σ : Ty} (M : Term SPCF) (b : Nat)
     (Env : Tmodel.Env) (t : D (Ty.pads m σ)) (ws : Nat → Val),
     Tmodel.meaning Env M (Ty.pads m σ) = Ideal.principal t →
-    (∀ k, Env (b + k) 𝕆 = leafT 𝕆 (ws k)) →
+    (∀ k, k < m → Env (b + k) 𝕆 = leafT 𝕆 (ws k)) →
     Tmodel.meaning Env (appsFrom M b m) σ = Ideal.principal (applyFrontD m t ws)
   | 0, _, M, b, Env, t, ws, hM, _ => hM
   | m + 1, σ, M, b, Env, t, ws, hM, hEnv => by
       refine meaning_appsFrom m (.app M (.var b 𝕆)) (b + 1) Env
         (applyD t ⟨.leaf (ws 0), TreeOk.leaf _ _⟩) (fun k => ws (k + 1)) ?_
-        (fun k => ?_)
+        (fun k hk => ?_)
       · have hvar : Tmodel.meaning Env (Term.var b 𝕆) 𝕆
             = leafT 𝕆 (ws 0) := by
           show Tmodel.combMeaning Env (.var b 𝕆) 𝕆 = _
           rw [Model.combMeaning_var]
-          have h := hEnv 0
+          have h := hEnv 0 (Nat.succ_pos _)
           rwa [Nat.add_zero] at h
         rw [meaning_app_term Env M (.var b 𝕆) 𝕆 (Ty.pads m σ) [(b, 𝕆)]
             (Term.HasTy.var (List.mem_cons_self ..))]
@@ -2203,7 +2203,7 @@ theorem meaning_appsFrom : ∀ (m : Nat) {σ : Ty} (M : Term SPCF) (b : Nat)
         show applyT (Ideal.principal t) (Ideal.principal
           (⟨.leaf (ws 0), TreeOk.leaf _ _⟩ : D 𝕆)) = _
         exact applyT_principal t _
-      · have h := hEnv (k + 1)
+      · have h := hEnv (k + 1) (Nat.succ_lt_succ hk)
         rwa [show b + (k + 1) = b + 1 + k from by omega] at h
 
 /-! ## Numbering a finite set of responses
@@ -2868,7 +2868,7 @@ theorem meaning_inner {σ : Ty} (i : Fin σ.arity) (q : Query (σ.arg i))
       = Ideal.principal ⟨graftFor q rs h, hgok h⟩)
     (Env : Tmodel.Env) (dsi : D (σ.arg i)) (ws : Nat → Val)
     (hx : Env i.val (σ.arg i) = Ideal.principal dsi)
-    (hy : ∀ n, Env (σ.arity + n) 𝕆 = leafT 𝕆 (ws n))
+    (hy : ∀ n, n < rs.length → Env (σ.arity + n) 𝕆 = leafT 𝕆 (ws n))
     (Γ : List (Nat × Ty)) (hΓ : ∀ n, n < rs.length → (σ.arity + n, 𝕆) ∈ Γ) :
     Tmodel.meaning Env (Term.apps (Term.var i.val (σ.arg i))
         (List.ofFn (fun h => appsFrom (Es h) σ.arity rs.length))) 𝕆
@@ -2885,7 +2885,7 @@ theorem meaning_inner {σ : Ty} (i : Fin σ.arity) (q : Query (σ.arg i))
         = Ideal.principal (applyFrontD rs.length ⟨graftFor q rs h, hgok h⟩ ws) := by
     intro h
     refine meaning_appsFrom rs.length (Es h) σ.arity Env ⟨graftFor q rs h, hgok h⟩ ws ?_
-      (fun k => hy k)
+      (fun k hk => hy k hk)
     rw [meaning_closed (Es h) (hEs_cl h) _ Env botEnv]
     exact hEs_mean h
   rw [meaning_apps_env (σ.arg i) Env Γ (Term.var i.val (σ.arg i))
@@ -2990,7 +2990,7 @@ theorem catchBody_const {σ : Ty} (i : Fin σ.arity) (q : Query (σ.arg i))
       exact hx
     have hmean := meaning_inner i q rs Es hEs_cl hEs_ty hgok hEs_mean Env' dsi
       (fun n => Classical.choose (hws n)) hxEnv'
-      (fun n => Classical.choose_spec (hws n))
+      (fun n _ => Classical.choose_spec (hws n))
       (yvars σ.arity rs.length ++ Γ) hyΓ
     show Tmodel.meaning Env' (Term.apps (Term.var i.val (σ.arg i))
       (List.ofFn (fun h => appsFrom (Es h) σ.arity rs.length))) 𝕆 = _
@@ -3003,5 +3003,72 @@ theorem catchBody_const {σ : Ty} (i : Fin σ.arity) (q : Query (σ.arg i))
       = (yvars σ.arity rs.length).foldr (fun p τ => p.2 ⇒ τ) 𝕆 from
     (foldX_yvars rs.length σ.arity).symm]
   exact hgoal
+
+/-- `leafT` determines its value. -/
+theorem leafT_inj {σ : Ty} {v w : Val} (h : leafT σ v = leafT σ w) : v = w := by
+  have h1 := Ideal.principal_inj h
+  have h2 : (Tree.leaf v : Tree σ) = Tree.leaf w := congrArg Subtype.val h1
+  injection h2
+
+/-- **A run of `M'`.**  Feeding the response variables flat values computes the
+application of the argument to the `b_h`. -/
+theorem catchBody_run {σ : Ty} (i : Fin σ.arity) (q : Query (σ.arg i))
+    (rs : List (Resp (σ.arg i)))
+    (Es : (h : Fin (σ.arg i).arity) → Term SPCF)
+    (hEs_cl : ∀ h, Term.Closed (Es h))
+    (hEs_ty : ∀ h, Term.HasTy [] (Es h) (Ty.pads rs.length ((σ.arg i).arg h)))
+    (hgok : ∀ h, TreeOk (Ctx.empty : Ctx (Ty.pads rs.length ((σ.arg i).arg h)))
+      (graftFor q rs h))
+    (hEs_mean : ∀ h, Tmodel.meaning botEnv (Es h)
+        (Ty.pads rs.length ((σ.arg i).arg h))
+      = Ideal.principal ⟨graftFor q rs h, hgok h⟩)
+    (Env : Tmodel.Env) (dsi : D (σ.arg i))
+    (hx : Env i.val (σ.arg i) = Ideal.principal dsi)
+    (Γ : List (Nat × Ty)) (hxΓ : (i.val, σ.arg i) ∈ Γ)
+    (vs : ∀ p : Nat × Ty, T p.2) (ws : Nat → Val)
+    (hvs : ∀ n, n < rs.length → vs (σ.arity + n, 𝕆) = leafT 𝕆 (ws n)) :
+    applyTChainX (yvars σ.arity rs.length)
+        (Tmodel.meaning Env (catchBody σ i rs.length Es) (foldX (yvars σ.arity rs.length))) vs
+      = Ideal.principal (groundD (applyArgs (σ.arg i) dsi.1
+          (fun h => argVal q rs h ws))) := by
+  have hyΓ : ∀ n, n < rs.length →
+      (σ.arity + n, 𝕆) ∈ (yvars σ.arity rs.length ++ Γ) :=
+    fun n hn => List.mem_append_left _ (mem_yvars rs.length σ.arity n hn)
+  have hty := inner_hasTy i rs Es hEs_ty (yvars σ.arity rs.length ++ Γ)
+    (List.mem_append_right _ hxΓ) hyΓ
+  have hpeel := lamStars_peel (yvars σ.arity rs.length) Env
+    (Term.toComb (Term.apps (Term.var i.val (σ.arg i))
+      (List.ofFn (fun h => appsFrom (Es h) σ.arity rs.length)))) Γ
+    (Term.toComb_hasTy hty) vs
+  have hM' : Tmodel.meaning Env (catchBody σ i rs.length Es)
+      (foldX (yvars σ.arity rs.length))
+      = Tmodel.combMeaning Env (Comb.lamStars (yvars σ.arity rs.length)
+          (Term.toComb (Term.apps (Term.var i.val (σ.arg i))
+            (List.ofFn (fun h => appsFrom (Es h) σ.arity rs.length)))))
+          (foldX (yvars σ.arity rs.length)) := by
+    show Tmodel.combMeaning Env
+      (Term.toComb (Term.lams (yvars σ.arity rs.length) _)) _ = _
+    rw [Term.toComb_lams]
+  rw [hM', hpeel]
+  have hxU : (updEnvX (yvars σ.arity rs.length) Env vs) i.val (σ.arg i)
+      = Ideal.principal dsi := by
+    rw [updEnvX_other (yvars σ.arity rs.length) Env vs i.val (σ.arg i)
+      (fun p hp hc => by
+        have h := yvars_fst_ge rs.length σ.arity p hp
+        have : i.val = p.1 := hc.1
+        omega)]
+    exact hx
+  have hyU : ∀ n, n < rs.length →
+      (updEnvX (yvars σ.arity rs.length) Env vs) (σ.arity + n) 𝕆
+        = leafT 𝕆 (ws n) := by
+    intro n hn
+    rw [show (updEnvX (yvars σ.arity rs.length) Env vs) (σ.arity + n) 𝕆
+        = vs (σ.arity + n, 𝕆) from
+      updEnvX_lookup (yvars σ.arity rs.length) Env vs (σ.arity + n, 𝕆)
+        (mem_yvars rs.length σ.arity n hn)]
+    exact hvs n hn
+  exact meaning_inner i q rs Es hEs_cl hEs_ty hgok hEs_mean
+    (updEnvX (yvars σ.arity rs.length) Env vs) dsi ws hxU hyU
+    (yvars σ.arity rs.length ++ Γ) hyΓ
 
 end FA
