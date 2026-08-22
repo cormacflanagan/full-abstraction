@@ -3244,10 +3244,271 @@ theorem Sfun_apply_ge (e₁ : Tree (σ ⇒ τ ⇒ ρ)) (e₂ : Tree (σ ⇒ τ))
               exact hka
     | ⟨1, h1⟩ =>
       -- `x` asks about `y·z` at `pt`: enter the `T`-loop
-      sorry
+      obtain ⟨hlq, _, _, _⟩ := TreeOk_node_inv ht
+      have hper : (apply0 d₂ d₃).at' pt = some Tree.bot := hctx ▸ hlq.1
+      obtain ⟨hE1, hE2, hE3, hE4, hE5⟩ := encode_spec d₃ d₂ pt hacc
+        (QueryOk.coherent hlq.2) hper
+      rcases at'_mono (encode d₂ pt) hd₂ with hn | ⟨c2, t₂, hc2, ht₂, hct⟩
+      · rw [hE2] at hn
+        exact Option.noConfusion hn
+      · have hqok₂ : QueryOk (σ ⇒ τ) (encode d₂ pt) :=
+          encode_queryOk e₃ he₃ d₃ hd₃ d₂ pt hacc hlq.2
+        have htLe : Tree.Le ((encode d₂ pt).toTree) d₂ :=
+          Query.toTree_le_of_at' _ hE2
+        have hγ1a' : Tree.Le d₂ ((γ.cons ⟨0, Nat.succ_pos _⟩
+            (q₁.substAns (.node ⟨1, h1⟩ pt)))
+            ⟨1, by show 1 < ρ.arity + 3; omega⟩) := by
+          rw [Ctx.cons_other _ _ (fin_ne (by omega)), hγ1]
+          exact Tree.Le.refl _
+        have hγ1b' : Tree.Le ((γ.cons ⟨0, Nat.succ_pos _⟩
+            (q₁.substAns (.node ⟨1, h1⟩ pt)))
+            ⟨1, by show 1 < ρ.arity + 3; omega⟩)
+            (Tree.join d₂ (encode d₂ pt).toTree) := by
+          rw [Ctx.cons_other _ _ (fin_ne (by omega)), hγ1]
+          exact (Tree.join_spec d₂ _ e₂ hd₂ (Tree.Le.trans htLe hd₂)).1
+        have hγ1c' : ((γ.cons ⟨0, Nat.succ_pos _⟩
+            (q₁.substAns (.node ⟨1, h1⟩ pt)))
+            ⟨1, by show 1 < ρ.arity + 3; omega⟩).at' (encode d₂ pt)
+            = some Tree.bot := by
+          rw [Ctx.cons_other _ _ (fin_ne (by omega)), hγ1]
+          exact hE2
+        have hγ0T' : ∀ r' : Resp ((σ ⇒ τ ⇒ ρ).arg
+            ⟨1, by show 1 < ρ.arity + 2; omega⟩),
+            ((γ.cons ⟨0, Nat.succ_pos _⟩ (q₁.substAns (.node ⟨1, h1⟩ pt)))
+              ⟨0, Nat.succ_pos _⟩).at'
+              (q₁.snoc ⟨1, by show 1 < ρ.arity + 2; omega⟩ pt r')
+            = some Tree.bot := by
+          intro r'
+          rw [Ctx.cons_self]
+          exact at'_join_snoc q₁ (γ ⟨0, Nat.succ_pos _⟩) ⟨1, h1⟩ pt r' hγ0.1
+        have hγ2' : (γ.cons ⟨0, Nat.succ_pos _⟩ (q₁.substAns (.node ⟨1, h1⟩ pt)))
+            ⟨2, by show 2 < ρ.arity + 3; omega⟩ = d₃ := by
+          rw [Ctx.cons_other _ _ (fin_ne (by omega))]
+          exact hγ2
+        have hγj' : ∀ (i' : Nat) (hi' : i' + 3 < ρ.arity + 3),
+            (γ.cons ⟨0, Nat.succ_pos _⟩ (q₁.substAns (.node ⟨1, h1⟩ pt)))
+              ⟨i' + 3, hi'⟩
+            = q₁.ctx ⟨i' + 2, by show i' + 2 < ρ.arity + 2; omega⟩ := by
+          intro i' hi'
+          rw [Ctx.cons_other _ _ (fin_ne (by omega))]
+          exact hγj i' hi'
+        obtain ⟨n', k', hkOk, hkLe, hka⟩ := Tfun_apply_ge e₁ e₂ e₃ he₂ he₃ q₁ pt ft
+          hq₁ hγ0.2 ihf t₂ (encode d₂ pt) d₂ d₃
+          (γ.cons ⟨0, Nat.succ_pos _⟩ (q₁.substAns (.node ⟨1, h1⟩ pt))) a
+          ht₂ hd₂ hd₃ hacc hctx hctx0 herr hE3 hE1 hE5
+          (FollowsToBot_of_at' _ _ hE2) hqok₂ hγ1a' hγ1b' hγ1c' hγ0T' hγ2' hγj'
+          hokA ha
+        refine ⟨n' + 1, Tree.node ⟨0, Nat.succ_pos _⟩ q₁ (fun r =>
+          if r = q₁.substAns (.node ⟨1, h1⟩ pt) then k' else Tree.bot),
+          ?_, ?_, ?_⟩
+        · refine TreeOk.node γ ⟨0, Nat.succ_pos _⟩ q₁ _ hγ0
+            ⟨[q₁.substAns (.node ⟨1, h1⟩ pt)], fun r hr => ?_⟩
+            (fun r _ => ?_) (fun r hr => ?_)
+          · dsimp only at hr
+            by_cases h : r = q₁.substAns (RAns.node ⟨1, h1⟩ pt)
+            · rw [h]; exact List.mem_cons_self ..
+            · rw [if_neg h] at hr; exact absurd rfl hr
+          · dsimp only
+            by_cases h : r = q₁.substAns (RAns.node ⟨1, h1⟩ pt)
+            · rw [if_pos h, h]
+              exact hkOk
+            · rw [if_neg h]; exact TreeOk.leaf _ _
+          · dsimp only
+            rw [if_neg (fun he : r = q₁.substAns (RAns.node ⟨1, h1⟩ pt) =>
+              hr (he.symm ▸ LegalResp.node q₁ ⟨1, h1⟩ pt hlq))]
+        · rw [Sfun]
+          refine Tree.Le.node _ _ _ _ fun r => ?_
+          dsimp only
+          by_cases h : r = q₁.substAns (RAns.node ⟨1, h1⟩ pt)
+          · subst h
+            rw [if_pos rfl, Query.answerOf_substAns]
+            exact hkLe
+          · rw [if_neg h]
+            exact Tree.Le.bot _
+        · rw [app3_node0_node q₁ _ e₁ e₂ e₃ ⟨1, h1⟩ pt ft hq₁]
+          rw [if_pos rfl]
+          exact hka
     | ⟨i + 2, hi⟩ =>
       -- `x` asks about an argument of `ρ`: emit an output node
-      sorry
+      obtain ⟨hlq, _, _, _⟩ := TreeOk_node_inv ht
+      rw [rhsRho hi pt ft e₃ (apply0 e₂ e₃)] at ha
+      cases a with
+      | leaf v =>
+        cases ha with
+        | bot => exact ⟨0, Tree.bot, TreeOk.leaf γ _, Tree.Le.bot _, Tree.Le.bot _⟩
+      | node ia qa fa =>
+        cases ha with
+        | node _ _ _ _ hbr =>
+          obtain ⟨hlqA, hfinA, hsubA, hnonA⟩ := TreeOk_node_inv hokA
+          obtain ⟨l, hl⟩ := hfinA
+          have hi3 : i + 3 < ρ.arity + 3 := by
+            have h' : i + 2 < ρ.arity + 2 := hi
+            omega
+          have hiρ : i < ρ.arity := by
+            have h' : i + 2 < ρ.arity + 2 := hi
+            omega
+          have hex : ∀ s, fa s ≠ Tree.bot →
+              ∃ (n : Nat) (k : Tree (STy σ τ ρ)),
+                TreeOk ((γ.cons ⟨0, Nat.succ_pos _⟩
+                  (q₁.substAns (.node ⟨i + 2, hi⟩ pt))).cons ⟨i + 3, hi3⟩ s) k ∧
+                Tree.Le k (Sfun n (q₁.snoc ⟨i + 2, hi⟩ pt s) d₂ d₃) ∧
+                Tree.Le (fa s) (app3 k e₁ e₂ e₃) := by
+            intro s hs
+            have hls : LegalResp pt s :=
+              Classical.byContradiction fun hnl => hs (hnonA s hnl)
+            have hctx' : (q₁.snoc ⟨i + 2, hi⟩ pt s).ctx
+                ⟨1, by show 1 < ρ.arity + 2; omega⟩ = apply0 d₂ d₃ := by
+              rw [Query.ctx_snoc, Ctx.cons_other _ _ (fin_ne (by omega))]
+              exact hctx
+            have hctx0' : Tree.Le ((q₁.snoc ⟨i + 2, hi⟩ pt s).ctx
+                ⟨0, Nat.succ_pos _⟩) d₃ := by
+              rw [Query.ctx_snoc, Ctx.cons_other _ _ (fin_ne (by omega))]
+              exact hctx0
+            have hγ0' : LegalQuery
+                (((γ.cons ⟨0, Nat.succ_pos _⟩
+                  (q₁.substAns (.node ⟨i + 2, hi⟩ pt))).cons ⟨i + 3, hi3⟩ s)
+                  ⟨0, Nat.succ_pos _⟩)
+                (q₁.snoc ⟨i + 2, hi⟩ pt s) := by
+              rw [Ctx.cons_other _ _ (fin_ne (by omega)), Ctx.cons_self]
+              exact legalQuery_join_snoc q₁ (γ ⟨0, Nat.succ_pos _⟩) ⟨i + 2, hi⟩
+                pt s hγ0 hls
+            have hγ1' : ((γ.cons ⟨0, Nat.succ_pos _⟩
+                (q₁.substAns (.node ⟨i + 2, hi⟩ pt))).cons ⟨i + 3, hi3⟩ s)
+                ⟨1, by show 1 < ρ.arity + 3; omega⟩ = d₂ := by
+              rw [Ctx.cons_other _ _ (fin_ne (by omega)),
+                Ctx.cons_other _ _ (fin_ne (by omega))]
+              exact hγ1
+            have hγ2' : ((γ.cons ⟨0, Nat.succ_pos _⟩
+                (q₁.substAns (.node ⟨i + 2, hi⟩ pt))).cons ⟨i + 3, hi3⟩ s)
+                ⟨2, by show 2 < ρ.arity + 3; omega⟩ = d₃ := by
+              rw [Ctx.cons_other _ _ (fin_ne (by omega)),
+                Ctx.cons_other _ _ (fin_ne (by omega))]
+              exact hγ2
+            have hγj' : ∀ (i' : Nat) (hi' : i' + 3 < ρ.arity + 3),
+                ((γ.cons ⟨0, Nat.succ_pos _⟩
+                  (q₁.substAns (.node ⟨i + 2, hi⟩ pt))).cons ⟨i + 3, hi3⟩ s)
+                  ⟨i' + 3, hi'⟩
+                = (q₁.snoc ⟨i + 2, hi⟩ pt s).ctx
+                    ⟨i' + 2, by show i' + 2 < ρ.arity + 2; omega⟩ := by
+              intro i' hi'
+              by_cases hii : i' = i
+              · subst hii
+                rw [show ((γ.cons ⟨0, Nat.succ_pos _⟩
+                      (q₁.substAns (.node ⟨i' + 2, hi⟩ pt))).cons
+                        ⟨i' + 3, hi3⟩ s) ⟨i' + 3, hi'⟩
+                    = Tree.join ((γ.cons ⟨0, Nat.succ_pos _⟩
+                        (q₁.substAns (.node ⟨i' + 2, hi⟩ pt))) ⟨i' + 3, hi3⟩)
+                        s.toTree
+                    from Ctx.cons_self _ _ _,
+                  Ctx.cons_other _ _ (fin_ne (by omega)), hγj i' hi3,
+                  Query.ctx_snoc,
+                  show (q₁.ctx.cons ⟨i' + 2, hi⟩ s)
+                      ⟨i' + 2, by show i' + 2 < ρ.arity + 2; omega⟩
+                    = Tree.join (q₁.ctx ⟨i' + 2, hi⟩) s.toTree
+                    from Ctx.cons_self _ _ _]
+              · rw [Ctx.cons_other _ _ (fin_ne (by omega)),
+                  Ctx.cons_other _ _ (fin_ne (by omega)), Query.ctx_snoc,
+                  Ctx.cons_other _ _ (fin_ne (by omega))]
+                exact hγj i' hi'
+            have hokA' : TreeOk (fun j : Fin ρ.arity =>
+                ((q₁.snoc ⟨i + 2, hi⟩ pt s).ctx
+                  ⟨j.val + 2, by show j.val + 2 < ρ.arity + 2; omega⟩
+                  : Tree (ρ.arg j))) (fa s) := by
+              have hce : (fun j : Fin ρ.arity =>
+                  ((q₁.snoc ⟨i + 2, hi⟩ pt s).ctx
+                    ⟨j.val + 2, by show j.val + 2 < ρ.arity + 2; omega⟩
+                    : Tree (ρ.arg j)))
+                  = Ctx.cons (fun j : Fin ρ.arity =>
+                    (q₁.ctx ⟨j.val + 2, by show j.val + 2 < ρ.arity + 2; omega⟩
+                      : Tree (ρ.arg j))) ⟨i, hiρ⟩ s := by
+                funext j
+                by_cases hji : (⟨i, hiρ⟩ : Fin ρ.arity) = j
+                · subst hji
+                  rw [Query.ctx_snoc,
+                    show (q₁.ctx.cons ⟨i + 2, hi⟩ s)
+                        ⟨(⟨i, hiρ⟩ : Fin ρ.arity).val + 2,
+                          by show i + 2 < ρ.arity + 2; omega⟩
+                      = Tree.join (q₁.ctx ⟨i + 2, hi⟩) s.toTree
+                      from Ctx.cons_self _ _ _,
+                    Ctx.cons_self]
+                · have hij : ¬ i = j.val := fun h => hji (Fin.ext h)
+                  rw [Query.ctx_snoc, Ctx.cons_other _ _ (fin_ne (by omega)),
+                    Ctx.cons_other _ _ hji]
+              rw [hce]
+              exact hsubA s hls
+            exact ihf s (q₁.snoc ⟨i + 2, hi⟩ pt s) d₂ d₃ _ (fa s)
+              (at'_snoc_node e₁ q₁ ⟨i + 2, hi⟩ pt ft s hq₁)
+              hd₂ hd₃ hacc hctx' hctx0' herr hγ0' hγ1' hγ2' hγj' hokA' (hbr s)
+          refine ⟨(maxOver l fun s =>
+              if h : fa s = Tree.bot then 0 else (hex s h).choose) + 1,
+            Tree.node ⟨0, Nat.succ_pos _⟩ q₁ (fun r =>
+              if r = q₁.substAns (.node ⟨i + 2, hi⟩ pt) then
+                (Tree.node ⟨i + 3, hi3⟩ pt (fun s =>
+                  if h : fa s = Tree.bot then Tree.bot
+                  else ((hex s h).choose_spec).choose) : Tree (STy σ τ ρ))
+              else Tree.bot), ?_, ?_, ?_⟩
+          · refine TreeOk.node γ ⟨0, Nat.succ_pos _⟩ q₁ _ hγ0
+              ⟨[q₁.substAns (.node ⟨i + 2, hi⟩ pt)], fun r hr => ?_⟩
+              (fun r _ => ?_) (fun r hr => ?_)
+            · dsimp only at hr
+              by_cases h : r = q₁.substAns (RAns.node ⟨i + 2, hi⟩ pt)
+              · rw [h]; exact List.mem_cons_self ..
+              · rw [if_neg h] at hr; exact absurd rfl hr
+            · dsimp only
+              by_cases h : r = q₁.substAns (RAns.node ⟨i + 2, hi⟩ pt)
+              · rw [if_pos h, h]
+                refine TreeOk.node (γ.cons ⟨0, Nat.succ_pos _⟩
+                    (q₁.substAns (.node ⟨i + 2, hi⟩ pt)))
+                  ⟨i + 3, hi3⟩ pt _ ?_ ⟨l, fun s hs => ?_⟩
+                  (fun s _ => ?_) (fun s hsl => ?_)
+                · rw [Ctx.cons_other _ _ (fin_ne (by omega)), hγj i hi3]
+                  exact hlq
+                · dsimp only at hs
+                  by_cases h2 : fa s = Tree.bot
+                  · rw [dif_pos h2] at hs; exact absurd rfl hs
+                  · exact hl s h2
+                · dsimp only
+                  by_cases h2 : fa s = Tree.bot
+                  · rw [dif_pos h2]; exact TreeOk.leaf _ _
+                  · rw [dif_neg h2]
+                    exact ((hex s h2).choose_spec).choose_spec.1
+                · dsimp only
+                  rw [dif_pos (hnonA s hsl)]
+              · rw [if_neg h]; exact TreeOk.leaf _ _
+            · dsimp only
+              rw [if_neg (fun he : r = q₁.substAns (RAns.node ⟨i + 2, hi⟩ pt) =>
+                hr (he.symm ▸ LegalResp.node q₁ ⟨i + 2, hi⟩ pt hlq))]
+          · rw [Sfun]
+            refine Tree.Le.node _ _ _ _ fun r => ?_
+            dsimp only
+            by_cases h : r = q₁.substAns (RAns.node ⟨i + 2, hi⟩ pt)
+            · subst h
+              rw [if_pos rfl, Query.answerOf_substAns]
+              dsimp only
+              refine Tree.Le.node _ _ _ _ fun s => ?_
+              dsimp only
+              by_cases h2 : fa s = Tree.bot
+              · rw [dif_pos h2]; exact Tree.Le.bot _
+              · rw [dif_neg h2]
+                refine Tree.Le.trans ((hex s h2).choose_spec).choose_spec.2.1
+                  (Sfun_le_of_le ?_ _ _ _)
+                have hle := le_maxOver (fun s' =>
+                  if h' : fa s' = Tree.bot then 0 else (hex s' h').choose)
+                  l s (hl s h2)
+                dsimp only at hle
+                rwa [dif_neg h2] at hle
+            · rw [if_neg h]; exact Tree.Le.bot _
+          · rw [app3_node0_node q₁ _ e₁ e₂ e₃ ⟨i + 2, hi⟩ pt ft hq₁]
+            rw [if_pos rfl, app3_nodeRho hi3 pt _ e₁ e₂ e₃]
+            refine Tree.Le.node _ _ _ _ fun s => ?_
+            dsimp only
+            by_cases h : fa s = Tree.bot
+            · have hb : Tree.Le (fa s) Tree.bot := by
+                rw [h]
+                exact Tree.Le.refl _
+              exact Tree.Le.trans hb (Tree.Le.bot _)
+            · rw [dif_neg h]
+              exact ((hex s h).choose_spec).choose_spec.2.2
 
 end SCombinator
 
