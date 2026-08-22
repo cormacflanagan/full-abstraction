@@ -73,6 +73,13 @@ theorem args_foldr (l : List Ty) : (l.foldr arrow base).args = l := by
 theorem arity_foldr (l : List Ty) : (l.foldr arrow base).arity = l.length := by
   simp [arity, args_foldr]
 
+/-- Every type is the fold of its argument list. -/
+theorem foldr_args : ∀ σ : Ty, σ.args.foldr arrow base = σ
+  | base => rfl
+  | arrow a b => by
+      show arrow a (b.args.foldr arrow base) = arrow a b
+      rw [foldr_args b]
+
 end Ty
 
 /-- The `k`-ary ground type `o → … → o → o`. -/

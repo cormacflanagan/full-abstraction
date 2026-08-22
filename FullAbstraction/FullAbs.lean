@@ -71,6 +71,45 @@ theorem appCtx_fill (Es : List (Term SPCF)) (M : Term SPCF) :
 
 /-! ## Definition 5.3 -/
 
+/-- Ground trees are always legal: `𝕆` has no argument positions. -/
+theorem TreeOk_ground (γ : Ctx 𝕆) : ∀ t : Tree 𝕆, TreeOk γ t
+  | .leaf v => TreeOk.leaf γ v
+  | .node i _ _ => absurd i.isLt (by simp [Ty.arity])
+
+/-- A ground tree, packed as a finite element. -/
+noncomputable def groundD (t : Tree 𝕆) : D 𝕆 := ⟨t, TreeOk_ground Ctx.empty t⟩
+
+/-- Application of principal ideals is the principal ideal of the
+application. -/
+theorem applyT_principal {σ τ : Ty} (f : D (σ ⇒ τ)) (d : D σ) :
+    applyT (Ideal.principal f) (Ideal.principal d) = Ideal.principal (applyD f d) := by
+  apply Ideal.ext
+  intro c
+  constructor
+  · rintro ⟨f', hf', d', hd', hc⟩
+    show Tree.Le c.1 (apply0 f.1 d.1)
+    refine Tree.Le.trans (hc : Tree.Le c.1 (apply0 f'.1 d'.1)) ?_
+    exact Tree.Le.trans
+      (apply0_mono_left (hf' : Tree.Le f'.1 f.1) d'.1)
+      (apply0_mono_right f.1 (hd' : Tree.Le d'.1 d.1))
+  · intro hc
+    exact ⟨f, Po.le_refl f, d, Po.le_refl d, hc⟩
+
+/-- Iterated application of principal ideals computes `applyArgs`. -/
+theorem applyIdeals_principal : ∀ (σ : Ty) (d : D σ)
+    (ds : (i : Fin σ.arity) → D (σ.arg i)),
+    applyIdeals σ (Ideal.principal d) (fun i => Ideal.principal (ds i))
+      = Ideal.principal (groundD (applyArgs σ d.1 (fun i => (ds i).1)))
+  | .base, d, ds => by
+      show Ideal.principal d = _
+      exact congrArg Ideal.principal (Subtype.ext rfl)
+  | .arrow a τ, d, ds => by
+      show applyIdeals τ (applyT (Ideal.principal d)
+        (Ideal.principal (ds ⟨0, Nat.succ_pos _⟩))) _ = _
+      rw [applyT_principal d (ds ⟨0, Nat.succ_pos _⟩)]
+      exact applyIdeals_principal τ (applyD d (ds ⟨0, Nat.succ_pos _⟩))
+        (fun i => ds ⟨i.val + 1, Nat.succ_lt_succ i.isLt⟩)
+
 /-- **Definition 5.3** (*Subtree representability*).
 
 "Let `γ` be a context in `C_σ`.  A subtree `e ∈ D_σ(γ)` is representable iff
@@ -81,22 +120,11 @@ there exists a closed expression `M` such that
 When `γ = ∅`, `e` is a complete tree and subtree representability reduces to
 tree representability by extensionality." -/
 def Representable (σ : Ty) (γ : Ctx σ) (e : Tree σ) : Prop :=
-  ∃ (M : Term SPCF) (d : D σ), Term.Closed M ∧ Term.HasTy [] M σ ∧
-    Tmodel.meaning botEnv M σ = Ideal.principal d ∧
-    ∀ ds : (i : Fin σ.arity) → Tree (σ.arg i),
-      (∀ i, Ctx.Above γ i (ds i)) →
-      applyArgs σ d.1 ds = applyArgs σ e ds
-
-/-- **Lemma 5.2.**  *For every finite element `d ∈ D_σ`, there is a closed SPCF
-expression `M` such that `T[[M]] = d`.*
-
-"The proof of the lemma proceeds by induction on the depth of the type
-`σ = σ₁ → … → σₖ → o`. … we must prove that for all contexts `γ ∈ C_σ`, every
-finite subtree `e` in `D_σ(γ)` is representable in SPCF." -/
-theorem lemma_5_2 (σ : Ty) (d : D σ) :
-    ∃ M : Term SPCF, Term.Closed M ∧ Term.HasTy [] M σ ∧
-      Tmodel.meaning botEnv M σ = Ideal.principal d := by
-  sorry
+  ∃ M : Term SPCF, Term.Closed M ∧ Term.HasTy [] M σ ∧
+    ∀ ds : (i : Fin σ.arity) → D (σ.arg i),
+      (∀ i, Ctx.Above γ i (ds i).1) →
+      applyIdeals σ (Tmodel.meaning botEnv M σ) (fun i => Ideal.principal (ds i))
+        = Ideal.principal (groundD (applyArgs σ e (fun i => (ds i).1)))
 
 /-- The stronger statement actually proved by the nested induction of §5:
 every finite subtree is representable in every legal context. -/
@@ -239,6 +267,23 @@ theorem separation (σ : Ty) (F G : T σ) (h : F ≠ G) :
   Classical.byContradiction fun hcon =>
     h (eq_of_principal_applyIdeals σ F G fun ds =>
       Classical.byContradiction fun hne => hcon ⟨ds, hne⟩)
+
+/-- **Lemma 5.2.**  *For every finite element `d ∈ D_σ`, there is a closed SPCF
+expression `M` such that `T[[M]] = d`.*
+
+"The proof of the lemma proceeds by induction on the depth of the type
+`σ = σ₁ → … → σₖ → o`. … we must prove that for all contexts `γ ∈ C_σ`, every
+finite subtree `e` in `D_σ(γ)` is representable in SPCF."  The passage from
+subtree representability at the empty context back to `T[[M]] = d` is the
+"reduces to tree representability by extensionality" remark of
+Definition 5.3. -/
+theorem lemma_5_2 (σ : Ty) (d : D σ) :
+    ∃ M : Term SPCF, Term.Closed M ∧ Term.HasTy [] M σ ∧
+      Tmodel.meaning botEnv M σ = Ideal.principal d := by
+  obtain ⟨M, hcl, hty, happ⟩ := lemma_5_2_subtrees σ Ctx.empty d.1 d.2
+  refine ⟨M, hcl, hty, ?_⟩
+  refine eq_of_principal_applyIdeals σ _ _ fun ds => ?_
+  rw [happ ds (fun i => Tree.Le.bot _), applyIdeals_principal σ d ds]
 
 /-- The meaning of an application, in terms of `apply`. -/
 theorem meaning_app {L : Lang} (M : Model L) (E : M.Env) (t u : Comb L) (a ρ : Ty)
