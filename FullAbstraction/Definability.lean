@@ -1404,6 +1404,106 @@ theorem applyFront_graftT_probe (m : Nat) {σ : Ty} (base : Tree σ)
     (at'_graftT_probe m base ps hgood p hp)]
   rw [applyFront_probeT m σ p.1.val p.1.isLt vs (ws p.1.val) (hvs _)]
 
+/-! ## Legality of the graft -/
+
+/-- Planting a legal subtree at a perimeter position keeps the tree legal.  The
+general form of `TreeOk_plant_leaf`: the planted tree must be legal in the
+context the position determines. -/
+theorem TreeOk_plant {σ : Ty} : ∀ (q : Query σ) (γ : Ctx σ) (t e : Tree σ),
+    TreeOk γ t → t.at' q = some Tree.bot → QueryOk σ q →
+    TreeOk (q.ctxFrom γ) e → TreeOk γ (plant q t e)
+  | .hole, γ, t, e, _, _, _, he => he
+  | .step i p s rest, γ, t, e, ht, hat, hok, he => by
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv hat
+      obtain ⟨hp, hfin, hsub, hnon⟩ := TreeOk_node_inv ht
+      obtain ⟨hs, hokr⟩ := (QueryOk_step i p s rest).mp hok
+      rw [plant_step_self]
+      refine TreeOk.node γ i p _ hp ?_ (fun u _ => ?_) (fun u hu => ?_)
+      · obtain ⟨l, hl⟩ := hfin
+        refine ⟨s :: l, fun u hu => ?_⟩
+        by_cases hus : u = s
+        · rw [hus]; exact List.mem_cons_self ..
+        · dsimp only at hu
+          rw [if_neg hus] at hu
+          exact List.mem_cons_of_mem _ (hl u hu)
+      · by_cases hus : u = s
+        · subst hus
+          rw [if_pos rfl]
+          exact TreeOk_plant rest (γ.cons i u) (f u) e (hsub u hs) hrest hokr he
+        · rw [if_neg hus]
+          by_cases hlu : LegalResp p u
+          · exact hsub u hlu
+          · rw [hnon u hlu]; exact TreeOk.leaf _ _
+      · have hus : ¬ u = s := fun he2 => hu (he2 ▸ hs)
+        rw [if_neg hus]
+        exact hnon u hu
+
+theorem Ctx.padCN_lt : ∀ (m : Nat) {σ : Ty} (γ : Ctx σ) (l : Nat) (hl : l < m)
+    (h : l < (Ty.pads m σ).arity),
+    (Ctx.padCN m γ : Ctx (Ty.pads m σ)) ⟨l, h⟩ = Tree.bot
+  | 0, _, _, _, hl, _ => absurd hl (Nat.not_lt_zero _)
+  | m + 1, σ, γ, 0, _, h => rfl
+  | m + 1, σ, γ, l + 1, hl, h => by
+      show (Ctx.padCN m γ : Ctx (Ty.pads m σ)) ⟨l, _⟩ = Tree.bot
+      exact Ctx.padCN_lt m γ l (Nat.lt_of_succ_lt_succ hl) _
+
+theorem ctxFrom_padQN : ∀ (m : Nat) {σ : Ty} (P : Query σ) (γ : Ctx σ),
+    (Query.padQN m P).ctxFrom (Ctx.padCN m γ) = Ctx.padCN m (P.ctxFrom γ)
+  | 0, _, P, γ => rfl
+  | m + 1, σ, P, γ => by
+      show (Query.padQ (Query.padQN m P)).ctxFrom
+        (Ctx.padC (Ctx.padCN m γ)) = _
+      rw [ctxFrom_padQ (Query.padQN m P) (Ctx.padCN m γ),
+        ctxFrom_padQN m P γ]
+      rfl
+
+/-- A probe is legal in the context a padded position determines. -/
+theorem TreeOk_probeT_ctx (m : Nat) (σ : Ty) (l : Nat) (hl : l < m)
+    (P : Query σ) :
+    TreeOk ((Query.padQN m P).ctxFrom (Ctx.empty : Ctx (Ty.pads m σ)))
+      (probeT m σ l hl) := by
+  rw [show (Ctx.empty : Ctx (Ty.pads m σ)) = Ctx.padCN m (Ctx.empty : Ctx σ)
+    from (Ctx.padCN_empty m σ).symm, ctxFrom_padQN m P Ctx.empty]
+  rw [probeT]
+  refine TreeOk.node _ _ _ _ ?_ ⟨[], fun r hr => absurd rfl hr⟩
+    (fun r _ => TreeOk.leaf _ _) (fun r _ => rfl)
+  rw [Ctx.padCN_lt m _ l hl]
+  exact LegalQuery.root
+
+/-- The graft of legal probes into a legal padded base is legal. -/
+theorem TreeOk_graftT : ∀ (m : Nat) {σ : Ty} (base : Tree σ)
+    (ps : List (Fin m × Query σ)), GoodPositions base ps →
+    (∀ p ∈ ps, QueryOk σ p.2) → TreeOk (Ctx.empty : Ctx σ) base →
+    TreeOk (Ctx.empty : Ctx (Ty.pads m σ)) (graftT m base ps)
+  | m, σ, base, [], _, _, hbase => by
+      show TreeOk _ (Tree.padN m base)
+      rw [show (Ctx.empty : Ctx (Ty.pads m σ)) = Ctx.padCN m (Ctx.empty : Ctx σ)
+        from (Ctx.padCN_empty m σ).symm]
+      exact TreeOk_padN m hbase
+  | m, σ, base, p :: ps, ⟨hall, hpair⟩, hqok, hbase => by
+      obtain ⟨hhead, htail⟩ := List.pairwise_cons.mp hpair
+      have hgood : GoodPositions base ps :=
+        ⟨fun q hq => hall q (List.mem_cons_of_mem _ hq), htail⟩
+      show TreeOk _ (plant (Query.padQN m p.2) (graftT m base ps)
+        (probeT m σ p.1.val p.1.isLt))
+      refine TreeOk_plant (Query.padQN m p.2) Ctx.empty _ _
+        (TreeOk_graftT m base ps hgood
+          (fun q hq => hqok q (List.mem_cons_of_mem _ hq)) hbase)
+        (at'_graftT_bot m base ps hgood p.2 (hall p (List.mem_cons_self ..))
+          (fun q hq => Ne.symm (hhead q hq)))
+        (QueryOk_padQN m p.2 (hqok p (List.mem_cons_self ..)))
+        (TreeOk_probeT_ctx m σ p.1.val p.1.isLt p.2)
+
+/-- Adding ground arguments costs at most one level of depth. -/
+theorem Ty.depth_pads : ∀ (m : Nat) (σ : Ty),
+    (Ty.pads m σ).depth ≤ max 2 σ.depth
+  | 0, σ => Nat.le_max_right _ _
+  | m + 1, σ => by
+      show max (1 + Ty.depth 𝕆) (Ty.pads m σ).depth ≤ _
+      have h := Ty.depth_pads m σ
+      show max (1 + 1) (Ty.pads m σ).depth ≤ _
+      omega
+
 /-! ## The flat ground domain, as ideals -/
 
 /-- Every ideal at ground type is the principal ideal of a leaf: `T_o` is the
