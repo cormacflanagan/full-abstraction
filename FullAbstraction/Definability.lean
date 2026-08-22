@@ -1020,6 +1020,210 @@ theorem TreeOk_pad {σ : Ty} {γ : Ctx σ} {t : Tree σ} (h : TreeOk γ t) :
     · rw [hnon r hr]
       rfl
 
+/-! ## Iterated padding, probes, and reading a probe back
+
+`Ty.pads m σ` prefixes `σ` with `m` ground arguments.  A *probe* at one of
+those arguments, grafted into a padded tree at a perimeter position, is what
+the §5 expression `Bₕ` uses to report back: applying the `m` ground arguments
+turns the probe into whatever flat value the corresponding argument carries. -/
+
+/-- `𝕆 → … → 𝕆 → σ`, with `m` leading ground arguments. -/
+def Ty.pads : Nat → Ty → Ty
+  | 0, σ => σ
+  | m + 1, σ => 𝕆 ⇒ Ty.pads m σ
+
+theorem Ty.arity_pads : ∀ (m : Nat) (σ : Ty), (Ty.pads m σ).arity = m + σ.arity
+  | 0, σ => (Nat.zero_add _).symm
+  | m + 1, σ => by
+      show (Ty.pads m σ).arity + 1 = _
+      rw [Ty.arity_pads m σ]
+      omega
+
+/-- Iterated padding of a tree. -/
+noncomputable def Tree.padN : ∀ (m : Nat) {σ : Ty}, Tree σ → Tree (Ty.pads m σ)
+  | 0, _, t => t
+  | m + 1, _, t => Tree.pad (Tree.padN m t)
+
+theorem Tree.padN_leaf : ∀ (m : Nat) {σ : Ty} (v : Val),
+    Tree.padN m (Tree.leaf v : Tree σ) = Tree.leaf v
+  | 0, _, v => rfl
+  | m + 1, σ, v => by
+      show Tree.pad (Tree.padN m (Tree.leaf v : Tree σ)) = _
+      rw [Tree.padN_leaf m v]
+      rfl
+
+/-- Iterated padding of a query. -/
+def Query.padQN : ∀ (m : Nat) {σ : Ty}, Query σ → Query (Ty.pads m σ)
+  | 0, _, P => P
+  | m + 1, _, P => Query.padQ (Query.padQN m P)
+
+/-- Iterated padding of a context. -/
+noncomputable def Ctx.padCN : ∀ (m : Nat) {σ : Ty}, Ctx σ → Ctx (Ty.pads m σ)
+  | 0, _, γ => γ
+  | m + 1, _, γ => Ctx.padC (Ctx.padCN m γ)
+
+theorem Ctx.padCN_empty : ∀ (m : Nat) (σ : Ty),
+    Ctx.padCN m (Ctx.empty : Ctx σ) = (Ctx.empty : Ctx (Ty.pads m σ))
+  | 0, _ => rfl
+  | m + 1, σ => by
+      show Ctx.padC (Ctx.padCN m (Ctx.empty : Ctx σ)) = _
+      rw [Ctx.padCN_empty m σ]
+      exact Ctx.padC_empty
+
+theorem TreeOk_padN : ∀ (m : Nat) {σ : Ty} {γ : Ctx σ} {t : Tree σ}, TreeOk γ t →
+    TreeOk (Ctx.padCN m γ) (Tree.padN m t)
+  | 0, _, _, _, h => h
+  | m + 1, _, _, _, h => TreeOk_pad (TreeOk_padN m h)
+
+theorem QueryOk_padQN : ∀ (m : Nat) {σ : Ty} (P : Query σ), QueryOk σ P →
+    QueryOk (Ty.pads m σ) (Query.padQN m P)
+  | 0, _, _, h => h
+  | m + 1, σ, P, h => QueryOk_padQ (Query.padQN m P) (QueryOk_padQN m P h)
+
+/-- Applying the `m` leading ground arguments. -/
+noncomputable def applyFront : ∀ (m : Nat) {σ : Ty}, Tree (Ty.pads m σ) →
+    (Nat → Tree 𝕆) → Tree σ
+  | 0, _, t, _ => t
+  | m + 1, _, t, vs => applyFront m (apply0 t (vs 0)) (fun k => vs (k + 1))
+
+/-- A padded tree ignores every one of the new arguments. -/
+theorem applyFront_padN : ∀ (m : Nat) {σ : Ty} (t : Tree σ) (vs : Nat → Tree 𝕆),
+    applyFront m (Tree.padN m t) vs = t
+  | 0, _, t, vs => rfl
+  | m + 1, σ, t, vs => by
+      show applyFront m (apply0 (Tree.pad (Tree.padN m t)) (vs 0)) _ = _
+      rw [apply0_pad]
+      exact applyFront_padN m t _
+
+/-- `applyFront` is monotone in the tree. -/
+theorem applyFront_mono : ∀ (m : Nat) {σ : Ty} {t t' : Tree (Ty.pads m σ)}
+    (vs : Nat → Tree 𝕆), Tree.Le t t' → Tree.Le (applyFront m t vs)
+      (applyFront m t' vs)
+  | 0, _, _, _, _, h => h
+  | m + 1, σ, t, t', vs, h =>
+      applyFront_mono m _ (apply0_mono_left h (vs 0))
+
+/-- Navigation along a padded position survives applying the new arguments. -/
+theorem at'_apply0_padQ {σ : Ty} : ∀ (P : Query σ) (t : Tree (𝕆 ⇒ σ))
+    (d : Tree 𝕆) (x : Tree (𝕆 ⇒ σ)), t.at' (Query.padQ P) = some x →
+    (apply0 t d).at' P = some (apply0 x d)
+  | .hole, t, d, x, h => by
+      have hx : t = x := by injection h
+      rw [hx]
+      rfl
+  | .step i q r rest, t, d, x, h => by
+      have h2 : t.at' (.step (Fin.padI i) q r (Query.padQ rest)) = some x := h
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv h2
+      have happ : apply0 (Tree.node (Fin.padI i) q f) d
+          = Tree.node i q (fun s => apply0 (f s) d) := by
+        simp only [Fin.padI]
+        rw [apply0]
+      rw [happ, Tree.at'_step_self]
+      exact at'_apply0_padQ rest (f r) d x hrest
+
+theorem at'_applyFront : ∀ (m : Nat) {σ : Ty} (P : Query σ)
+    (t : Tree (Ty.pads m σ)) (vs : Nat → Tree 𝕆) (x : Tree (Ty.pads m σ)),
+    t.at' (Query.padQN m P) = some x →
+    (applyFront m t vs).at' P = some (applyFront m x vs)
+  | 0, _, P, t, vs, x, h => h
+  | m + 1, σ, P, t, vs, x, h => by
+      show (applyFront m (apply0 t (vs 0)) _).at' P
+        = some (applyFront m (apply0 x (vs 0)) _)
+      refine at'_applyFront m P (apply0 t (vs 0)) _ (apply0 x (vs 0)) ?_
+      exact at'_apply0_padQ (Query.padQN m P) t (vs 0) x h
+
+/-- Applying the new arguments commutes with planting at a padded position that
+the tree actually reaches. -/
+theorem apply0_plant_padQ {σ : Ty} : ∀ (P : Query σ) (t e : Tree (𝕆 ⇒ σ))
+    (d : Tree 𝕆), (∃ x, t.at' (Query.padQ P) = some x) →
+    apply0 (plant (Query.padQ P) t e) d = plant P (apply0 t d) (apply0 e d)
+  | .hole, t, e, d, _ => rfl
+  | .step i q r rest, t, e, d, ⟨x, hx⟩ => by
+      have h2 : t.at' (.step (Fin.padI i) q r (Query.padQ rest)) = some x := hx
+      obtain ⟨f, rfl, hrest⟩ := at'_step_inv h2
+      have happ : ∀ g : Resp (σ.arg i) → Tree (𝕆 ⇒ σ),
+          apply0 (Tree.node (Fin.padI i) q g) d
+            = Tree.node i q (fun s => apply0 (g s) d) := by
+        intro g
+        simp only [Fin.padI]
+        rw [apply0]
+      show apply0 (plant (.step (Fin.padI i) q r (Query.padQ rest))
+        (Tree.node (Fin.padI i) q f) e) d = _
+      rw [plant_step_self, happ, happ, plant_step_self]
+      refine congrArg (fun g => (Tree.node i q g : Tree σ)) (funext fun sr => ?_)
+      by_cases hs : sr = r
+      · rw [if_pos hs, if_pos hs]
+        subst hs
+        exact apply0_plant_padQ rest (f sr) e d ⟨x, hrest⟩
+      · rw [if_neg hs, if_neg hs]
+
+theorem applyFront_plant : ∀ (m : Nat) {σ : Ty} (P : Query σ)
+    (t e : Tree (Ty.pads m σ)) (vs : Nat → Tree 𝕆),
+    (∃ x, t.at' (Query.padQN m P) = some x) →
+    applyFront m (plant (Query.padQN m P) t e) vs
+      = plant P (applyFront m t vs) (applyFront m e vs)
+  | 0, _, P, t, e, vs, _ => rfl
+  | m + 1, σ, P, t, e, vs, ⟨x, hx⟩ => by
+      show applyFront m (apply0 (plant (Query.padQ (Query.padQN m P)) t e)
+        (vs 0)) _ = _
+      rw [apply0_plant_padQ (Query.padQN m P) t e (vs 0) ⟨x, hx⟩]
+      exact applyFront_plant m P (apply0 t (vs 0)) (apply0 e (vs 0)) _
+        ⟨apply0 x (vs 0), at'_apply0_padQ (Query.padQN m P) t (vs 0) x hx⟩
+
+/-- A probe of one of the `m` leading ground arguments. -/
+noncomputable def probeT (m : Nat) (σ : Ty) (l : Nat) (hl : l < m) :
+    Tree (Ty.pads m σ) :=
+  Tree.node ⟨l, by rw [Ty.arity_pads]; omega⟩ Query.hole (fun _ => Tree.bot)
+
+/-- What a probe reports about a flat value. -/
+def probeVal (σ : Ty) : Val → Tree σ
+  | .err b => .leaf (.err b)
+  | _ => Tree.bot
+
+theorem Tree.padN_probeVal (m : Nat) (σ : Ty) (w : Val) :
+    Tree.padN m (probeVal σ w) = probeVal (Ty.pads m σ) w := by
+  cases w with
+  | bot =>
+    show Tree.padN m (Tree.bot : Tree σ) = _
+    exact Tree.padN_leaf m Val.bot
+  | err b =>
+    show Tree.padN m (Tree.leaf (Val.err b) : Tree σ) = _
+    exact Tree.padN_leaf m (Val.err b)
+  | num n =>
+    show Tree.padN m (Tree.bot : Tree σ) = _
+    exact Tree.padN_leaf m Val.bot
+
+/-- Applying the leading ground arguments to a probe reads off the flat value
+the probed argument carries. -/
+theorem applyFront_probeT : ∀ (m : Nat) (σ : Ty) (l : Nat) (hl : l < m)
+    (vs : Nat → Tree 𝕆) (w : Val), vs l = Tree.leaf w →
+    applyFront m (probeT m σ l hl) vs = probeVal σ w
+  | 0, _, _, hl, _, _, _ => absurd hl (Nat.not_lt_zero _)
+  | m + 1, σ, 0, hl, vs, w, hw => by
+      show applyFront m (apply0 (probeT (m + 1) σ 0 hl) (vs 0)) _ = _
+      have hcomp : apply0 (probeT (m + 1) σ 0 hl) (vs 0)
+          = Tree.padN m (probeVal σ w) := by
+        rw [Tree.padN_probeVal, probeT, hw, apply0]
+        simp only [Tree.at'_hole]
+        cases w <;> rfl
+      rw [hcomp, applyFront_padN]
+  | m + 1, σ, l + 1, hl, vs, w, hw => by
+      show applyFront m (apply0 (probeT (m + 1) σ (l + 1) hl) (vs 0)) _ = _
+      have hlm : l < m := Nat.lt_of_succ_lt_succ hl
+      have hcomp : apply0 (probeT (m + 1) σ (l + 1) hl) (vs 0)
+          = probeT m σ l hlm := by
+        rw [probeT, apply0, probeT]
+        rfl
+      rw [hcomp]
+      exact applyFront_probeT m σ l hlm (fun k => vs (k + 1)) w hw
+
+/-- A probe is a legal tree in the empty context. -/
+theorem TreeOk_probeT (m : Nat) (σ : Ty) (l : Nat) (hl : l < m) :
+    TreeOk (Ctx.empty : Ctx (Ty.pads m σ)) (probeT m σ l hl) := by
+  rw [probeT]
+  exact TreeOk.node _ _ _ _ LegalQuery.root ⟨[], fun r hr => absurd rfl hr⟩
+    (fun r _ => TreeOk.leaf _ _) (fun r _ => rfl)
+
 /-! ## The flat ground domain, as ideals -/
 
 /-- Every ideal at ground type is the principal ideal of a leaf: `T_o` is the
