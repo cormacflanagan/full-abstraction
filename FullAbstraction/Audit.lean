@@ -109,6 +109,11 @@ section Complete
 #print axioms lemma_A_6
 #print axioms lemma_A_7
 #print axioms theorem_4_22
+-- §4.4 / Appendix B: the equations for `catch` and `error`.
+#print axioms EvalCtx.fill_leaf
+#print axioms lemma_B_1
+#print axioms lemma_4_26
+#print axioms theorem_4_27
 end Complete
 
 section DerivedOrDependent
@@ -149,8 +154,6 @@ end DerivedOrDependent
 
 section Outstanding
 -- Results still resting on `sorryAx` because their own proof is `sorry`.
-#print axioms lemma_B_1
-#print axioms theorem_4_27
 #print axioms lemma_5_2
 #print axioms lemma_5_2_subtrees
 end Outstanding

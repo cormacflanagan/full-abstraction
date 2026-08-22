@@ -274,14 +274,27 @@ legal finitary approximation of the right-hand side is computed by a finite
 of Claim A.5 case by case).  `lemma_A_7` is the equality of the two sides on
 legal finite inputs.
 
+### The `catch` and `error` equations (§4.4, Appendix B)
+
+All proved outright.  `EvalCtx.fill_leaf` is the master computation: an
+evaluation context propagates an `errorᵢ`- or `⊥`-valued hole, through the
+strictness of the primitive trees, the strictness of application in its
+function position, and the constant-function law for `λ*` of a leaf-valued
+body.  Lemma B.1 reads in the ideal completion: the meaning of
+`λ* x₁ … xₙ . E[xⱼ]` has a member rooted at `⟨j, ?⟩` and every member is `⊥`
+or so rooted — the `error`-substitution run forces the root, the `⊥` run
+rules out proper leaves, and directedness aligns all members.  Theorem 4.27's
+four clauses follow, with `catch` computed by `applyT_catch_gen`.  Each
+statement carries the paper's standing conventions as hypotheses: the filled
+context is well typed, and the context does not capture the hole variable.
+
 ### Outstanding
 
-Four declarations, stated faithfully, whose own proof is still `sorry`.
+One declaration (in two forms), stated faithfully, whose proof is still
+`sorry`.
 
 | Result | Lean name | Note |
 | --- | --- | --- |
-| **Lemma B.1** / **Lemma 4.26** | `lemma_B_1` | Appendix B; `lemma_4_26` is `lemma_B_1` |
-| **Theorem 4.27** (`error`, `bottom`, `catch`, `return`) | `theorem_4_27` | |
 | **Lemma 5.2** (definability of the finite elements) | `lemma_5_2`, `lemma_5_2_subtrees` | the crux of §5; **Theorem 5.1 now rests only on this** |
 
 #### How Theorem 4.11 gets its uniformity
