@@ -4404,7 +4404,49 @@ approximation of it). -/
 theorem lemma_A_6 (σ τ ρ : Ty) (e₁ : T (σ ⇒ τ ⇒ ρ)) (e₂ : T (σ ⇒ τ)) (e₃ : T σ) :
     applyT (applyT (applyT (treeS σ τ ρ) e₁) e₂) e₃
       = applyT (applyT e₁ e₃) (applyT e₂ e₃) := by
-  sorry
+  apply Ideal.ext
+  intro c
+  constructor
+  · rintro ⟨m₂, ⟨m₁, ⟨s0, ⟨n, hs0⟩, x0, hx0, hm₁⟩, y0, hy0, hm₂⟩, z0, hz0, hc⟩
+    have h1 : Tree.Le c.1 (apply0 m₂.1 z0.1) := hc
+    have h2 : Tree.Le (apply0 m₂.1 z0.1) (apply0 (apply0 m₁.1 y0.1) z0.1) :=
+      apply0_mono_left (show Tree.Le m₂.1 (apply0 m₁.1 y0.1) from hm₂) z0.1
+    have h3 : Tree.Le (apply0 (apply0 m₁.1 y0.1) z0.1)
+        (apply0 (apply0 (apply0 s0.1 x0.1) y0.1) z0.1) :=
+      apply0_mono_left (apply0_mono_left
+        (show Tree.Le m₁.1 (apply0 s0.1 x0.1) from hm₁) y0.1) z0.1
+    have h4 : Tree.Le (apply0 (apply0 (apply0 s0.1 x0.1) y0.1) z0.1)
+        (app3 (Sfun n .hole Tree.bot Tree.bot) x0.1 y0.1 z0.1) :=
+      apply0_mono_left (apply0_mono_left (apply0_mono_left
+        (show Tree.Le s0.1 (Sfun n .hole Tree.bot Tree.bot) from hs0) x0.1)
+        y0.1) z0.1
+    have h5 : Tree.Le (app3 (Sfun n .hole Tree.bot Tree.bot) x0.1 y0.1 z0.1)
+        (apply0 (apply0 x0.1 z0.1) (apply0 y0.1 z0.1)) :=
+      Sfun_apply_le x0.1 y0.1 z0.1 x0.2 n .hole Tree.bot Tree.bot x0.1 rfl
+        (Tree.Le.bot _) (Tree.Le.bot _) (Accum.leaf _) rfl
+    refine ⟨applyD x0 z0, ⟨x0, hx0, z0, hz0, Po.le_refl _⟩,
+      applyD y0 z0, ⟨y0, hy0, z0, hz0, Po.le_refl _⟩, ?_⟩
+    exact Tree.Le.trans h1 (Tree.Le.trans h2 (Tree.Le.trans h3
+      (Tree.Le.trans h4 h5)))
+  · rintro ⟨m₁, ⟨x0, hx0, z0a, hz0a, hm₁⟩, m₂, ⟨y0, hy0, z0b, hz0b, hm₂⟩, hc⟩
+    obtain ⟨z0, hz0, hza, hzb⟩ := e₃.directed' z0a z0b hz0a hz0b
+    have hc' : Tree.Le c.1 (apply0 (apply0 x0.1 z0.1) (apply0 y0.1 z0.1)) := by
+      refine Tree.Le.trans (show Tree.Le c.1 (apply0 m₁.1 m₂.1) from hc) ?_
+      refine Tree.Le.trans (apply0_mono_left
+        (show Tree.Le m₁.1 (apply0 x0.1 z0a.1) from hm₁) m₂.1) ?_
+      refine Tree.Le.trans (apply0_mono_left
+        (apply0_mono_right x0.1 (show Tree.Le z0a.1 z0.1 from hza)) m₂.1) ?_
+      refine Tree.Le.trans (apply0_mono_right _
+        (show Tree.Le m₂.1 (apply0 y0.1 z0b.1) from hm₂)) ?_
+      exact apply0_mono_right _
+        (apply0_mono_right y0.1 (show Tree.Le z0b.1 z0.1 from hzb))
+    obtain ⟨n, k, hkOk, hkLe, hka⟩ := Sfun_apply_ge x0.1 y0.1 z0.1 x0.2 y0.2 z0.2
+      x0.1 .hole Tree.bot Tree.bot Ctx.empty c.1 rfl
+      (Tree.Le.bot _) (Tree.Le.bot _) (Accum.leaf _) rfl (Tree.Le.bot _)
+      Tree.ErrFree_bot LegalQuery.root rfl rfl (fun _ _ => rfl) c.2 hc'
+    exact ⟨applyD (applyD ⟨k, hkOk⟩ x0) y0,
+      ⟨applyD ⟨k, hkOk⟩ x0, ⟨⟨k, hkOk⟩, ⟨n, hkLe⟩, x0, hx0, Po.le_refl _⟩,
+        y0, hy0, Po.le_refl _⟩, z0, hz0, hka⟩
 
 /-- **Claim A.5**, packaged: the tree `S(?,?)` of Definition 4.21 exists and
 satisfies the `(S)` equation.  The construction is `Sfun`/`Tfun` above; the
@@ -4547,15 +4589,30 @@ and let `e₁, e₂, e₃` be finite elements in appropriate domains such that
 The lemma states that the inputs `e₁, e₂, e₃` "direct the application process
 from the root of a tree to the given subtree"; the way it is used in the proof
 of Lemma A.6 is that the finite approximants `Sₙ` of Definition A.3 already
-satisfy the `S` equation on finite inputs, whence Lemma A.6 follows by
-continuity of `apply`. -/
+reach the `S` equation on finite inputs.  The paper's invariant `Φ` is the
+hypothesis package threaded through `Sfun_apply_le`/`Sfun_apply_ge`, here
+instantiated at the root; the finite elements are the legal finite trees of
+Definition 4.2, on which the two halves combine into an equality. -/
 theorem lemma_A_7 (σ τ ρ : Ty) :
     ∃ Sn : Nat → Tree (STy σ τ ρ),
       (∀ n, Sn n ⊑ Sn (n + 1)) ∧
-      ∀ (e₁ : Tree (σ ⇒ τ ⇒ ρ)) (e₂ : Tree (σ ⇒ τ)) (e₃ : Tree σ),
-        ∃ n, apply0 (apply0 (apply0 (Sn n) e₁) e₂) e₃
-              = apply0 (apply0 e₁ e₃) (apply0 e₂ e₃) := by
-  sorry
+      ∀ (e₁ : D (σ ⇒ τ ⇒ ρ)) (e₂ : D (σ ⇒ τ)) (e₃ : D σ),
+        ∃ n, apply0 (apply0 (apply0 (Sn n) e₁.1) e₂.1) e₃.1
+              = apply0 (apply0 e₁.1 e₃.1) (apply0 e₂.1 e₃.1) := by
+  refine ⟨fun n => Sfun n .hole Tree.bot Tree.bot,
+    fun n => Sfun_mono n .hole Tree.bot Tree.bot, ?_⟩
+  intro e₁ e₂ e₃
+  obtain ⟨n, k, hkOk, hkLe, hka⟩ := Sfun_apply_ge e₁.1 e₂.1 e₃.1 e₁.2 e₂.2 e₃.2
+    e₁.1 .hole Tree.bot Tree.bot Ctx.empty
+    (applyD (applyD e₁ e₃) (applyD e₂ e₃)).1 rfl
+    (Tree.Le.bot _) (Tree.Le.bot _) (Accum.leaf _) rfl (Tree.Le.bot _)
+    Tree.ErrFree_bot LegalQuery.root rfl rfl (fun _ _ => rfl)
+    (applyD (applyD e₁ e₃) (applyD e₂ e₃)).2 (Tree.Le.refl _)
+  refine ⟨n, Tree.Le.antisymm ?_ ?_⟩
+  · exact Sfun_apply_le e₁.1 e₂.1 e₃.1 e₁.2 n .hole Tree.bot Tree.bot e₁.1 rfl
+      (Tree.Le.bot _) (Tree.Le.bot _) (Accum.leaf _) rfl
+  · exact Tree.Le.trans hka (apply0_mono_left (apply0_mono_left
+      (apply0_mono_left hkLe e₁.1) e₂.1) e₃.1)
 
 /-- The `I` analogue of `Kn_legal_cofinal`: the finite legal trees below the
 chain `Iₙ(?)` are cofinal for application. -/
