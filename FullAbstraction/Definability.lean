@@ -3071,4 +3071,142 @@ theorem catchBody_run {σ : Ty} (i : Fin σ.arity) (q : Query (σ.arg i))
     (updEnvX (yvars σ.arity rs.length) Env vs) dsi ws hxU hyU
     (yvars σ.arity rs.length ++ Γ) hyΓ
 
+/-! ## What `catch` reports -/
+
+theorem meaning_catch (Env : Tmodel.Env) (M' : Term SPCF) (σ' : Ty)
+    (Γ : List (Nat × Ty)) (hM' : Term.HasTy Γ M' σ') :
+    Tmodel.meaning Env (Term.app (Term.const (SConst.catchC σ')) M') 𝕆
+      = applyT (idealOf (treeCatch σ')) (Tmodel.meaning Env M' σ') := by
+  rw [meaning_app_term Env _ M' σ' 𝕆 Γ hM']
+  have hc : Tmodel.meaning Env (Term.const (SConst.catchC σ')) (σ' ⇒ 𝕆)
+      = idealOf (treeCatch σ') :=
+    Model.combMeaning_const Tmodel Env (SConst.catchC σ')
+  rw [hc]
+
+/-- `catch` of a constant procedure. -/
+theorem applyT_catch_leafT (σ' : Ty) (v : Val) :
+    applyT (idealOf (treeCatch σ')) (leafT σ' v)
+      = leafT 𝕆 (match v with
+          | .num a => Val.num (a + σ'.arity)
+          | w => w) := by
+  cases v with
+  | bot =>
+    show applyT (idealOf (treeCatch σ')) (leafT σ' .bot) = leafT 𝕆 .bot
+    rw [treeCatch]
+    exact applyT_rootProbe_bot (Nat.succ_pos _) _
+  | err b =>
+    show applyT (idealOf (treeCatch σ')) (leafT σ' (.err b)) = leafT 𝕆 (.err b)
+    rw [treeCatch]
+    exact applyT_rootProbe_err (Nat.succ_pos _) _ b
+  | num a =>
+    show applyT (idealOf (treeCatch σ')) (leafT σ' (.num a))
+      = leafT 𝕆 (.num (a + σ'.arity))
+    exact applyT_catch_num σ' a
+
+theorem arity_pads_base (m : Nat) : (Ty.pads m 𝕆).arity = m := by
+  rw [Ty.arity_pads]
+  rfl
+
+/-- The flat values the two runs of `M'` feed the response variables. -/
+def wsBot : Nat → Val := fun _ => Val.bot
+
+/-- The flat values of the error run at index `n`. -/
+noncomputable def wsErrAt (n : Nat) : Nat → Val :=
+  fun k => if k = n then Val.err true else Val.bot
+
+/-- The typing of `M'`. -/
+theorem catchBody_hasTy {σ : Ty} (i : Fin σ.arity) (rs : List (Resp (σ.arg i)))
+    (Es : (h : Fin (σ.arg i).arity) → Term SPCF)
+    (hEs_ty : ∀ h, Term.HasTy [] (Es h) (Ty.pads rs.length ((σ.arg i).arg h)))
+    (Γ : List (Nat × Ty)) (hxΓ : (i.val, σ.arg i) ∈ Γ) :
+    Term.HasTy Γ (catchBody σ i rs.length Es) (Ty.pads rs.length 𝕆) := by
+  have hyΓ : ∀ n, n < rs.length →
+      (σ.arity + n, 𝕆) ∈ (yvars σ.arity rs.length ++ Γ) :=
+    fun n hn => List.mem_append_left _ (mem_yvars rs.length σ.arity n hn)
+  have hty := inner_hasTy i rs Es hEs_ty (yvars σ.arity rs.length ++ Γ)
+    (List.mem_append_right _ hxΓ) hyΓ
+  have h := Term.lams_hasTy (yvars σ.arity rs.length) Γ _ 𝕆 hty
+  rw [show (Ty.pads rs.length 𝕆)
+      = (yvars σ.arity rs.length).foldr (fun p τ => p.2 ⇒ τ) 𝕆 from
+    (foldX_yvars rs.length σ.arity).symm]
+  exact h
+
+/-- **`catch` reports the response the argument realises.**  If the `⊥`-run of
+`M'` diverges and the run that errs at the `n`-th response variable errs, then
+`(catch M')` is `n`. -/
+theorem catchVal_node {σ : Ty} (i : Fin σ.arity) (q : Query (σ.arg i))
+    (rs : List (Resp (σ.arg i)))
+    (Es : (h : Fin (σ.arg i).arity) → Term SPCF)
+    (hEs_cl : ∀ h, Term.Closed (Es h))
+    (hEs_ty : ∀ h, Term.HasTy [] (Es h) (Ty.pads rs.length ((σ.arg i).arg h)))
+    (hgok : ∀ h, TreeOk (Ctx.empty : Ctx (Ty.pads rs.length ((σ.arg i).arg h)))
+      (graftFor q rs h))
+    (hEs_mean : ∀ h, Tmodel.meaning botEnv (Es h)
+        (Ty.pads rs.length ((σ.arg i).arg h))
+      = Ideal.principal ⟨graftFor q rs h, hgok h⟩)
+    (Env : Tmodel.Env) (dsi : D (σ.arg i))
+    (hx : Env i.val (σ.arg i) = Ideal.principal dsi)
+    (Γ : List (Nat × Ty)) (hxΓ : (i.val, σ.arg i) ∈ Γ)
+    (n : Nat) (hn : n < rs.length)
+    (hrunB : applyArgs (σ.arg i) dsi.1 (fun h => argVal q rs h wsBot) = Tree.bot)
+    (hrunE : applyArgs (σ.arg i) dsi.1 (fun h => argVal q rs h (wsErrAt n))
+      = Tree.leaf (.err true)) :
+    Tmodel.meaning Env (Term.app
+        (Term.const (SConst.catchC (Ty.pads rs.length 𝕆)))
+        (catchBody σ i rs.length Es)) 𝕆 = natAns n := by
+  have hjlen : n < (yvars σ.arity rs.length).length := by
+    rw [yvars_length]; exact hn
+  have hy : (yvars σ.arity rs.length)[n]'hjlen = (σ.arity + n, 𝕆) :=
+    yvars_getElem rs.length σ.arity n hjlen
+  -- the two runs
+  have hB : applyTChainX (yvars σ.arity rs.length)
+      (Tmodel.meaning Env (catchBody σ i rs.length Es)
+        (foldX (yvars σ.arity rs.length))) vsBot = leafT 𝕆 .bot := by
+    rw [catchBody_run i q rs Es hEs_cl hEs_ty hgok hEs_mean Env dsi hx Γ hxΓ
+      vsBot wsBot (fun n' _ => rfl), hrunB]
+    rfl
+  have hE : applyTChainX (yvars σ.arity rs.length)
+      (Tmodel.meaning Env (catchBody σ i rs.length Es)
+        (foldX (yvars σ.arity rs.length)))
+      (vsErr (σ.arity + n) 𝕆) = leafT 𝕆 (.err true) := by
+    rw [catchBody_run i q rs Es hEs_cl hEs_ty hgok hEs_mean Env dsi hx Γ hxΓ
+      (vsErr (σ.arity + n) 𝕆) (wsErrAt n) (fun n' _ => ?_), hrunE]
+    · rfl
+    · show (if ((σ.arity + n', 𝕆) : Nat × Ty) = (σ.arity + n, 𝕆) then _ else _)
+        = leafT 𝕆 (wsErrAt n n')
+      by_cases hnn : n' = n
+      · subst hnn
+        rw [if_pos rfl, wsErrAt, if_pos rfl]
+      · rw [if_neg (fun hc => hnn (by
+          have hc2 := congrArg Prod.fst hc
+          simp only at hc2
+          omega)), wsErrAt, if_neg hnn]
+  -- the root shape, and hence the value of `catch`
+  have hshape := root_shape_of_runs (yvars σ.arity rs.length)
+    (Tmodel.meaning Env (catchBody σ i rs.length Es)
+      (foldX (yvars σ.arity rs.length))) ⟨n, hjlen⟩
+    (fun j' hj' hc => by
+      rw [yvars_getElem rs.length σ.arity j'.val j'.isLt, hy] at hc
+      refine hj' ?_
+      have hc2 : σ.arity + j'.val = σ.arity + n := congrArg Prod.fst hc
+      exact Nat.add_left_cancel hc2)
+    hB (by rw [hy]; exact hE)
+  have hcatch := applyT_catch_gen (foldX (yvars σ.arity rs.length))
+    (Tmodel.meaning Env (catchBody σ i rs.length Es)
+      (foldX (yvars σ.arity rs.length))) n
+    (by rw [arity_foldrX, yvars_length]; exact hn)
+    (by
+      obtain ⟨s, hs, g, hg⟩ := hshape.1
+      exact ⟨s, hs, g, hg⟩)
+    (fun s hs => by
+      rcases hshape.2 s hs with h1 | ⟨g, hg⟩
+      · exact Or.inl h1
+      · exact Or.inr ⟨g, hg⟩)
+  rw [meaning_catch Env _ (Ty.pads rs.length 𝕆) Γ ?_]
+  · rw [show (Ty.pads rs.length 𝕆) = foldX (yvars σ.arity rs.length) from
+      (foldX_yvars rs.length σ.arity).symm]
+    exact hcatch
+  · -- typing of `M'`
+    refine catchBody_hasTy i rs Es hEs_ty Γ hxΓ
+
 end FA
