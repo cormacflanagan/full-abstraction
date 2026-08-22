@@ -652,6 +652,149 @@ theorem meaning_apps : ∀ (σ : Ty) (M : Term SPCF) (E : (i : Fin σ.arity) →
       rfl
 
 
+/-! ## The dispatch behaviour of a node under `k`-ary application -/
+
+/-- Applying a node `⟨i,q,f⟩` to a full argument tuple consults `dᵢ @ q` and
+dispatches: an unanswered or `⊥` position diverges, an error propagates, a
+numeral or an inner node selects the corresponding branch of `f` — which is
+then applied to the *same* argument tuple. -/
+theorem applyArgs_node : ∀ (σ : Ty) (i : Fin σ.arity) (q : Query (σ.arg i))
+    (f : Resp (σ.arg i) → Tree σ) (ds : (j : Fin σ.arity) → Tree (σ.arg j)),
+    applyArgs σ (.node i q f) ds =
+      match (ds i).at' q with
+      | none => Tree.bot
+      | some (.leaf .bot) => Tree.bot
+      | some (.leaf (.err b)) => .leaf (.err b)
+      | some (.leaf (.num n)) => applyArgs σ (f (q.substAns (.num n))) ds
+      | some (.node j p _) => applyArgs σ (f (q.substAns (.node j p))) ds
+  | .base, i, _, _, _ => absurd i.isLt (by simp [Ty.arity])
+  | .arrow a τ, ⟨0, h0⟩, q, f, ds => by
+      show applyArgs τ (apply0 (.node ⟨0, h0⟩ q f) (ds ⟨0, Nat.succ_pos _⟩)) _ = _
+      rw [apply0]
+      cases h : (ds ⟨0, Nat.succ_pos _⟩).at' q with
+      | none =>
+        rw [show (Tree.bot : Tree τ) = Tree.leaf Val.bot from rfl, applyArgs_leaf]
+        rfl
+      | some t =>
+        cases t with
+        | leaf v =>
+          cases v with
+          | bot =>
+            rw [show (Tree.bot : Tree τ) = Tree.leaf Val.bot from rfl, applyArgs_leaf]
+            rfl
+          | err b =>
+            show applyArgs τ (.leaf (.err b)) _ = _
+            rw [applyArgs_leaf]
+          | num n => rfl
+        | node j p g => rfl
+  | .arrow a τ, ⟨i' + 1, hi⟩, q, f, ds => by
+      show applyArgs τ (apply0 (.node ⟨i' + 1, hi⟩ q f) (ds ⟨0, Nat.succ_pos _⟩)) _ = _
+      rw [apply0]
+      rw [applyArgs_node τ ⟨i', Nat.lt_of_succ_lt_succ hi⟩ q
+        (fun r => apply0 (f r) (ds ⟨0, Nat.succ_pos _⟩))
+        (fun j => ds ⟨j.val + 1, Nat.succ_lt_succ j.isLt⟩)]
+      cases h : (ds ⟨i' + 1, hi⟩).at' q with
+      | none => rfl
+      | some t =>
+        cases t with
+        | leaf v => cases v <;> rfl
+        | node j p g => rfl
+
+/-! ## The semantic root-shape lemma
+
+The purely semantic content of Lemma B.1: an ideal at an iterated procedure
+type whose full application to the all-`⊥` family is `⊥`, and whose full
+application to the family that is `error₁` at position `j` and `⊥` elsewhere is
+`error₁`, has a member probing argument `j` first — and every member is `⊥` or
+probes argument `j` first. -/
+theorem root_shape_of_runs (xs : List (Nat × Ty)) (Λ : T (foldX xs))
+    (j : Fin xs.length)
+    (hnodup : ∀ j' : Fin xs.length, j'.val ≠ j.val →
+      (xs[j'.1]'j'.isLt) ≠ (xs[j.1]'j.isLt))
+    (hrunB : applyTChainX xs Λ vsBot = leafT 𝕆 .bot)
+    (hrunE : applyTChainX xs Λ
+      (vsErr (xs[j.1]'j.isLt).1 (xs[j.1]'j.isLt).2) = leafT 𝕆 (.err true)) :
+    (∃ s : D (foldX xs), s ∈ Λ ∧
+      ∃ f, s.1 = Tree.node ⟨j.val, by rw [arity_foldrX]; exact j.isLt⟩
+        Query.hole f) ∧
+    (∀ s : D (foldX xs), s ∈ Λ →
+      s.1 = Tree.bot ∨
+      ∃ f, s.1 = Tree.node ⟨j.val, by rw [arity_foldrX]; exact j.isLt⟩
+        Query.hole f) := by
+  classical
+  have hj : j.val < (foldX xs).arity := by
+    rw [arity_foldrX]; exact j.isLt
+  have hnoleaf : ∀ (s : D (foldX xs)) (v : Val),
+      s ∈ Λ → s.1 = .leaf v → v = Val.bot := by
+    intro s v hs hsv
+    refine Classical.byContradiction fun hv => ?_
+    have hmem : (⟨.leaf v, TreeOk.leaf _ _⟩ : D 𝕆)
+        ∈ applyTChainX xs Λ vsBot := by
+      refine applyTChainX_intro xs _ vsBot s hs
+        (fun i => DSub.bot) (fun i => mem_leafT.mpr (Tree.Le.bot _)) _ ?_
+      rw [hsv, apply0ChainF_leaf]
+      exact Tree.Le.refl _
+    rw [hrunB] at hmem
+    have hle : Tree.Le (.leaf v) (.leaf .bot) := mem_leafT.mp hmem
+    cases hle with
+    | bot => exact hv rfl
+    | leaf => exact hv rfl
+  have hmemE : (⟨.leaf (.err true), TreeOk.leaf _ _⟩ : D 𝕆)
+      ∈ applyTChainX xs Λ (vsErr (xs[j.1]'j.isLt).1 (xs[j.1]'j.isLt).2) := by
+    rw [hrunE]
+    exact mem_leafT.mpr (Tree.Le.refl _)
+  obtain ⟨s₀, hs₀, ds₀, hds₀, hle₀⟩ := applyTChainX_mem xs _ _ _ hmemE
+  have hs₀node : ∃ f, s₀.1 = Tree.node ⟨j.val, hj⟩ Query.hole f := by
+    cases hsv : s₀.1 with
+    | leaf v =>
+      rw [hsv, apply0ChainF_leaf] at hle₀
+      cases hle₀ with
+      | leaf => exact Val.noConfusion (hnoleaf s₀ _ hs₀ hsv)
+    | node jt q f =>
+      obtain ⟨jtv, hjtlt⟩ := jt
+      have hq : q = Query.hole := root_query_hole (hsv ▸ s₀.2)
+      subst hq
+      by_cases hjt : jtv = j.val
+      · subst hjt
+        exact ⟨f, rfl⟩
+      · have hjtlen : jtv < xs.length := by
+          rw [← arity_foldrX xs]
+          exact hjtlt
+        have hdsb : (ds₀ ⟨jtv, hjtlen⟩).1 = Tree.bot := by
+          have hmem := hds₀ ⟨jtv, hjtlen⟩
+          have hvs : vsErr (xs[j.1]'j.isLt).1 (xs[j.1]'j.isLt).2
+              (xs[jtv]'hjtlen)
+              = leafT (xs[jtv]'hjtlen).2 .bot := by
+            rw [vsErr, if_neg]
+            intro he
+            exact hnodup ⟨jtv, hjtlen⟩ hjt he
+          rw [hvs] at hmem
+          exact Tree.eq_bot_of_le_bot (mem_leafT.mp hmem)
+        rw [hsv, apply0ChainF_bot xs jtv hjtlen hjtlt f _ hdsb] at hle₀
+        cases hle₀
+  refine ⟨⟨s₀, hs₀, hs₀node⟩, ?_⟩
+  intro s hs
+  cases hsv : s.1 with
+  | leaf v =>
+    have hvb := hnoleaf s v hs hsv
+    subst hvb
+    exact Or.inl rfl
+  | node jt q f =>
+    have hq : q = Query.hole := root_query_hole (hsv ▸ s.2)
+    subst hq
+    obtain ⟨f₀, hs₀v⟩ := hs₀node
+    obtain ⟨u, hu, hsu, hs₀u⟩ := Λ.directed' s s₀ hs hs₀
+    have h1 : Tree.Le (Tree.node jt Query.hole f) u.1 :=
+      hsv ▸ (hsu : Tree.Le s.1 u.1)
+    have h2 : Tree.Le (Tree.node ⟨j.val, hj⟩ Query.hole f₀) u.1 :=
+      hs₀v ▸ (hs₀u : Tree.Le s₀.1 u.1)
+    obtain ⟨g, hg⟩ := Tree.eq_node_of_le h1
+    obtain ⟨g₀, hg₀⟩ := Tree.eq_node_of_le h2
+    rw [hg] at hg₀
+    injection hg₀ with hjj _ _
+    subst hjj
+    exact Or.inr ⟨f, rfl⟩
+
 /-! ## The flat ground domain, as ideals -/
 
 /-- Every ideal at ground type is the principal ideal of a leaf: `T_o` is the
