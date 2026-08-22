@@ -2345,4 +2345,208 @@ theorem le_maxOfL : ∀ (l : List Nat) (a : Nat), a ∈ l → a ≤ maxOfL l
       · exact Nat.le_max_left _ _
       · exact Nat.le_trans (le_maxOfL l a htl) (Nat.le_max_right _ _)
 
+/-! ## Ingredients of the `catch`-based construction of §5 -/
+
+/-- Classical filtering by a proposition. -/
+noncomputable def filterP {α : Type} (P : α → Prop) (l : List α) : List α :=
+  l.filterMap (fun a =>
+    if _ : (Classical.propDecidable (P a)).decide = true then some a else none)
+
+theorem mem_filterP {α : Type} (P : α → Prop) (l : List α) (a : α) :
+    a ∈ filterP P l ↔ a ∈ l ∧ P a := by
+  rw [filterP, List.mem_filterMap]
+  constructor
+  · rintro ⟨b, hb, hres⟩
+    by_cases hP : P b
+    · rw [dif_pos (by simpa using hP)] at hres
+      have : b = a := Option.some.inj hres
+      subst this
+      exact ⟨hb, hP⟩
+    · rw [dif_neg (by simpa using hP)] at hres
+      exact absurd hres (fun hc => Option.noConfusion hc)
+  · rintro ⟨ha, hP⟩
+    exact ⟨a, ha, by rw [dif_pos (by simpa using hP)]⟩
+
+/-- The `m` bound variables of `M'`, named from `b` on. -/
+def yvars (b : Nat) : Nat → List (Nat × Ty)
+  | 0 => []
+  | m + 1 => (b, 𝕆) :: yvars (b + 1) m
+
+theorem foldX_yvars : ∀ (m b : Nat), foldX (yvars b m) = Ty.pads m 𝕆
+  | 0, _ => rfl
+  | m + 1, b => by
+      show (𝕆 ⇒ foldX (yvars (b + 1) m)) = _
+      rw [foldX_yvars m (b + 1)]
+      rfl
+
+theorem mem_yvars : ∀ (m b k : Nat), k < m → (b + k, 𝕆) ∈ yvars b m
+  | 0, _, _, hk => absurd hk (Nat.not_lt_zero _)
+  | m + 1, b, 0, _ => by
+      rw [Nat.add_zero]
+      exact List.mem_cons_self ..
+  | m + 1, b, k + 1, hk => by
+      rw [show b + (k + 1) = b + 1 + k from by omega]
+      exact List.mem_cons_of_mem _ (mem_yvars m (b + 1) k (Nat.lt_of_succ_lt_succ hk))
+
+theorem yvars_ty : ∀ (m b : Nat) (p : Nat × Ty), p ∈ yvars b m → p.2 = 𝕆
+  | 0, _, _, hp => absurd hp (fun hc => List.not_mem_nil hc)
+  | m + 1, b, p, hp => by
+      rcases List.mem_cons.mp hp with rfl | htl
+      · rfl
+      · exact yvars_ty m (b + 1) p htl
+
+theorem yvars_fst_ge : ∀ (m b : Nat) (p : Nat × Ty), p ∈ yvars b m → b ≤ p.1
+  | 0, _, _, hp => absurd hp (fun hc => List.not_mem_nil hc)
+  | m + 1, b, p, hp => by
+      rcases List.mem_cons.mp hp with rfl | htl
+      · exact Nat.le_refl _
+      · exact Nat.le_of_succ_le (yvars_fst_ge m (b + 1) p htl)
+
+theorem yvars_length : ∀ (m b : Nat), (yvars b m).length = m
+  | 0, _ => rfl
+  | m + 1, b => by
+      show (yvars (b + 1) m).length + 1 = m + 1
+      rw [yvars_length m (b + 1)]
+
+/-- Distinct positions of `yvars` carry distinct variables. -/
+theorem yvars_getElem : ∀ (m b : Nat) (k : Nat) (h : k < (yvars b m).length),
+    (yvars b m)[k]'h = (b + k, 𝕆)
+  | 0, _, _, h => absurd h (by simp [yvars_length])
+  | m + 1, b, 0, h => rfl
+  | m + 1, b, k + 1, h => by
+      show (yvars (b + 1) m)[k]'_ = _
+      rw [yvars_getElem m (b + 1) k _,
+        show b + 1 + k = b + (k + 1) from by omega]
+
+/-! ## Abstracting over the arguments, type-directed
+
+`varsFrom b σ.args` names the arguments of `σ` consecutively from `b`;
+`Term.lams` binds them and `applyIdeals` feeds them back. -/
+
+/-- Consecutive names for a list of types. -/
+def varsFrom (b : Nat) : List Ty → List (Nat × Ty)
+  | [] => []
+  | a :: as => (b, a) :: varsFrom (b + 1) as
+
+theorem varsFrom_cons (b : Nat) (a : Ty) (as : List Ty) :
+    varsFrom b (a :: as) = (b, a) :: varsFrom (b + 1) as := rfl
+
+theorem mem_varsFrom : ∀ (σ : Ty) (b : Nat) (j : Fin σ.arity),
+    (b + j.val, σ.arg j) ∈ varsFrom b σ.args
+  | .base, _, j => absurd j.isLt (by simp [Ty.arity])
+  | .arrow a τ, b, ⟨0, _⟩ => by
+      show (b + 0, a) ∈ (b, a) :: varsFrom (b + 1) τ.args
+      rw [Nat.add_zero]
+      exact List.mem_cons_self ..
+  | .arrow a τ, b, ⟨j + 1, hj⟩ => by
+      have hjt : j < τ.arity := Nat.lt_of_succ_lt_succ hj
+      have h := mem_varsFrom τ (b + 1) ⟨j, hjt⟩
+      show (b + (j + 1), τ.arg ⟨j, hjt⟩) ∈ (b, a) :: varsFrom (b + 1) τ.args
+      rw [show b + (j + 1) = b + 1 + j from by omega]
+      exact List.mem_cons_of_mem _ h
+
+theorem varsFrom_fst_ge : ∀ (as : List Ty) (b : Nat) (p : Nat × Ty),
+    p ∈ varsFrom b as → b ≤ p.1
+  | [], _, _, hp => absurd hp (fun hc => List.not_mem_nil hc)
+  | a :: as, b, p, hp => by
+      rcases List.mem_cons.mp hp with rfl | htl
+      · exact Nat.le_refl _
+      · exact Nat.le_of_succ_le (varsFrom_fst_ge as (b + 1) p htl)
+
+theorem varsFrom_fst_lt : ∀ (as : List Ty) (b : Nat) (p : Nat × Ty),
+    p ∈ varsFrom b as → p.1 < b + as.length
+  | [], _, _, hp => absurd hp (fun hc => List.not_mem_nil hc)
+  | a :: as, b, p, hp => by
+      rcases List.mem_cons.mp hp with rfl | htl
+      · show b < b + (as.length + 1); omega
+      · have h := varsFrom_fst_lt as (b + 1) p htl
+        show p.1 < b + (as.length + 1)
+        omega
+
+/-- The environment that binds `varsFrom b σ.args` to a tuple of arguments. -/
+noncomputable def envArgs : ∀ (b : Nat) (σ : Ty),
+    ((j : Fin σ.arity) → T (σ.arg j)) → Tmodel.Env → Tmodel.Env
+  | _, .base, _, Env => Env
+  | b, .arrow a τ, ds, Env =>
+      envArgs (b + 1) τ (fun j => ds ⟨j.val + 1, Nat.succ_lt_succ j.isLt⟩)
+        (Model.envUpdate Env b a (ds ⟨0, Nat.succ_pos _⟩))
+
+/-- Outside the names it binds, `envArgs` changes nothing. -/
+theorem envArgs_other : ∀ (σ : Ty) (b : Nat)
+    (ds : (j : Fin σ.arity) → T (σ.arg j)) (Env : Tmodel.Env) (x : Nat) (ν : Ty),
+    x < b → envArgs b σ ds Env x ν = Env x ν
+  | .base, _, _, _, _, _, _ => rfl
+  | .arrow a τ, b, ds, Env, x, ν, hx => by
+      show envArgs (b + 1) τ _ (Model.envUpdate Env b a _) x ν = _
+      rw [envArgs_other τ (b + 1) _ _ x ν (by omega),
+        Model.envUpdate_other Env b a _ x ν (fun hc => by omega)]
+
+/-- `envArgs` binds the `j`-th name to the `j`-th argument. -/
+theorem envArgs_self : ∀ (σ : Ty) (b : Nat)
+    (ds : (j : Fin σ.arity) → T (σ.arg j)) (Env : Tmodel.Env) (j : Fin σ.arity),
+    envArgs b σ ds Env (b + j.val) (σ.arg j) = ds j
+  | .base, _, _, _, j => absurd j.isLt (by simp [Ty.arity])
+  | .arrow a τ, b, ds, Env, ⟨0, h0⟩ => by
+      show envArgs (b + 1) τ _ (Model.envUpdate Env b a _) (b + 0) a = _
+      rw [envArgs_other τ (b + 1) _ _ (b + 0) a (by omega)]
+      exact Model.envUpdate_self Env b a _
+  | .arrow a τ, b, ds, Env, ⟨j + 1, hj⟩ => by
+      have hjt : j < τ.arity := Nat.lt_of_succ_lt_succ hj
+      have h := envArgs_self τ (b + 1) (fun j' =>
+        ds ⟨j'.val + 1, Nat.succ_lt_succ j'.isLt⟩)
+        (Model.envUpdate Env b a (ds ⟨0, Nat.succ_pos _⟩)) ⟨j, hjt⟩
+      show envArgs (b + 1) τ (fun j' => ds ⟨j'.val + 1, Nat.succ_lt_succ j'.isLt⟩)
+        (Model.envUpdate Env b a (ds ⟨0, Nat.succ_pos _⟩))
+        (b + (j + 1)) (τ.arg ⟨j, hjt⟩) = _
+      rw [show b + (j + 1) = b + 1 + j from by omega]
+      exact h
+
+theorem foldr_varsFrom : ∀ (as : List Ty) (b : Nat) (ρ : Ty),
+    (varsFrom b as).foldr (fun p τ => p.2 ⇒ τ) ρ
+      = as.foldr (fun a τ => a ⇒ τ) ρ
+  | [], _, _ => rfl
+  | a :: as, b, ρ => by
+      show (a ⇒ (varsFrom (b + 1) as).foldr (fun p τ => p.2 ⇒ τ) ρ) = _
+      rw [foldr_varsFrom as (b + 1) ρ]
+      rfl
+
+theorem lams_varsFrom_hasTy (σ : Ty) (b : Nat) (B : Term SPCF)
+    (Γ : List (Nat × Ty)) (hB : Term.HasTy (varsFrom b σ.args ++ Γ) B 𝕆) :
+    Term.HasTy Γ (Term.lams (varsFrom b σ.args) B) σ := by
+  have h := Term.lams_hasTy (varsFrom b σ.args) Γ B 𝕆 hB
+  rwa [foldr_varsFrom, Ty.foldr_args] at h
+
+/-- **Abstracting and re-applying.**  Binding the arguments of `σ` and feeding
+them back gives the body's meaning in the environment that binds them. -/
+theorem applyIdeals_lams : ∀ (σ : Ty) (b : Nat) (Env : Tmodel.Env)
+    (B : Term SPCF) (Γ : List (Nat × Ty)),
+    Term.HasTy (varsFrom b σ.args ++ Γ) B 𝕆 →
+    ∀ ds : (j : Fin σ.arity) → T (σ.arg j),
+    applyIdeals σ (Tmodel.meaning Env (Term.lams (varsFrom b σ.args) B) σ) ds
+      = Tmodel.meaning (envArgs b σ ds Env) B 𝕆
+  | .base, b, Env, B, Γ, _, ds => rfl
+  | .arrow a τ, b, Env, B, Γ, hB, ds => by
+      have hB' : Term.HasTy ((b, a) :: (varsFrom (b + 1) τ.args ++ Γ)) B 𝕆 := hB
+      have hB2 : Term.HasTy (varsFrom (b + 1) τ.args ++ ((b, a) :: Γ)) B 𝕆 := by
+        refine Term.weaken (fun p hp => ?_) hB'
+        simp only [List.mem_append, List.mem_cons] at hp ⊢
+        rcases hp with hp | hp | hp
+        · exact Or.inr (Or.inl hp)
+        · exact Or.inl hp
+        · exact Or.inr (Or.inr hp)
+      have hbody : Comb.HasTy ((b, a) :: Γ)
+          (Term.toComb (Term.lams (varsFrom (b + 1) τ.args) B)) τ :=
+        Term.toComb_hasTy (lams_varsFrom_hasTy τ (b + 1) B ((b, a) :: Γ) hB2)
+      show applyIdeals τ (applyT (Tmodel.meaning Env
+        (Term.lams ((b, a) :: varsFrom (b + 1) τ.args) B) (a ⇒ τ))
+        (ds ⟨0, Nat.succ_pos _⟩)) _ = _
+      rw [show Tmodel.meaning Env
+            (Term.lams ((b, a) :: varsFrom (b + 1) τ.args) B) (a ⇒ τ)
+          = Tmodel.combMeaning Env
+              (Comb.lamStar b a
+                (Term.toComb (Term.lams (varsFrom (b + 1) τ.args) B))) (a ⇒ τ)
+          from rfl,
+        lamStar_apply Env b a (ds ⟨0, Nat.succ_pos _⟩) _ τ Γ hbody]
+      exact applyIdeals_lams τ (b + 1) _ B ((b, a) :: Γ) hB2 _
+
 end FA
