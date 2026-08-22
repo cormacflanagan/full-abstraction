@@ -1844,6 +1844,178 @@ end SCombinator
 section SCombinator
 variable {σ τ ρ : Ty}
 
+/-- The three outer applications of the `(S)` equation. -/
+noncomputable def app3 (s : Tree (STy σ τ ρ)) (e₁ : Tree (σ ⇒ τ ⇒ ρ))
+    (e₂ : Tree (σ ⇒ τ)) (e₃ : Tree σ) : Tree ρ :=
+  apply0 (apply0 (apply0 s e₁) e₂) e₃
+
+theorem app3_leaf (v : Val) (e₁ : Tree (σ ⇒ τ ⇒ ρ)) (e₂ : Tree (σ ⇒ τ)) (e₃ : Tree σ) :
+    app3 (.leaf v : Tree (STy σ τ ρ)) e₁ e₂ e₃ = .leaf v := rfl
+
+/-! The chain through the root probe of argument 1, by the shape of `e₁ @ q₁`. -/
+
+theorem app3_node0_none (q₁ : Query (σ ⇒ τ ⇒ ρ))
+    (g : Resp ((STy σ τ ρ).arg ⟨0, Nat.succ_pos _⟩) → Tree (STy σ τ ρ))
+    (e₁ : Tree (σ ⇒ τ ⇒ ρ)) (e₂ : Tree (σ ⇒ τ)) (e₃ : Tree σ)
+    (hq : e₁.at' q₁ = none) :
+    app3 (.node ⟨0, Nat.succ_pos _⟩ q₁ g) e₁ e₂ e₃ = Tree.bot := by
+  show apply0 (apply0 (apply0 (.node ⟨0, Nat.succ_pos _⟩ q₁ g) e₁) e₂) e₃ = _
+  rw [apply0, hq]
+  rfl
+
+theorem app3_node0_bot (q₁ : Query (σ ⇒ τ ⇒ ρ))
+    (g : Resp ((STy σ τ ρ).arg ⟨0, Nat.succ_pos _⟩) → Tree (STy σ τ ρ))
+    (e₁ : Tree (σ ⇒ τ ⇒ ρ)) (e₂ : Tree (σ ⇒ τ)) (e₃ : Tree σ)
+    (hq : e₁.at' q₁ = some Tree.bot) :
+    app3 (.node ⟨0, Nat.succ_pos _⟩ q₁ g) e₁ e₂ e₃ = Tree.bot := by
+  show apply0 (apply0 (apply0 (.node ⟨0, Nat.succ_pos _⟩ q₁ g) e₁) e₂) e₃ = _
+  rw [apply0, hq]
+  rfl
+
+theorem app3_node0_err (q₁ : Query (σ ⇒ τ ⇒ ρ))
+    (g : Resp ((STy σ τ ρ).arg ⟨0, Nat.succ_pos _⟩) → Tree (STy σ τ ρ))
+    (e₁ : Tree (σ ⇒ τ ⇒ ρ)) (e₂ : Tree (σ ⇒ τ)) (e₃ : Tree σ) (b : Bool)
+    (hq : e₁.at' q₁ = some (.leaf (.err b))) :
+    app3 (.node ⟨0, Nat.succ_pos _⟩ q₁ g) e₁ e₂ e₃ = .leaf (.err b) := by
+  show apply0 (apply0 (apply0 (.node ⟨0, Nat.succ_pos _⟩ q₁ g) e₁) e₂) e₃ = _
+  rw [apply0, hq]
+  rfl
+
+theorem app3_node0_num (q₁ : Query (σ ⇒ τ ⇒ ρ))
+    (g : Resp ((STy σ τ ρ).arg ⟨0, Nat.succ_pos _⟩) → Tree (STy σ τ ρ))
+    (e₁ : Tree (σ ⇒ τ ⇒ ρ)) (e₂ : Tree (σ ⇒ τ)) (e₃ : Tree σ) (a : Nat)
+    (hq : e₁.at' q₁ = some (.leaf (.num a))) :
+    app3 (.node ⟨0, Nat.succ_pos _⟩ q₁ g) e₁ e₂ e₃
+      = app3 (g (q₁.substAns (.num a))) e₁ e₂ e₃ := by
+  show apply0 (apply0 (apply0 (.node ⟨0, Nat.succ_pos _⟩ q₁ g) e₁) e₂) e₃ = _
+  rw [apply0, hq]
+  rfl
+
+theorem app3_node0_node (q₁ : Query (σ ⇒ τ ⇒ ρ))
+    (g : Resp ((STy σ τ ρ).arg ⟨0, Nat.succ_pos _⟩) → Tree (STy σ τ ρ))
+    (e₁ : Tree (σ ⇒ τ ⇒ ρ)) (e₂ : Tree (σ ⇒ τ)) (e₃ : Tree σ)
+    (jt : Fin (σ ⇒ τ ⇒ ρ).arity) (pt : Query ((σ ⇒ τ ⇒ ρ).arg jt))
+    (ft : Resp ((σ ⇒ τ ⇒ ρ).arg jt) → Tree (σ ⇒ τ ⇒ ρ))
+    (hq : e₁.at' q₁ = some (.node jt pt ft)) :
+    app3 (.node ⟨0, Nat.succ_pos _⟩ q₁ g) e₁ e₂ e₃
+      = app3 (g (q₁.substAns (.node jt pt))) e₁ e₂ e₃ := by
+  show apply0 (apply0 (apply0 (.node ⟨0, Nat.succ_pos _⟩ q₁ g) e₁) e₂) e₃ = _
+  rw [apply0, hq]
+  rfl
+
+/-! The chain through a probe of argument 3, by the shape of `e₃ @ pz`. -/
+
+theorem app3_node2 (h2 : 2 < (STy σ τ ρ).arity) (pz : Query ((STy σ τ ρ).arg ⟨2, h2⟩))
+    (g : Resp ((STy σ τ ρ).arg ⟨2, h2⟩) → Tree (STy σ τ ρ))
+    (e₁ : Tree (σ ⇒ τ ⇒ ρ)) (e₂ : Tree (σ ⇒ τ)) (e₃ : Tree σ) :
+    app3 (.node ⟨2, h2⟩ pz g) e₁ e₂ e₃
+      = match e₃.at' pz with
+        | none => Tree.bot
+        | some (.leaf .bot) => Tree.bot
+        | some (.leaf (.err b)) => .leaf (.err b)
+        | some (.leaf (.num a)) => app3 (g (pz.substAns (.num a))) e₁ e₂ e₃
+        | some (.node jz pz' _) => app3 (g (pz.substAns (.node jz pz'))) e₁ e₂ e₃ := by
+  show apply0 (apply0 (apply0 (.node ⟨2, h2⟩ pz g) e₁) e₂) e₃ = _
+  rw [apply0, apply0, apply0]
+  cases hz : e₃.at' pz with
+  | none => rfl
+  | some t =>
+    cases t with
+    | leaf v => cases v <;> rfl
+    | node jz pz' fz => rfl
+
+/-! The chain through a probe of argument `i + 3`. -/
+
+theorem app3_nodeRho {i : Nat} (hi : i + 3 < (STy σ τ ρ).arity)
+    (p : Query ((STy σ τ ρ).arg ⟨i + 3, hi⟩))
+    (g : Resp ((STy σ τ ρ).arg ⟨i + 3, hi⟩) → Tree (STy σ τ ρ))
+    (e₁ : Tree (σ ⇒ τ ⇒ ρ)) (e₂ : Tree (σ ⇒ τ)) (e₃ : Tree σ) :
+    app3 (.node ⟨i + 3, hi⟩ p g) e₁ e₂ e₃
+      = .node ⟨i, by
+            have h' : i + 3 < ρ.arity + 3 := hi
+            omega⟩ p
+          fun s => app3 (g s) e₁ e₂ e₃ := by
+  show apply0 (apply0 (apply0 (.node ⟨i + 3, hi⟩ p g) e₁) e₂) e₃ = _
+  rw [apply0, apply0, apply0]
+  rfl
+
+/-! The chain through the `T`-loop's probe of argument 2, by the shape of
+`e₂ @ q₂`. -/
+
+theorem app3_node1 (h1 : 1 < (STy σ τ ρ).arity) (q₂ : Query ((STy σ τ ρ).arg ⟨1, h1⟩))
+    (g : Resp ((STy σ τ ρ).arg ⟨1, h1⟩) → Tree (STy σ τ ρ))
+    (e₁ : Tree (σ ⇒ τ ⇒ ρ)) (e₂ : Tree (σ ⇒ τ)) (e₃ : Tree σ) :
+    app3 (.node ⟨1, h1⟩ q₂ g) e₁ e₂ e₃
+      = match e₂.at' q₂ with
+        | none => Tree.bot
+        | some (.leaf .bot) => Tree.bot
+        | some (.leaf (.err b)) => .leaf (.err b)
+        | some (.leaf (.num a)) => app3 (g (q₂.substAns (.num a))) e₁ e₂ e₃
+        | some (.node j p _) => app3 (g (q₂.substAns (.node j p))) e₁ e₂ e₃ := by
+  show apply0 (apply0 (apply0 (.node ⟨1, h1⟩ q₂ g) e₁) e₂) e₃ = _
+  rw [apply0, apply0]
+  cases hz : e₂.at' q₂ with
+  | none => rfl
+  | some t =>
+    cases t with
+    | leaf v => cases v <;> rfl
+    | node j p f => rfl
+
+/-! The right-hand side's dispatch: `apply (apply (t₁, e₃), X)` by the shape of
+`t₁` and the consulted answers. -/
+
+theorem rhs1 (h1 : 1 < (σ ⇒ τ ⇒ ρ).arity) (pτ : Query ((σ ⇒ τ ⇒ ρ).arg ⟨1, h1⟩))
+    (f₁ : Resp ((σ ⇒ τ ⇒ ρ).arg ⟨1, h1⟩) → Tree (σ ⇒ τ ⇒ ρ))
+    (e₃ : Tree σ) (X : Tree τ) :
+    apply0 (apply0 (Tree.node ⟨1, h1⟩ pτ f₁) e₃) X
+      = match X.at' pτ with
+        | none => Tree.bot
+        | some (.leaf .bot) => Tree.bot
+        | some (.leaf (.err b)) => .leaf (.err b)
+        | some (.leaf (.num a)) => apply0 (apply0 (f₁ (pτ.substAns (.num a))) e₃) X
+        | some (.node j p _) => apply0 (apply0 (f₁ (pτ.substAns (.node j p))) e₃) X := by
+  rw [apply0, apply0]
+  cases hz : X.at' pτ with
+  | none => rfl
+  | some t =>
+    cases t with
+    | leaf v => cases v <;> rfl
+    | node j p f => rfl
+
+theorem rhs0 (h0 : 0 < (σ ⇒ τ ⇒ ρ).arity) (pz : Query ((σ ⇒ τ ⇒ ρ).arg ⟨0, h0⟩))
+    (f₁ : Resp ((σ ⇒ τ ⇒ ρ).arg ⟨0, h0⟩) → Tree (σ ⇒ τ ⇒ ρ))
+    (e₃ : Tree σ) (X : Tree τ) :
+    apply0 (apply0 (Tree.node ⟨0, h0⟩ pz f₁) e₃) X
+      = match e₃.at' pz with
+        | none => Tree.bot
+        | some (.leaf .bot) => Tree.bot
+        | some (.leaf (.err b)) => .leaf (.err b)
+        | some (.leaf (.num a)) => apply0 (apply0 (f₁ (pz.substAns (.num a))) e₃) X
+        | some (.node jz pz' _) => apply0 (apply0 (f₁ (pz.substAns (.node jz pz'))) e₃) X := by
+  rw [apply0]
+  cases hz : e₃.at' pz with
+  | none => rfl
+  | some t =>
+    cases t with
+    | leaf v => cases v <;> rfl
+    | node jz pz' fz => rfl
+
+theorem rhsRho {i : Nat} (hi : i + 2 < (σ ⇒ τ ⇒ ρ).arity)
+    (p : Query ((σ ⇒ τ ⇒ ρ).arg ⟨i + 2, hi⟩))
+    (f₁ : Resp ((σ ⇒ τ ⇒ ρ).arg ⟨i + 2, hi⟩) → Tree (σ ⇒ τ ⇒ ρ))
+    (e₃ : Tree σ) (X : Tree τ) :
+    apply0 (apply0 (Tree.node ⟨i + 2, hi⟩ p f₁) e₃) X
+      = .node ⟨i, by
+            have h' : i + 2 < ρ.arity + 2 := hi
+            omega⟩ p
+          fun s => apply0 (apply0 (f₁ s) e₃) X := by
+  rw [apply0, apply0]
+end SCombinator
+
+
+section SCombinator
+variable {σ τ ρ : Ty}
+
 mutual
 /-- The approximants `Sₙ` form a chain in the fuel. -/
 theorem Sfun_mono : ∀ (n : Nat) (q₁ : Query (σ ⇒ τ ⇒ ρ)) (d₂ : Tree (σ ⇒ τ))
@@ -1919,6 +2091,334 @@ theorem Sfun_le_of_le {m n : Nat} (h : m ≤ n) (q₁ : Query (σ ⇒ τ ⇒ ρ)
   | step _ ih => exact Tree.Le.trans ih (Sfun_mono _ q₁ d₂ d₃)
 
 end SCombinator
+
+section SCombinator
+variable {σ τ ρ : Ty}
+
+/-- Descending one recorded step. -/
+theorem at'_snoc_node {γ : Ty} (e : Tree γ) (q : Query γ) (j : Fin γ.arity)
+    (p : Query (γ.arg j)) (f : Resp (γ.arg j) → Tree γ) (r : Resp (γ.arg j))
+    (hq : e.at' q = some (.node j p f)) :
+    e.at' (q.snoc j p r) = some (f r) := by
+  rw [at'_snoc, hq]
+  exact Tree.stepAt_self j p f r
+
+mutual
+/-- **The `⊑`-half of Lemma A.7**, by induction on the fuel: under the
+invariant, every approximant computes at most the right-hand side of the `(S)`
+equation, read at the current position `t₁ = e₁ @ q₁` of the first argument. -/
+theorem Sfun_apply_le (e₁ : Tree (σ ⇒ τ ⇒ ρ)) (e₂ : Tree (σ ⇒ τ)) (e₃ : Tree σ)
+    (he₁ : TreeOk Ctx.empty e₁) :
+    ∀ (n : Nat) (q₁ : Query (σ ⇒ τ ⇒ ρ)) (d₂ : Tree (σ ⇒ τ)) (d₃ : Tree σ)
+      (t₁ : Tree (σ ⇒ τ ⇒ ρ)),
+    e₁.at' q₁ = some t₁ → Tree.Le d₂ e₂ → Tree.Le d₃ e₃ → Accum d₃ d₂ →
+    q₁.ctx ⟨1, by show 1 < ρ.arity + 2; omega⟩ = apply0 d₂ d₃ →
+    Tree.Le (app3 (Sfun n q₁ d₂ d₃) e₁ e₂ e₃)
+      (apply0 (apply0 t₁ e₃) (apply0 e₂ e₃))
+  | 0, _, _, _, _, _, _, _, _, _ => Tree.Le.bot _
+  | n + 1, q₁, d₂, d₃, t₁, hq₁, hd₂, hd₃, hacc, hctx => by
+      simp only [Sfun]
+      cases t₁ with
+      | leaf v =>
+        cases v with
+        | bot =>
+          rw [app3_node0_bot q₁ _ e₁ e₂ e₃ hq₁]
+          exact Tree.Le.bot _
+        | err b =>
+          rw [app3_node0_err q₁ _ e₁ e₂ e₃ b hq₁]
+          exact Tree.Le.refl _
+        | num a =>
+          rw [app3_node0_num q₁ _ e₁ e₂ e₃ a hq₁]
+          simp only [Query.answerOf_substAns]
+          exact Tree.Le.refl _
+      | node jt pt ft =>
+        rw [app3_node0_node q₁ _ e₁ e₂ e₃ jt pt ft hq₁]
+        simp only [Query.answerOf_substAns]
+        match jt with
+        | ⟨0, h0⟩ =>
+          -- `x` asks about `z` at `pt`
+          dsimp only
+          rw [rhs0 h0 pt ft e₃ (apply0 e₂ e₃)]
+          cases hd : d₃.at' pt with
+          | none =>
+            exact Tree.Le.bot _
+          | some tz =>
+            rcases at'_mono pt hd₃ with hn | ⟨a', tz', ha', he₃', hab'⟩
+            · rw [hd] at hn; exact Option.noConfusion hn
+            · have hta : tz = a' := by rw [hd] at ha'; exact Option.some.inj ha'
+              subst hta
+              cases tz with
+              | leaf v =>
+                cases v with
+                | bot =>
+                  -- unknown: the approximant probes argument 3
+                  dsimp only
+                  rw [app3_node2, he₃']
+                  cases tz' with
+                  | leaf v' =>
+                    cases v' with
+                    | bot => exact Tree.Le.bot _
+                    | err b => exact Tree.Le.refl _
+                    | num a =>
+                      dsimp only
+                      have hst : Tree.Le ((pt.substAns (RAns.num a)).toTree) e₃ :=
+                        substAns_toTree_le pt e₃ _ (.num a) he₃' rfl
+                      have hj := Tree.join_spec d₃ ((pt.substAns (RAns.num a)).toTree)
+                        e₃ hd₃ hst
+                      refine Sfun_apply_le e₁ e₂ e₃ he₁ n _ d₂ _
+                        (ft (pt.substAns (.num a)))
+                        (at'_snoc_node e₁ q₁ ⟨0, h0⟩ pt ft _ hq₁) hd₂
+                        (hj.2.2 e₃ hd₃ hst) (Accum.mono_d3 hj.1 hacc) ?_
+                      rw [Query.ctx_snoc, Ctx.cons_other _ _ (fun he =>
+                          absurd (congrArg Fin.val he) (by simp)),
+                        apply0_congr_d3 hj.1 hacc]
+                      exact hctx
+                  | node jz pz fz =>
+                    dsimp only
+                    have hst : Tree.Le ((pt.substAns (RAns.node jz pz)).toTree) e₃ :=
+                      substAns_toTree_le pt e₃ _ (.node jz pz) he₃' rfl
+                    have hj := Tree.join_spec d₃ ((pt.substAns (RAns.node jz pz)).toTree)
+                      e₃ hd₃ hst
+                    refine Sfun_apply_le e₁ e₂ e₃ he₁ n _ d₂ _
+                      (ft (pt.substAns (.node jz pz)))
+                      (at'_snoc_node e₁ q₁ ⟨0, h0⟩ pt ft _ hq₁) hd₂
+                      (hj.2.2 e₃ hd₃ hst) (Accum.mono_d3 hj.1 hacc) ?_
+                    rw [Query.ctx_snoc, Ctx.cons_other _ _ (fun he =>
+                        absurd (congrArg Fin.val he) (by simp)),
+                      apply0_congr_d3 hj.1 hacc]
+                    exact hctx
+                | err b => exact Tree.Le.bot _
+                | num a =>
+                  -- known numeral answer
+                  have hb2 : tz' = Tree.leaf (.num a) := by
+                    cases hab' with
+                    | leaf _ => rfl
+                  subst hb2
+                  rw [he₃']
+                  dsimp only
+                  exact Sfun_apply_le e₁ e₂ e₃ he₁ n _ d₂ d₃
+                    (ft (pt.substAns (.num a)))
+                    (at'_snoc_node e₁ q₁ ⟨0, h0⟩ pt ft _ hq₁) hd₂ hd₃ hacc
+                    (by rw [Query.ctx_snoc, Ctx.cons_other _ _ (fun he =>
+                      absurd (congrArg Fin.val he) (by simp))]; exact hctx)
+              | node jz pz fz =>
+                -- known intermediate answer
+                obtain ⟨gz, hgz⟩ := Tree.eq_node_of_le hab'
+                subst hgz
+                rw [he₃']
+                dsimp only
+                exact Sfun_apply_le e₁ e₂ e₃ he₁ n _ d₂ d₃
+                  (ft (pt.substAns (.node jz pz)))
+                  (at'_snoc_node e₁ q₁ ⟨0, h0⟩ pt ft _ hq₁) hd₂ hd₃ hacc
+                  (by rw [Query.ctx_snoc, Ctx.cons_other _ _ (fun he =>
+                    absurd (congrArg Fin.val he) (by simp))]; exact hctx)
+        | ⟨1, h1⟩ =>
+          -- `x` asks about `y·z` at `pt`: enter the `T`-loop
+          dsimp only
+          have ht := TreeOk_at' q₁ Ctx.empty e₁ _ he₁ hq₁
+          obtain ⟨hlq, _, _, _⟩ := TreeOk_node_inv ht
+          have hper : (apply0 d₂ d₃).at' pt = some Tree.bot := hctx ▸ hlq.1
+          obtain ⟨hE1, hE2, hE3, hE4, hE5⟩ := encode_spec d₃ d₂ pt hacc
+            (QueryOk.coherent hlq.2) hper
+          rcases at'_mono (encode d₂ pt) hd₂ with hn | ⟨a', t₂, ha', ht₂, hat₂⟩
+          · rw [hE2] at hn; exact Option.noConfusion hn
+          · exact Tfun_apply_le e₁ e₂ e₃ he₁ n q₁ pt (encode d₂ pt) d₂ d₃ ft t₂
+              hq₁ ht₂ hd₂ hd₃ hacc hctx hE3 hE1 hE5 (FollowsToBot_of_at' _ _ hE2)
+        | ⟨i + 2, hi⟩ =>
+          dsimp only
+          rw [app3_nodeRho, rhsRho hi pt ft e₃ (apply0 e₂ e₃)]
+          refine Tree.Le.node _ _ _ _ fun s => ?_
+          exact Sfun_apply_le e₁ e₂ e₃ he₁ n _ d₂ d₃ (ft s)
+            (at'_snoc_node e₁ q₁ ⟨i + 2, hi⟩ pt ft s hq₁) hd₂ hd₃ hacc
+            (by rw [Query.ctx_snoc, Ctx.cons_other _ _ (fun he =>
+              absurd (congrArg Fin.val he) (by simp))]; exact hctx)
+
+/-- **The `⊑`-half of Lemma A.7**, `T`-mode. -/
+theorem Tfun_apply_le (e₁ : Tree (σ ⇒ τ ⇒ ρ)) (e₂ : Tree (σ ⇒ τ)) (e₃ : Tree σ)
+    (he₁ : TreeOk Ctx.empty e₁) :
+    ∀ (n : Nat) (q₁ : Query (σ ⇒ τ ⇒ ρ))
+      (pτ : Query ((σ ⇒ τ ⇒ ρ).arg ⟨1, by show 1 < ρ.arity + 2; omega⟩))
+      (q₂ : Query (σ ⇒ τ)) (d₂ : Tree (σ ⇒ τ)) (d₃ : Tree σ)
+      (f₁ : Resp ((σ ⇒ τ ⇒ ρ).arg ⟨1, by show 1 < ρ.arity + 2; omega⟩)
+        → Tree (σ ⇒ τ ⇒ ρ)) (t₂ : Tree (σ ⇒ τ)),
+    e₁.at' q₁ = some (Tree.node ⟨1, by show 1 < ρ.arity + 2; omega⟩ pτ f₁) →
+    e₂.at' q₂ = some t₂ →
+    Tree.Le d₂ e₂ → Tree.Le d₃ e₃ → Accum d₃ d₂ →
+    q₁.ctx ⟨1, by show 1 < ρ.arity + 2; omega⟩ = apply0 d₂ d₃ →
+    q₂.Coherent → q₂.shift1 = pτ → ZConsistent d₃ q₂ → FollowsToBot d₂ q₂ →
+    Tree.Le (app3 (Tfun n q₁ pτ q₂ d₂ d₃) e₁ e₂ e₃)
+      (apply0 (apply0 (Tree.node ⟨1, by show 1 < ρ.arity + 2; omega⟩ pτ f₁) e₃)
+        (apply0 e₂ e₃))
+  | 0, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => Tree.Le.bot _
+  | n + 1, q₁, pτ, q₂, d₂, d₃, f₁, t₂, hq₁, hq₂, hd₂, hd₃, hacc, hctx, hcoh,
+      hshift, hzc, hfb => by
+      simp only [Tfun]
+      have habv : RespCtx.Above q₂.ctxList ⟨0, Nat.succ_pos _⟩ e₃ := fun r hr =>
+        Tree.Le.trans (ZConsistent.above d₃ q₂ _ hzc r hr) hd₃
+      have h414 : (apply0 e₂ e₃).at' pτ = some (apply0 t₂ e₃) := by
+        rw [← hshift]
+        exact lemma_4_14 q₂ e₂ t₂ e₃ hcoh hq₂ habv
+      rw [app3_node1, hq₂]
+      cases t₂ with
+      | leaf v =>
+        cases v with
+        | bot => exact Tree.Le.bot _
+        | err b =>
+          dsimp only
+          have h414' : (apply0 e₂ e₃).at' pτ = some (Tree.leaf (.err b)) := by
+            rw [h414]; rfl
+          rw [rhs1 _ pτ f₁ e₃ (apply0 e₂ e₃), h414']
+          exact Tree.Le.refl _
+        | num a =>
+          dsimp only
+          simp only [Query.answerOf_substAns]
+          have h414' : (apply0 e₂ e₃).at' pτ = some (Tree.leaf (.num a)) := by
+            rw [h414]; rfl
+          rw [rhs1 _ pτ f₁ e₃ (apply0 e₂ e₃), h414']
+          dsimp only
+          have hst : Tree.Le ((q₂.substAns (RAns.num a)).toTree) e₂ :=
+            substAns_toTree_le q₂ e₂ _ (.num a) hq₂ rfl
+          have hj := Tree.join_spec d₂ ((q₂.substAns (RAns.num a)).toTree) e₂ hd₂ hst
+          have hresN : (RAns.num a : RAns (σ ⇒ τ)).Resolved := by
+            simp [RAns.Resolved]
+          refine Sfun_apply_le e₁ e₂ e₃ he₁ n _ _ d₃ (f₁ (pτ.substAns (.num a)))
+            (at'_snoc_node e₁ q₁ _ pτ f₁ _ hq₁) (hj.2.2 e₂ hd₂ hst) hd₃
+            (Accum_join_resolved d₃ q₂ d₂ (.num a) hacc hfb hzc hresN) ?_
+          rw [Query.ctx_snoc, Ctx.cons_self, hctx,
+            apply0_join_resolved d₃ q₂ d₂ (.num a) hfb hzc hresN, hshift]
+          rfl
+      | node jz2 pz f₂ =>
+        match jz2 with
+        | ⟨0, hz⟩ =>
+          -- `y` asks about `z` at `pz`
+          dsimp only
+          simp only [Query.answerOf_substAns]
+          cases hd : d₃.at' pz with
+          | none => exact Tree.Le.bot _
+          | some tz =>
+            rcases at'_mono pz hd₃ with hn | ⟨a', tz', ha', he₃', hab'⟩
+            · rw [hd] at hn; exact Option.noConfusion hn
+            · have hta : tz = a' := by rw [hd] at ha'; exact Option.some.inj ha'
+              subst hta
+              cases tz with
+              | leaf v =>
+                cases v with
+                | bot =>
+                  -- unknown: probe argument 3
+                  dsimp only
+                  rw [app3_node2, he₃']
+                  cases tz' with
+                  | leaf v' =>
+                    cases v' with
+                    | bot => exact Tree.Le.bot _
+                    | err b =>
+                      have happ : apply0 (Tree.node ⟨0, hz⟩ pz f₂) e₃
+                          = Tree.leaf (.err b) := by
+                        rw [apply0, he₃']
+                      have h414' : (apply0 e₂ e₃).at' pτ
+                          = some (Tree.leaf (.err b)) := by
+                        rw [h414, happ]
+                      rw [rhs1 _ pτ f₁ e₃ (apply0 e₂ e₃), h414']
+                      exact Tree.Le.refl _
+                    | num a =>
+                      dsimp only
+                      have hst : Tree.Le ((pz.substAns (RAns.num a)).toTree) e₃ :=
+                        substAns_toTree_le pz e₃ _ (.num a) he₃' rfl
+                      have hj := Tree.join_spec d₃ ((pz.substAns (RAns.num a)).toTree)
+                        e₃ hd₃ hst
+                      refine Tfun_apply_le e₁ e₂ e₃ he₁ n q₁ pτ _ d₂ _ f₁
+                        (f₂ (pz.substAns (.num a))) hq₁
+                        (at'_snoc_node e₂ q₂ ⟨0, hz⟩ pz f₂ _ hq₂) hd₂
+                        (hj.2.2 e₃ hd₃ hst) (Accum.mono_d3 hj.1 hacc) ?_ ?_ ?_ ?_ ?_
+                      · rw [apply0_congr_d3 hj.1 hacc]
+                        exact hctx
+                      · exact Query.coherent_snoc q₂ _ pz _ hcoh
+                          (Query.qry_substAns pz (.num a))
+                      · rw [Query.shift1_snoc0]
+                        exact hshift
+                      · refine ZConsistent_snoc0 _ q₂ hz pz (.num a) _
+                          (ZConsistent.mono_d3 hj.1 q₂ hzc) ?_ rfl
+                        exact at'_join_substAns pz d₃ (.num a) hd
+                      · exact FollowsToBot_snoc q₂ d₂ ⟨0, hz⟩ pz _ hfb
+                  | node jz3 pz3 fz3 =>
+                    dsimp only
+                    have hst : Tree.Le ((pz.substAns (RAns.node jz3 pz3)).toTree) e₃ :=
+                      substAns_toTree_le pz e₃ _ (.node jz3 pz3) he₃' rfl
+                    have hj := Tree.join_spec d₃
+                      ((pz.substAns (RAns.node jz3 pz3)).toTree) e₃ hd₃ hst
+                    refine Tfun_apply_le e₁ e₂ e₃ he₁ n q₁ pτ _ d₂ _ f₁
+                      (f₂ (pz.substAns (.node jz3 pz3))) hq₁
+                      (at'_snoc_node e₂ q₂ ⟨0, hz⟩ pz f₂ _ hq₂) hd₂
+                      (hj.2.2 e₃ hd₃ hst) (Accum.mono_d3 hj.1 hacc) ?_ ?_ ?_ ?_ ?_
+                    · rw [apply0_congr_d3 hj.1 hacc]
+                      exact hctx
+                    · exact Query.coherent_snoc q₂ _ pz _ hcoh
+                        (Query.qry_substAns pz (.node jz3 pz3))
+                    · rw [Query.shift1_snoc0]
+                      exact hshift
+                    · refine ZConsistent_snoc0 _ q₂ hz pz (.node jz3 pz3) _
+                        (ZConsistent.mono_d3 hj.1 q₂ hzc) ?_ rfl
+                      exact at'_join_substAns pz d₃ (.node jz3 pz3) hd
+                    · exact FollowsToBot_snoc q₂ d₂ ⟨0, hz⟩ pz _ hfb
+                | err b => exact Tree.Le.bot _
+                | num a =>
+                  -- known numeral answer from `d₃`
+                  have hb2 : tz' = Tree.leaf (.num a) := by
+                    cases hab' with
+                    | leaf _ => rfl
+                  subst hb2
+                  dsimp only
+                  exact Tfun_apply_le e₁ e₂ e₃ he₁ n q₁ pτ _ d₂ d₃ f₁
+                    (f₂ (pz.substAns (.num a))) hq₁
+                    (at'_snoc_node e₂ q₂ ⟨0, hz⟩ pz f₂ _ hq₂) hd₂ hd₃ hacc hctx
+                    (Query.coherent_snoc q₂ _ pz _ hcoh
+                      (Query.qry_substAns pz (.num a)))
+                    (by rw [Query.shift1_snoc0]; exact hshift)
+                    (ZConsistent_snoc0 _ q₂ hz pz (.num a) _ hzc hd rfl)
+                    (FollowsToBot_snoc q₂ d₂ ⟨0, hz⟩ pz _ hfb)
+              | node jz3 pz3 fz3 =>
+                obtain ⟨gz, hgz⟩ := Tree.eq_node_of_le hab'
+                subst hgz
+                dsimp only
+                exact Tfun_apply_le e₁ e₂ e₃ he₁ n q₁ pτ _ d₂ d₃ f₁
+                  (f₂ (pz.substAns (.node jz3 pz3))) hq₁
+                  (at'_snoc_node e₂ q₂ ⟨0, hz⟩ pz f₂ _ hq₂) hd₂ hd₃ hacc hctx
+                  (Query.coherent_snoc q₂ _ pz _ hcoh
+                    (Query.qry_substAns pz (.node jz3 pz3)))
+                  (by rw [Query.shift1_snoc0]; exact hshift)
+                  (ZConsistent_snoc0 _ q₂ hz pz (.node jz3 pz3) _ hzc hd rfl)
+                  (FollowsToBot_snoc q₂ d₂ ⟨0, hz⟩ pz _ hfb)
+        | ⟨j + 1, hj⟩ =>
+          -- `y` announces a node about `τⱼ`: resolution
+          dsimp only
+          simp only [Query.answerOf_substAns]
+          have happ : apply0 (Tree.node ⟨j + 1, hj⟩ pz f₂) e₃
+              = Tree.node ⟨j, Nat.lt_of_succ_lt_succ hj⟩ pz
+                  (fun r => apply0 (f₂ r) e₃) := by
+            rw [apply0]
+          have h414' : (apply0 e₂ e₃).at' pτ
+              = some (Tree.node ⟨j, Nat.lt_of_succ_lt_succ hj⟩ pz
+                  fun r => apply0 (f₂ r) e₃) := by
+            rw [h414, happ]
+          rw [rhs1 _ pτ f₁ e₃ (apply0 e₂ e₃), h414']
+          dsimp only
+          have hst : Tree.Le ((q₂.substAns (RAns.node ⟨j + 1, hj⟩ pz)).toTree) e₂ :=
+            substAns_toTree_le q₂ e₂ _ (.node ⟨j + 1, hj⟩ pz) hq₂ rfl
+          have hj2 := Tree.join_spec d₂
+            ((q₂.substAns (RAns.node ⟨j + 1, hj⟩ pz)).toTree) e₂ hd₂ hst
+          have hresN : (RAns.node ⟨j + 1, hj⟩ pz : RAns (σ ⇒ τ)).Resolved := by
+            simp [RAns.Resolved]
+          refine Sfun_apply_le e₁ e₂ e₃ he₁ n _ _ d₃
+            (f₁ (pτ.substAns (.node ⟨j, Nat.lt_of_succ_lt_succ hj⟩ pz)))
+            (at'_snoc_node e₁ q₁ _ pτ f₁ _ hq₁) (hj2.2.2 e₂ hd₂ hst) hd₃
+            (Accum_join_resolved d₃ q₂ d₂ _ hacc hfb hzc hresN) ?_
+          rw [Query.ctx_snoc, Ctx.cons_self, hctx,
+            apply0_join_resolved d₃ q₂ d₂ _ hfb hzc hresN, hshift]
+          rfl
+end
+
+end SCombinator
+
 
 /-- `S_{σ,τ,ρ}` denotes the tree `S(?,?)` of **Definition 4.21**:
 `⊔ₙ Sₙ(?, ?)`, starting from the trivial query and empty knowledge. -/
