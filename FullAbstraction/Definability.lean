@@ -1224,6 +1224,186 @@ theorem TreeOk_probeT (m : Nat) (σ : Ty) (l : Nat) (hl : l < m) :
   exact TreeOk.node _ _ _ _ LegalQuery.root ⟨[], fun r hr => absurd rfl hr⟩
     (fun r _ => TreeOk.leaf _ _) (fun r _ => rfl)
 
+/-! ## Grafting probes into a padded tree
+
+`graftT m base ps` plants, for each `(l, P)` in `ps`, a probe of the `l`-th new
+ground argument at the position `P` of the padded `base`.  The positions are
+perimeter positions of `base`, so the plants do not disturb one another. -/
+
+/-- Planting at one perimeter position leaves another one untouched — the
+version needed when the other position already carries a planted subtree.  The
+two positions are perimeter positions of a common tree, so neither extends the
+other. -/
+theorem at'_plant_disjoint {σ : Ty} : ∀ (P' P : Query σ) (base d e x : Tree σ),
+    base.at' P = some Tree.bot → base.at' P' = some Tree.bot → P ≠ P' →
+    d.at' P' = some x → (plant P d e).at' P' = some x
+  | .hole, P, base, d, e, x, hbP, hbP', hne, hd => by
+      have hbb : base = Tree.bot := by injection hbP'
+      subst hbb
+      cases P with
+      | hole => exact absurd rfl hne
+      | step i p r rest =>
+        exact absurd hbP (by simp [Tree.at', Tree.stepAt, Tree.bot])
+  | .step j p' s rest', .hole, base, d, e, x, hbP, hbP', hne, hd => by
+      have hbb : base = Tree.bot := by injection hbP
+      subst hbb
+      exact absurd hbP' (by simp [Tree.at', Tree.stepAt, Tree.bot])
+  | .step j p' s rest', .step i p r rest, base, d, e, x, hbP, hbP', hne, hd => by
+      obtain ⟨fb, rfl, hbrest⟩ := at'_step_inv hbP
+      obtain ⟨fb', hb', hbrest'⟩ := at'_step_inv hbP'
+      injection hb' with hjj hpp hff
+      subst hjj
+      have hp2 : p = p' := eq_of_heq hpp
+      subst hp2
+      have hf2 : fb = fb' := eq_of_heq hff
+      subst hf2
+      obtain ⟨g, rfl, hdrest⟩ := at'_step_inv hd
+      rw [plant_step_self, Tree.at'_step_self]
+      by_cases hrs : s = r
+      · subst hrs
+        rw [if_pos rfl]
+        refine at'_plant_disjoint rest' rest (fb s) (g s) e x hbrest hbrest'
+          (fun hc => hne ?_) hdrest
+        rw [hc]
+      · rw [if_neg hrs]
+        exact hdrest
+
+/-- Iterated `at'` under padding. -/
+theorem at'_padN : ∀ (m : Nat) {σ : Ty} (P : Query σ) (t x : Tree σ),
+    t.at' P = some x →
+    (Tree.padN m t).at' (Query.padQN m P) = some (Tree.padN m x)
+  | 0, _, P, t, x, h => h
+  | m + 1, σ, P, t, x, h => by
+      show (Tree.pad (Tree.padN m t)).at' (Query.padQ (Query.padQN m P)) = _
+      rw [at'_pad (Query.padQN m P) (Tree.padN m t),
+        at'_padN m P t x h]
+      rfl
+
+theorem Query.padQ_inj {σ : Ty} : ∀ {P P' : Query σ},
+    Query.padQ P = Query.padQ P' → P = P'
+  | .hole, .hole, _ => rfl
+  | .hole, .step _ _ _ _, h => Query.noConfusion h
+  | .step _ _ _ _, .hole, h => Query.noConfusion h
+  | .step i q r rest, .step i' q' r' rest', h => by
+      injection h with _ h1 h2 h3 h4
+      cases Fin.padI_inj h1
+      cases (eq_of_heq h2 : q = q')
+      cases (eq_of_heq h3 : r = r')
+      rw [Query.padQ_inj h4]
+
+theorem Query.padQN_inj : ∀ (m : Nat) {σ : Ty} {P P' : Query σ},
+    Query.padQN m P = Query.padQN m P' → P = P'
+  | 0, _, _, _, h => h
+  | m + 1, σ, P, P', h =>
+      Query.padQN_inj m (Query.padQ_inj
+        (h : Query.padQ (Query.padQN m P) = Query.padQ (Query.padQN m P')))
+
+/-- The grafted tree: probes of the new ground arguments, planted at perimeter
+positions of a padded tree. -/
+noncomputable def graftT (m : Nat) {σ : Ty} (base : Tree σ) :
+    List (Fin m × Query σ) → Tree (Ty.pads m σ)
+  | [] => Tree.padN m base
+  | p :: ps => plant (Query.padQN m p.2) (graftT m base ps)
+      (probeT m σ p.1.val p.1.isLt)
+
+/-- The positions of a graft: perimeter positions of the base, pairwise
+distinct. -/
+def GoodPositions {σ : Ty} {m : Nat} (base : Tree σ)
+    (ps : List (Fin m × Query σ)) : Prop :=
+  (∀ p ∈ ps, base.at' p.2 = some Tree.bot) ∧
+    List.Pairwise (fun p q : Fin m × Query σ => p.2 ≠ q.2) ps
+
+/-- A position of the base that no probe occupies is still a perimeter position
+of the graft. -/
+theorem at'_graftT_bot : ∀ (m : Nat) {σ : Ty} (base : Tree σ)
+    (ps : List (Fin m × Query σ)), GoodPositions base ps →
+    ∀ P : Query σ, base.at' P = some Tree.bot → (∀ p ∈ ps, p.2 ≠ P) →
+    (graftT m base ps).at' (Query.padQN m P) = some Tree.bot
+  | m, σ, base, [], _, P, hP, _ => by
+      show (Tree.padN m base).at' (Query.padQN m P) = _
+      rw [at'_padN m P base Tree.bot hP]
+      show some (Tree.padN m (Tree.leaf Val.bot)) = _
+      rw [Tree.padN_leaf]
+      rfl
+  | m, σ, base, p :: ps, ⟨hall, hpair⟩, P, hP, hnotin => by
+      obtain ⟨hhead, htail⟩ := List.pairwise_cons.mp hpair
+      have hgood : GoodPositions base ps :=
+        ⟨fun q hq => hall q (List.mem_cons_of_mem _ hq), htail⟩
+      have hrec := at'_graftT_bot m base ps hgood P hP
+        (fun q hq => hnotin q (List.mem_cons_of_mem _ hq))
+      have hhead2 := at'_graftT_bot m base ps hgood p.2
+        (hall p (List.mem_cons_self ..))
+        (fun q hq => Ne.symm (hhead q hq))
+      show (plant (Query.padQN m p.2) (graftT m base ps)
+        (probeT m σ p.1.val p.1.isLt)).at' (Query.padQN m P) = _
+      exact at'_plant_other (Query.padQN m p.2) _ _ (Query.padQN m P)
+        hhead2 hrec (fun hc => hnotin p (List.mem_cons_self ..)
+          (Query.padQN_inj m hc))
+
+/-- The graft only grows the padded base. -/
+theorem le_graftT : ∀ (m : Nat) {σ : Ty} (base : Tree σ)
+    (ps : List (Fin m × Query σ)), GoodPositions base ps →
+    Tree.Le (Tree.padN m base) (graftT m base ps)
+  | m, σ, base, [], _ => Tree.Le.refl _
+  | m, σ, base, p :: ps, ⟨hall, hpair⟩ => by
+      obtain ⟨hhead, htail⟩ := List.pairwise_cons.mp hpair
+      have hgood : GoodPositions base ps :=
+        ⟨fun q hq => hall q (List.mem_cons_of_mem _ hq), htail⟩
+      refine Tree.Le.trans (le_graftT m base ps hgood) ?_
+      exact le_plant (Query.padQN m p.2) _ _
+        (at'_graftT_bot m base ps hgood p.2 (hall p (List.mem_cons_self ..))
+          (fun q hq => Ne.symm (hhead q hq)))
+
+/-- Each probe sits at its position in the graft. -/
+theorem at'_graftT_probe : ∀ (m : Nat) {σ : Ty} (base : Tree σ)
+    (ps : List (Fin m × Query σ)), GoodPositions base ps →
+    ∀ p ∈ ps, (graftT m base ps).at' (Query.padQN m p.2)
+      = some (probeT m σ p.1.val p.1.isLt)
+  | m, σ, base, [], _, p, hp => absurd hp (by simp)
+  | m, σ, base, q :: ps, ⟨hall, hpair⟩, p, hp => by
+      obtain ⟨hhead, htail⟩ := List.pairwise_cons.mp hpair
+      have hgood : GoodPositions base ps :=
+        ⟨fun r hr => hall r (List.mem_cons_of_mem _ hr), htail⟩
+      have hqbot := at'_graftT_bot m base ps hgood q.2
+        (hall q (List.mem_cons_self ..)) (fun r hr => Ne.symm (hhead r hr))
+      show (plant (Query.padQN m q.2) (graftT m base ps)
+        (probeT m σ q.1.val q.1.isLt)).at' (Query.padQN m p.2) = _
+      rcases List.mem_cons.mp hp with rfl | htl
+      · rw [at'_plant_self (Query.padQN m p.2) _ _ ⟨Tree.bot, hqbot⟩]
+      · have hne : q.2 ≠ p.2 := hhead p htl
+        refine at'_plant_disjoint (Query.padQN m p.2) (Query.padQN m q.2)
+          (Tree.padN m base) _ _ _ ?_ ?_
+          (fun hc => hne (Query.padQN_inj m hc)) ?_
+        · exact at'_padN m q.2 base Tree.bot (hall q (List.mem_cons_self ..))
+            |>.trans (by rw [show Tree.padN m (Tree.bot : Tree σ)
+              = (Tree.bot : Tree (Ty.pads m σ)) from Tree.padN_leaf m Val.bot])
+        · exact at'_padN m p.2 base Tree.bot
+            (hall p (List.mem_cons_of_mem _ htl))
+            |>.trans (by rw [show Tree.padN m (Tree.bot : Tree σ)
+              = (Tree.bot : Tree (Ty.pads m σ)) from Tree.padN_leaf m Val.bot])
+        · exact at'_graftT_probe m base ps hgood p htl
+
+/-- **The graft, seen from the outside.**  Applying the new ground arguments to
+the graft gives a tree above the base which reports, at each probe position,
+the flat value of the probed argument. -/
+theorem applyFront_graftT_le (m : Nat) {σ : Ty} (base : Tree σ)
+    (ps : List (Fin m × Query σ)) (hgood : GoodPositions base ps)
+    (vs : Nat → Tree 𝕆) :
+    Tree.Le base (applyFront m (graftT m base ps) vs) := by
+  have h := applyFront_mono m (t := Tree.padN m base)
+    (t' := graftT m base ps) vs (le_graftT m base ps hgood)
+  rwa [applyFront_padN] at h
+
+theorem applyFront_graftT_probe (m : Nat) {σ : Ty} (base : Tree σ)
+    (ps : List (Fin m × Query σ)) (hgood : GoodPositions base ps)
+    (vs : Nat → Tree 𝕆) (ws : Nat → Val) (hvs : ∀ k, vs k = Tree.leaf (ws k))
+    (p : Fin m × Query σ) (hp : p ∈ ps) :
+    (applyFront m (graftT m base ps) vs).at' p.2
+      = some (probeVal σ (ws p.1.val)) := by
+  rw [at'_applyFront m p.2 (graftT m base ps) vs _
+    (at'_graftT_probe m base ps hgood p hp)]
+  rw [applyFront_probeT m σ p.1.val p.1.isLt vs (ws p.1.val) (hvs _)]
+
 /-! ## The flat ground domain, as ideals -/
 
 /-- Every ideal at ground type is the principal ideal of a leaf: `T_o` is the
