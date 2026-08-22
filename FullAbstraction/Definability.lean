@@ -2673,4 +2673,111 @@ noncomputable def nodeTerm (σ : Ty) (i : Fin σ.arity) (q : Query (σ.arg i))
       (Term.app (Term.const (SConst.catchC (Ty.pads rs.length 𝕆)))
         (catchBody σ i rs.length Es)))
 
+/-! ## The graft positions are good -/
+
+theorem pairwise_filterMap' {α β : Type} (g : α → Option β) (R : α → α → Prop)
+    (S : β → β → Prop) : ∀ (l : List α), List.Pairwise R l →
+    (∀ a ∈ l, ∀ a' ∈ l, ∀ b b', R a a' → g a = some b → g a' = some b' → S b b') →
+    List.Pairwise S (l.filterMap g)
+  | [], _, _ => List.Pairwise.nil
+  | a :: l, h, hg => by
+      obtain ⟨hhead, htail⟩ := List.pairwise_cons.mp h
+      have hrec := pairwise_filterMap' g R S l htail
+        (fun x hx x' hx' b b' hR hb hb' =>
+          hg x (List.mem_cons_of_mem _ hx) x' (List.mem_cons_of_mem _ hx') b b'
+            hR hb hb')
+      cases hga : g a with
+      | none =>
+        rw [List.filterMap_cons_none hga]
+        exact hrec
+      | some b =>
+        rw [List.filterMap_cons_some hga]
+        refine List.pairwise_cons.mpr ⟨fun b' hb' => ?_, hrec⟩
+        obtain ⟨a', ha', hga'⟩ := List.mem_filterMap.mp hb'
+        exact hg a (List.mem_cons_self ..) a' (List.mem_cons_of_mem _ ha') b b'
+          (hhead a' ha') hga hga'
+
+/-- In a duplicate-free list, an element occupies one position. -/
+theorem enumFrom'_snd_inj {α : Type} : ∀ (n : Nat) (l : List α),
+    List.Pairwise (fun a b : α => a ≠ b) l →
+    ∀ (p p' : Nat × α), p ∈ enumFrom' n l → p' ∈ enumFrom' n l → p.2 = p'.2 →
+    p.1 = p'.1
+  | _, [], _, _, _, hp, _, _ => absurd hp (fun hc => List.not_mem_nil hc)
+  | n, a :: l, hnd, p, p', hp, hp', heq => by
+      obtain ⟨hhead, htail⟩ := List.pairwise_cons.mp hnd
+      rcases List.mem_cons.mp hp with rfl | hp2
+      · rcases List.mem_cons.mp hp' with rfl | hp2'
+        · rfl
+        · exact absurd heq (hhead p'.2 (enumFrom'_mem_snd (n + 1) l p' hp2'))
+      · rcases List.mem_cons.mp hp' with rfl | hp2'
+        · exact absurd heq.symm (hhead p.2 (enumFrom'_mem_snd (n + 1) l p hp2))
+        · exact enumFrom'_snd_inj (n + 1) l htail p p' hp2 hp2' heq
+
+/-- A legal response is the query answered by its own answer. -/
+theorem legalResp_ansOf {α : Ty} {q : Query α} {r : Resp α} (h : LegalResp q r) :
+    r = q.substAns r.ansOf ∧ RAns.Ok q r.ansOf := by
+  obtain ⟨x, rfl, hok⟩ := h
+  rw [Query.ansOf_substAns]
+  exact ⟨rfl, hok⟩
+
+/-- The numbered position that an entry of the enumeration contributes. -/
+theorem psForArg_entry {α : Ty} {h : Fin α.arity}
+    {a : Nat × Resp α} {b : Nat × Query (α.arg h)}
+    (hga : (posOf h a.2).map (fun p => (a.1, p)) = some b) :
+    posOf h a.2 = some b.2 ∧ a.1 = b.1 := by
+  cases hp : posOf h a.2 with
+  | none => rw [hp] at hga; exact absurd hga (fun hc => Option.noConfusion hc)
+  | some pp =>
+    rw [hp] at hga
+    have heq : (a.1, pp) = b := Option.some.inj hga
+    exact ⟨congrArg some (congrArg Prod.snd heq), congrArg Prod.fst heq⟩
+
+/-- The positions the responses of `rs` graft into argument `h` are perimeter
+positions of `q̂(h)`, and no two of them coincide. -/
+theorem goodPositions_psForArg {α : Ty} (q : Query α) (rs : List (Resp α))
+    (hlegal : ∀ r ∈ rs, LegalResp q r)
+    (hnd : List.Pairwise (fun a b : Resp α => a ≠ b) rs) (h : Fin α.arity) :
+    GoodPositions (q.ctx h) (psForArg rs h) := by
+  have hlq : ∀ np ∈ psForArg rs h, LegalQuery (q.ctx h) np.2 := by
+    intro np hnp
+    obtain ⟨r, hmem, hpos⟩ := (mem_psForArg rs h np).mp hnp
+    have hr : r ∈ rs := enumFrom'_mem_snd 0 rs (np.1, r) hmem
+    obtain ⟨_, hok⟩ := legalResp_ansOf (hlegal r hr)
+    rw [ansOf_of_posOf h r np.2 hpos] at hok
+    exact hok
+  refine ⟨fun np hnp => (hlq np hnp).1, ?_⟩
+  refine pairwise_filterMap' _ (fun a b : Nat × Resp α => a.1 < b.1) _
+    (enumFrom' 0 rs) (enumFrom'_pairwise_lt 0 rs) ?_
+  intro a ha a' ha' b b' hab hga hga' hcon
+  obtain ⟨hpa, hia⟩ := psForArg_entry hga
+  obtain ⟨hpa', hia'⟩ := psForArg_entry hga'
+  have h1 : a.2.ansOf = RAns.node h b.2 := ansOf_of_posOf h a.2 b.2 hpa
+  have h2 : a'.2.ansOf = RAns.node h b.2 := by
+    rw [ansOf_of_posOf h a'.2 b'.2 hpa', hcon]
+  have hra : a.2 ∈ rs := enumFrom'_mem_snd 0 rs a ha
+  have hra' : a'.2 ∈ rs := enumFrom'_mem_snd 0 rs a' ha'
+  have heq : a.2 = a'.2 := by
+    rw [(legalResp_ansOf (hlegal a.2 hra)).1,
+      (legalResp_ansOf (hlegal a'.2 hra')).1, h1, h2]
+  have : a.1 = a'.1 := enumFrom'_snd_inj 0 rs hnd a a' ha ha' heq
+  omega
+
+/-- Every graft index is a legal response number. -/
+theorem psForArg_lt {α : Ty} (rs : List (Resp α)) (h : Fin α.arity)
+    (np : Nat × Query (α.arg h)) (hnp : np ∈ psForArg rs h) : np.1 < rs.length := by
+  obtain ⟨r, hmem, _⟩ := (mem_psForArg rs h np).mp hnp
+  have := enumFrom'_lt 0 rs (np.1, r) hmem
+  omega
+
+/-- Every graft position is a legal query. -/
+theorem psForArg_queryOk {α : Ty} (q : Query α) (rs : List (Resp α))
+    (hlegal : ∀ r ∈ rs, LegalResp q r) (h : Fin α.arity)
+    (np : Nat × Query (α.arg h)) (hnp : np ∈ psForArg rs h) :
+    QueryOk (α.arg h) np.2 := by
+  obtain ⟨r, hmem, hpos⟩ := (mem_psForArg rs h np).mp hnp
+  have hr : r ∈ rs := enumFrom'_mem_snd 0 rs (np.1, r) hmem
+  obtain ⟨_, hok⟩ := legalResp_ansOf (hlegal r hr)
+  rw [ansOf_of_posOf h r np.2 hpos] at hok
+  exact hok.2
+
 end FA
