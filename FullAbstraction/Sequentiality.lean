@@ -101,20 +101,6 @@ theorem varsCtx_foldr {k : Nat} (xs : Fin k → Nat) :
   | succ k ih => rw [varsCtx_succ, List.foldr_cons, ih (fun i => xs i.succ)]; rfl
 
 /-- Typing for iterated `λ*`. -/
-theorem Comb.lamStars_hasTy {L : Lang} : ∀ (l : List (Nat × Ty)) (Γ : List (Nat × Ty))
-    (P : Comb L) (ρ : Ty), Comb.HasTy (l ++ Γ) P ρ →
-    Comb.HasTy Γ (Comb.lamStars l P) (l.foldr (fun p τ => p.2 ⇒ τ) ρ)
-  | [], _, _, _, h => h
-  | (x, σ) :: l, Γ, P, ρ, h => by
-      show Comb.HasTy Γ (Comb.lamStar x σ (Comb.lamStars l P)) _
-      refine Comb.lamStar_hasTy (Comb.lamStars_hasTy l ((x, σ) :: Γ) P ρ ?_)
-      refine Comb.weaken (fun p hp => ?_) h
-      simp only [List.mem_append, List.mem_cons] at hp ⊢
-      rcases hp with (hp | hp) | hp
-      · exact Or.inr (Or.inl hp)
-      · exact Or.inl hp
-      · exact Or.inr (Or.inr hp)
-
 /-- Filling with fresh ground variables preserves typing, in a context
 providing those variables. -/
 theorem MCtx.fill_vars_hasTy {k : Nat} (Ms : Fin k → Term SPCF) (xs : Fin k → Nat)
